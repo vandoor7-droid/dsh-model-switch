@@ -23,9 +23,19 @@ import { en, zh, type PickerKey } from '../../src/client/picker/locales.ts'
 const selection = { provider: 'codex', model: 'gpt-5.6-sol' }
 const executionSelection = { provider: 'codex', model: 'gpt-5.6-luna' }
 const baseSnapshot = { current: selection, routable: true, groups: [], failures: [], status: 'ready', error: null as string | null }
-function wait(answer = vi.fn(async () => undefined), key = 'plan-1', cancel = vi.fn(async () => undefined)) {
+const COMMITTED = { committed: true, mainDefaultRestored: true }
+const NOT_RESTORED = { committed: true, mainDefaultRestored: false }
+const REFUSED = { committed: false, mainDefaultRestored: true }
+function wait(
+  answer = vi.fn(async () => undefined),
+  key = 'plan-1',
+  cancel?: () => Promise<void>,
+  dismiss?: () => Promise<void>,
+) {
   return {
-    kind: 'plan-review', key, sessionId: 'session-1', answer, cancel,
+    kind: 'plan-review', key, sessionId: 'session-1', answer,
+    ...(cancel === undefined ? {} : { cancel }),
+    ...(dismiss === undefined ? {} : { dismiss }),
     questions: [{
       id: 'approve-plan', question: 'Ready?', detail: '# Plan', multiSelect: false,
       intent: { kind: 'plan-review', approve: 'Approve' },
@@ -58,7 +68,7 @@ function props(overrides: Record<string, unknown> = {}) {
     getDirectorySnapshot: () => snapshot,
     setSnapshot: (next: typeof baseSnapshot) => { snapshot = next },
     load: () => undefined,
-    select: vi.fn(async () => true),
+    select: vi.fn(async () => COMMITTED),
     t: (key: string, params?: Record<string, string>) => params?.message === undefined ? key : `${key}: ${params.message}`,
     ...overrides,
   }
@@ -220,9 +230,9 @@ describe('PlanReviewCard', () => {
 
   it('keeps a rejected approval visible, shows a localized error, and retries it', async () => {
     const answer = vi.fn(async () => undefined)
-    const select = vi.fn<() => Promise<boolean>>()
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true)
+    const select = vi.fn<() => Promise<{ committed: boolean, mainDefaultRestored: boolean }>>()
+      .mockResolvedValueOnce(REFUSED)
+      .mockResolvedValueOnce(COMMITTED)
     const fixture = props({ matched: wait(answer), select, t: locale(zh) })
     fixture.setSnapshot({ ...baseSnapshot, error: null })
     let card!: ReturnType<typeof create>
@@ -260,7 +270,7 @@ describe('PlanReviewCard', () => {
 
   it('uses PendingQuestion.answer as a one-way local settlement', async () => {
     const answer = vi.fn(async () => undefined)
-    const select = vi.fn(async () => true)
+    const select = vi.fn(async () => COMMITTED)
     const fixture = props({ matched: wait(answer), select, t: locale(en) })
     let card!: ReturnType<typeof create>
     await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
@@ -277,8 +287,9 @@ describe('PlanReviewCard', () => {
 
   it('fails closed when another client wins the non-atomic response race after commit', async () => {
     const answer = vi.fn(async () => { throw new Error('already-settled') })
-    const select = vi.fn(async () => true)
-    const fixture = props({ matched: wait(answer), select, t: locale(en) })
+    const select = vi.fn(async () => COMMITTED)
+    const dismiss = vi.fn(async () => undefined)
+    const fixture = props({ matched: wait(answer, 'plan-1', undefined, dismiss), select, t: locale(en) })
     let card!: ReturnType<typeof create>
     await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
     await act(async () => { chooseExecution(card) })
@@ -289,7 +300,13 @@ describe('PlanReviewCard', () => {
     expect(select).toHaveBeenCalledTimes(1)
     expect(answer).toHaveBeenCalledTimes(1)
     expect(approve(card, en['plan.approve']).props.disabled).toBe(true)
-    expect(card.root.findAllByType('button').every(button => button.props.disabled === true)).toBe(true)
+    // A settled request closes the answering actions, but never the takeover
+    // itself: the withdrawal action and the reload affordance stay reachable.
+    expect(approve(card, en['plan.approve']).props.disabled).toBe(true)
+    const buttons = card.root.findAllByType('button')
+    const discuss = buttons.find(button => button.children.includes(en['plan.discuss']))!
+    expect(discuss.props.disabled).toBe(false)
+    expect(buttons.some(button => button.children.includes(en['action.reload']))).toBe(true)
     expect(card.root.findAllByProps({ role: 'status' }).some(node =>
       node.children.includes(en['plan.responseRejected']),
     )).toBe(true)
@@ -297,6 +314,22 @@ describe('PlanReviewCard', () => {
     await act(async () => { approve(card, en['plan.approve']).props.onClick(); await Promise.resolve() })
     expect(select).toHaveBeenCalledTimes(1)
     expect(answer).toHaveBeenCalledTimes(1)
+
+    await act(async () => { discuss.props.onClick(); await Promise.resolve(); await Promise.resolve() })
+    expect(dismiss).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the wire code of a rejected answer visible', async () => {
+    const answer = vi.fn(async () => {
+      throw Object.assign(new Error('writer held'), { code: 'session/writer-held' })
+    })
+    const fixture = props({ matched: wait(answer), t: locale(en) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+    await act(async () => { approve(card, en['plan.approve']).props.onClick(); await Promise.resolve(); await Promise.resolve() })
+    expect(card.root.findAllByProps({ role: 'status' }).some(node =>
+      node.children.join('').includes('session/writer-held'),
+    )).toBe(true)
   })
 
   it('resets terminal action state when the registered boundary receives a different wait', async () => {
@@ -333,8 +366,8 @@ describe('PlanReviewCard', () => {
   })
 
   it('starts at most one approval operation for same-tick gestures', async () => {
-    let resolveCommit!: (accepted: boolean) => void
-    const select = vi.fn(() => new Promise<boolean>(resolve => { resolveCommit = resolve }))
+    let resolveCommit!: (outcome: { committed: boolean, mainDefaultRestored: boolean }) => void
+    const select = vi.fn(() => new Promise<{ committed: boolean, mainDefaultRestored: boolean }>(resolve => { resolveCommit = resolve }))
     const answer = vi.fn(async () => undefined)
     const fixture = props({ matched: wait(answer), select })
     let card!: ReturnType<typeof create>
@@ -348,12 +381,12 @@ describe('PlanReviewCard', () => {
     expect(select).toHaveBeenCalledTimes(1)
     expect(answer).not.toHaveBeenCalled()
 
-    await act(async () => { resolveCommit(false); await Promise.resolve(); await Promise.resolve() })
+    await act(async () => { resolveCommit(REFUSED); await Promise.resolve(); await Promise.resolve() })
   })
 
   it('cannot answer before the execution-model commit resolves', async () => {
-    let resolveCommit!: (accepted: boolean) => void
-    const select = vi.fn(() => new Promise<boolean>(resolve => { resolveCommit = resolve }))
+    let resolveCommit!: (outcome: { committed: boolean, mainDefaultRestored: boolean }) => void
+    const select = vi.fn(() => new Promise<{ committed: boolean, mainDefaultRestored: boolean }>(resolve => { resolveCommit = resolve }))
     const answer = vi.fn(async () => undefined)
     const fixture = props({ matched: wait(answer), select })
     let card!: ReturnType<typeof create>
@@ -365,7 +398,89 @@ describe('PlanReviewCard', () => {
     expect(approve(card).props.disabled).toBe(true)
     expect(answer).not.toHaveBeenCalled()
 
-    await act(async () => { resolveCommit(true); await Promise.resolve(); await Promise.resolve() })
+    await act(async () => { resolveCommit(COMMITTED); await Promise.resolve(); await Promise.resolve() })
     expect(select.mock.invocationCallOrder[0]).toBeLessThan(answer.mock.invocationCallOrder[0]!)
+  })
+
+  it('withdraws the takeover through the Host generation that exposes dismiss()', async () => {
+    const answer = vi.fn(async () => undefined)
+    const cancel = vi.fn(async () => undefined)
+    const dismiss = vi.fn(async () => undefined)
+    const fixture = props({ matched: wait(answer, 'plan-1', cancel, dismiss), t: locale(en) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+
+    const discuss = card.root.findAllByType('button').find(button => button.children.includes(en['plan.discuss']))!
+    await act(async () => { discuss.props.onClick(); await Promise.resolve(); await Promise.resolve() })
+
+    expect(dismiss).toHaveBeenCalledOnce()
+    expect(cancel).not.toHaveBeenCalled()
+    expect(card.root.findAllByProps({ role: 'status' }).every(node => node.children.length === 0)).toBe(true)
+    // A settled withdrawal leaves the card inert until the Host withdraws it.
+    expect(approve(card, en['plan.approve']).props.disabled).toBe(true)
+  })
+
+  it('names a Host that exposes no withdrawal verb instead of guessing one', async () => {
+    const fixture = props({ matched: wait(undefined, 'plan-1'), t: locale(en) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+
+    const discuss = card.root.findAllByType('button').find(button => button.children.includes(en['plan.discuss']))!
+    await act(async () => { discuss.props.onClick(); await Promise.resolve(); await Promise.resolve() })
+
+    expect(card.root.findAllByProps({ role: 'status' }).some(node =>
+      node.children.includes(en['plan.dismissUnsupported']),
+    )).toBe(true)
+  })
+
+  it('sends typed feedback with a declined Plan instead of a bare option label', async () => {
+    const answer = vi.fn(async () => undefined)
+    const fixture = props({ matched: wait(answer), t: locale(en) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+
+    await act(async () => {
+      card.root.findByProps({ 'aria-label': en['plan.feedback'] }).props.onChange({ target: { value: '  split the migration  ' } })
+    })
+    const keep = card.root.findAllByType('button').find(button => button.children.includes(en['plan.keep']))!
+    await act(async () => { keep.props.onClick(); await Promise.resolve(); await Promise.resolve() })
+
+    // Official single-select convention: custom text replaces the option list,
+    // and plan mode reads it as the feedback it reports to the model.
+    expect(answer).toHaveBeenCalledWith({
+      answers: [{ id: 'approve-plan', selected: [], custom: 'split the migration' }],
+    })
+  })
+
+  it('declines without feedback text exactly as a bare option answer', async () => {
+    const answer = vi.fn(async () => undefined)
+    const fixture = props({ matched: wait(answer), t: locale(en) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+
+    const keep = card.root.findAllByType('button').find(button => button.children.includes(en['plan.keep']))!
+    await act(async () => { keep.props.onClick(); await Promise.resolve(); await Promise.resolve() })
+
+    expect(answer).toHaveBeenCalledWith({
+      answers: [{ id: 'approve-plan', selected: ['Keep planning'] }],
+    })
+  })
+
+  it('answers a committed switch and reports an unrestored Main default', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const answer = vi.fn(async () => undefined)
+    const select = vi.fn(async () => NOT_RESTORED)
+    const fixture = props({ matched: wait(answer), select, t: locale(en) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+    await act(async () => { chooseExecution(card) })
+    await act(async () => { approve(card, en['plan.approve']).props.onClick(); await Promise.resolve(); await Promise.resolve() })
+
+    expect(answer).toHaveBeenCalledOnce()
+    expect(card.root.findAllByProps({ role: 'status' }).some(node =>
+      node.children.join('').includes(executionSelection.model),
+    )).toBe(true)
+    expect(warn).toHaveBeenCalledOnce()
+    warn.mockRestore()
   })
 })

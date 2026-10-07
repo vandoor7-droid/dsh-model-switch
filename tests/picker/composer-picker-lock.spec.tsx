@@ -59,7 +59,7 @@ function CombinedVariantHarness({ selected }: { selected: (model: string) => voi
       snapshot: combinedSnapshot,
       getDirectorySnapshot: () => combinedSnapshot,
       load: vi.fn(),
-      select: vi.fn(async () => true),
+      select: vi.fn(async () => ({ committed: true, mainDefaultRestored: true })),
     },
     draft,
     onDraftChange: (next: typeof draft) => { setDraft(next); selected(next.model) },
@@ -108,7 +108,7 @@ describe('ComposerPicker Plan transaction lock', () => {
           snapshot: retained,
           getDirectorySnapshot: () => retained,
           load: vi.fn(),
-          select: vi.fn(async () => true),
+          select: vi.fn(async () => ({ committed: true, mainDefaultRestored: true })),
         },
         t: (key: string, params?: Record<string, string>) => params?.model ?? key,
       } as never} />)
@@ -135,7 +135,7 @@ describe('ComposerPicker Plan transaction lock', () => {
       status: 'ready' as const,
       error: null,
     }
-    const select = vi.fn(async () => true)
+    const select = vi.fn(async () => ({ committed: true, mainDefaultRestored: true }))
     const pickerProps = {
       locked: false,
       available: true,
@@ -200,7 +200,7 @@ describe('ComposerPicker Plan transaction lock', () => {
         snapshot: delayedSnapshot,
         getDirectorySnapshot: () => delayedSnapshot,
         load: vi.fn(),
-        select: vi.fn(async () => true),
+        select: vi.fn(async () => ({ committed: true, mainDefaultRestored: true })),
       },
       t: (key: string, params?: Record<string, string>) => params?.model ?? key,
       tone: 'capsule' as const,

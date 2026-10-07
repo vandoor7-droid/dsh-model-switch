@@ -40,6 +40,10 @@ export declare const zh: {
     'plan.discuss': string;
     'plan.modelFailed': string;
     'plan.pickerCrash': string;
+    'plan.feedback': string;
+    'plan.feedbackPlaceholder': string;
+    'plan.notRestored': string;
+    'plan.dismissUnsupported': string;
     'plan.responseRejected': string;
     'plan.cancelRejected': string;
     'markdown.copy': string;
@@ -88,6 +92,10 @@ export declare const en: {
     'plan.discuss': string;
     'plan.modelFailed': string;
     'plan.pickerCrash': string;
+    'plan.feedback': string;
+    'plan.feedbackPlaceholder': string;
+    'plan.notRestored': string;
+    'plan.dismissUnsupported': string;
     'plan.responseRejected': string;
     'plan.cancelRejected': string;
     'markdown.copy': string;

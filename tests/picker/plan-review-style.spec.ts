@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const source = readFileSync(new URL('../../src/client/picker/PlanReviewCard.module.css', import.meta.url), 'utf8')
-const mobile = source.slice(source.indexOf('@media (max-width: 720px)'))
+// The stylesheet is checked in with the platform line endings of the checkout;
+// the width budget is about rules, not about CRLF.
+const mobile = source.slice(source.indexOf('@media (max-width: 720px)')).replace(/\r\n/gu, '\n')
 
 describe('Plan Review mobile footer width budget', () => {
   it('wraps the execution picker above the actions on narrow viewports', () => {

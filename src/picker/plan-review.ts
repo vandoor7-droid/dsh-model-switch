@@ -33,21 +33,69 @@ export function selectPlanReview(owner: ComposerChainProps): PendingQuestion | n
   return planReviewOf(interaction.questions) === undefined ? null : interaction
 }
 
-export class PlanApprovalResponseError extends Error {}
+export class PlanApprovalResponseError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options)
+    this.name = 'PlanApprovalResponseError'
+  }
+}
+
+/**
+ * Result of committing the draft execution model before answering a review.
+ *
+ * A commit and the compensation of the Host's own deployment-default write are
+ * separate facts: only a failed commit may hold the answer back, because the
+ * Host persists a Session selection as the deployment default on several
+ * releases and this plugin restores the captured Main default afterwards. A
+ * failed restore is announced, never fatal — the Session selection the human
+ * asked for is already installed.
+ */
+export interface PlanCommitOutcome {
+  /** The Session now runs the requested provider/model/effort. */
+  committed: boolean
+  /** The captured Main default is the effective one again. */
+  mainDefaultRestored: boolean
+}
+
+function codeOf(value: unknown): string | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const code = (value as { code?: unknown }).code
+  return typeof code === 'string' && code !== '' ? code : undefined
+}
+
+/**
+ * Diagnostic text for one failed action, keeping the wire code visible.
+ * Official Remote failures carry a code that names the owning domain
+ * (`session/writer-held`, `session/model-unavailable`, …); dropping it leaves
+ * the human with copy they cannot act on.
+ * @param cause - the thrown value.
+ * @returns The message, prefixed with the nearest available code.
+ */
+export function planErrorText(cause: unknown): string {
+  const message = cause instanceof Error ? cause.message : String(cause)
+  const code = codeOf(cause) ?? (cause instanceof Error ? codeOf(cause.cause) : undefined)
+  return code === undefined ? message : `${code}: ${message}`
+}
 
 export async function approvePlanReview(args: {
-  select: (selection: ModelSelection) => Promise<boolean>
+  select: (selection: ModelSelection) => Promise<PlanCommitOutcome>
   selection: ModelSelection
   current?: ModelSelection | null
   answer: () => Promise<void>
+  /** Announced after a successful answer when the Main default could not be restored. */
+  onNotRestored?: (notice: string) => void
 }): Promise<boolean> {
   const current = args.current
   const same = current !== undefined && current !== null
     && current.provider === args.selection.provider
     && current.model === args.selection.model
     && current.reasoningEffort === args.selection.reasoningEffort
-  if (!same && !await args.select(args.selection)) return false
+  const commit: PlanCommitOutcome = same
+    ? { committed: true, mainDefaultRestored: true }
+    : await args.select(args.selection)
+  if (!commit.committed) return false
   await args.answer()
+  if (!commit.mainDefaultRestored) args.onNotRestored?.(args.selection.model)
   return true
 }
 
@@ -85,7 +133,7 @@ export async function settlePlanAction(
     update({
       busy: false,
       blocked: cause instanceof PlanApprovalResponseError,
-      error: cause instanceof Error ? cause.message : String(cause),
+      error: planErrorText(cause),
     })
     return false
   }

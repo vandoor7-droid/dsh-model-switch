@@ -75,7 +75,9 @@ To support a combined selection, the provider must publish the combined row. Pub
 
 ## Plan Review
 
-Plan Review owns an execution-model draft separate from Main. **Confirm** first commits that model to the active session, then answers the pending Plan review. A failed model commit leaves the review pending and retryable. **Reject** and **Discuss in chat** do not execute the Plan.
+Plan Review owns an execution-model draft separate from Main. **Confirm** first commits that model to the active session, then answers the pending Plan review. A refused commit leaves the review pending and retryable; a Session switch the Host accepted but whose deployment default could not be restored is announced after the answer instead of withholding it. **Reject** and **Discuss in chat** do not execute the Plan.
+
+**Reject** sends the option the asker offered, and any text typed in the card's feedback field as the answer's own `custom` text — plan mode reports that text back to the model as the reason to keep planning, so a rejection can carry what to change. **Discuss in chat** withdraws the takeover so the composer returns and the human speaks in their own words; it uses the Host's `dismiss()` where published and the older generation's `cancel()` otherwise, and names the Host when neither exists. Answering a settled review closes Confirm and Reject, while Discuss and the reload affordance stay reachable so the card always has a way back. Failures keep their wire code (`session/writer-held: …`) visible instead of a bare localized sentence.
 
 ![Plan Review with an execution-model picker](docs/screenshots/plan-review.png)
 

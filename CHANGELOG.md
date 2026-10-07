@@ -1,3 +1,12 @@
+## Unreleased
+
+- Plan Review **Discuss in chat** now withdraws the takeover through the verb the running Host publishes (`PendingQuestion.dismiss()` on 0.2.x, `cancel()` on 0.1.x) instead of calling `cancel()` unconditionally, which threw on a Host that renamed it; a Host exposing neither is named explicitly.
+- Plan Review **Reject** sends text from the card's feedback field as the answer's `custom` text, so a rejection reaches the model with what to change instead of a bare option label.
+- Compensate the deployment default through the namespace revision actually observed: wait for the Host's unawaited `session.selectModel` default write, fence on the observed revision, retry once against a concurrent edit, and never fail the answer. The previous `captured + 1` fence assumed an awaiting Host and could either refuse the restore (leaving the Plan unanswerable) or silently leave the Main default switched.
+- Treat a refused official `ModelDirectory.select` result as an uncommitted model change instead of reporting success.
+- Keep Confirm and Reject closed after a settled review while Discuss and a reload affordance stay reachable, and surface the wire code of a failed action.
+- Fix a line-ending fragile mobile width-budget assertion.
+
 ## v0.4.16
 
 - Bundle shared Provider UI helpers from the published v0.2.14 release.

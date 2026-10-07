@@ -11,10 +11,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { useEffect, useSyncExternalStore } from 'react'
 import { MAIN_DEFAULT_CONFIG_ID, PROVIDERS_CONFIG_ID, type MainSettingsView } from '../../client-contract.ts'
-import { selectPlanReview } from '../../picker/plan-review.ts'
+import { selectPlanReview, type PlanCommitOutcome } from '../../picker/plan-review.ts'
 import { ComposerPicker } from './ComposerPicker.tsx'
 import type { ProviderOrderSettings } from 'dsh-llm-providers-ui/order'
 import { pickerDirectoryViewOrdered, type PickerDirectoryFace } from './PickerDirectory.ts'
+import { restoreMainDefault } from './main-default-restore.ts'
 import type { PickerInteractionOperations } from './popup-dismissal.ts'
 import { mainDefaultsUnavailableReason, PlanReviewCard, ProviderLockHint } from './PlanReviewCard.tsx'
 import { PickerSeatBoundary } from './PickerSeatBoundary.tsx'
@@ -94,32 +95,6 @@ interface DirectoryFace extends PickerDirectoryFace {
   roleOf?: (key: string) => string | undefined
   /** Live catalog-group-id → card-key map from ProviderDirectory. */
   catalogRoutes?: () => Readonly<Record<string, string>>
-}
-
-function mainDefaultOps(selection: MainSettingsView) {
-  return [
-    { op: 'set' as const, path: ['provider'], value: selection.provider },
-    { op: 'set' as const, path: ['model'], value: selection.model },
-    selection.reasoningEffort === undefined || selection.reasoningEffort === ''
-      ? { op: 'unset' as const, path: ['reasoningEffort'] }
-      : { op: 'set' as const, path: ['reasoningEffort'], value: selection.reasoningEffort },
-  ]
-}
-
-async function restoreMainDefault(
-  mainDefaults: ConfigForm<MainSettingsView>,
-  before: ConfigFormSnapshot<MainSettingsView>,
-): Promise<void> {
-  if (before.status !== 'ready' || before.mode !== 'host' || !before.writable
-    || before.value === undefined || before.revision === undefined) return
-  const expectedRevision = before.revision + 1
-  const accepted = await mainDefaults.mutate(
-    mainDefaultOps(before.value),
-    // session.selectModel performs exactly one complete-section default write
-    // before its RPC resolves. Fence the compensation so a concurrent edit wins.
-    expectedRevision,
-  )
-  if (!accepted && mainDefaults.getSnapshot().revision === expectedRevision) throw new Error('settings-rejected')
 }
 
 function readSessionState(sessions: unknown, sessionId: unknown): { blank?: boolean; active: boolean } | undefined {
@@ -235,26 +210,32 @@ export function installComposerPicker(ctx: ClientContext): void {
         load: () => {
           if (available) directory.load().catch(() => { /* surfaced on the store */ })
         },
-        select: async (selection: ModelSelection) => {
-          if (!available) return false
+        select: async (selection: ModelSelection): Promise<PlanCommitOutcome> => {
+          const uncommitted: PlanCommitOutcome = { committed: false, mainDefaultRestored: true }
+          if (!available) return uncommitted
           const state = await providerLockStore.refresh()
           const currentProvider = directory.store.getSnapshot().current?.provider
           if (!isProviderAllowed(state, selection.provider, currentProvider, {
             ...readSessionState(sessions, sessionId),
             agent: isAgentRole(roleOf(selection.provider)),
             currentAgent: currentProvider !== undefined && isAgentRole(roleOf(currentProvider)),
-          })) return false
+          })) return uncommitted
           const defaultBeforeSwitch = mainDefaults.getSnapshot()
           if (defaultBeforeSwitch.status !== 'ready' || defaultBeforeSwitch.mode !== 'host'
             || !defaultBeforeSwitch.writable || defaultBeforeSwitch.value === undefined
-            || defaultBeforeSwitch.revision === undefined) return false
+            || defaultBeforeSwitch.revision === undefined) return uncommitted
+          let result: Awaited<ReturnType<typeof directory.select>>
           try {
-            await directory.select(selection)
-            await restoreMainDefault(mainDefaults, defaultBeforeSwitch)
-            return true
+            result = await directory.select(selection)
           } catch {
-            return false
+            return uncommitted
           }
+          // The official directory reports a refused switch as a value, not a
+          // throw; treating it as success would answer a Plan under a model the
+          // Session never adopted.
+          if (!result.ok) return uncommitted
+          const restore = await restoreMainDefault(mainDefaults, defaultBeforeSwitch)
+          return { committed: true, mainDefaultRestored: restore.restored }
         },
       }
     }

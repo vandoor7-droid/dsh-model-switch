@@ -32,7 +32,7 @@ const AGENT_VIEWBOX = '13.4 8.4 142.1 129.9'
 function matched(key = 'plan-1') {
   return {
     kind: 'plan-review', key, sessionId: 'session-1',
-    answer: async () => undefined, cancel: async () => undefined,
+    answer: async () => undefined, dismiss: async () => undefined,
     questions: [{
       id: 'approve-plan', question: 'Ready?', detail: '# Plan', multiSelect: false,
       intent: { kind: 'plan-review', approve: 'Approve' },

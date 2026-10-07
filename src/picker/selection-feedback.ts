@@ -1,8 +1,8 @@
 /** Immediate picker feedback around an asynchronous Host model selection. */
-export async function beginSelection(
-  select: () => Promise<boolean>,
+export async function beginSelection<T>(
+  select: () => Promise<T>,
   showFeedback: () => void,
-  settle: (accepted: boolean) => void,
+  settle: (outcome: T) => void,
 ): Promise<void> {
   showFeedback()
   settle(await select())

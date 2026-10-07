@@ -30,6 +30,7 @@ import {
   thinkingSiblings,
 } from '../../picker/family.ts'
 import { beginSelection } from '../../picker/selection-feedback.ts'
+import type { PlanCommitOutcome } from '../../picker/plan-review.ts'
 import type { PickerKey } from './locales.ts'
 import type { PickerDirectoryView } from './PickerDirectory.ts'
 import type { PickerInteractionOperations } from './popup-dismissal.ts'
@@ -263,8 +264,14 @@ export function ComposerPicker({
     setQuery('')
   }
 
-  const settleSelection = (accepted: boolean): void => {
-    if (accepted) return
+  const settleSelection = (outcome: PlanCommitOutcome): void => {
+    if (outcome.committed) {
+      if (!outcome.mainDefaultRestored) {
+        toastSeq.current += 1
+        setToast({ seq: toastSeq.current, text: t('plan.notRestored') })
+      }
+      return
+    }
     const message = getDirectorySnapshot().error
     if (message !== null) {
       toastSeq.current += 1
@@ -287,10 +294,10 @@ export function ComposerPicker({
     if (select !== undefined) {
       const generation = ++selectionGeneration.current
       const projectedBeforeRequest = state.current
-      void beginSelection(() => select(next), returnToRoot, (accepted) => {
+      void beginSelection(() => select(next), returnToRoot, (outcome) => {
         if (generation !== selectionGeneration.current || lockedRef.current) return
-        if (accepted) setAcceptedSelection({ selection: next, projectedBeforeRequest })
-        settleSelection(accepted)
+        if (outcome.committed) setAcceptedSelection({ selection: next, projectedBeforeRequest })
+        settleSelection(outcome)
       })
     }
   }

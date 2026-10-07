@@ -8,6 +8,7 @@ import { Button, IconEditOutlineRegular, MarkdownText } from '@deepseek-ai/dsh-c
 import {
   PlanApprovalResponseError, approvePlanReview, planActionView, planReviewOf, settlePlanAction,
 } from '../../picker/plan-review.ts'
+import { PlanDismissalUnsupportedError, dismissPendingQuestion } from '../../picker/pending-dismissal.ts'
 import { ComposerPicker } from './ComposerPicker.tsx'
 import { pickerDirectoryViewOrdered, type PickerDirectoryFace, type PickerDirectoryView } from './PickerDirectory.ts'
 import type { PickerInteractionOperations } from './popup-dismissal.ts'
@@ -58,26 +59,50 @@ export type PlanReviewCardProps = PropsRuntime<'conversation.composer'>
   & InjectFace<PlanReviewFace>
   & { matched: PendingQuestion }
 
+/**
+ * Answer one review question.
+ *
+ * A typed feedback answer follows the official single-select convention: the
+ * custom text replaces the option list, because plan mode reads `custom` as
+ * "keep planning, and here is why" and falls back to the bare option when it
+ * is absent.
+ */
 async function respondAnswer(
   wait: PendingQuestion,
   id: string,
   label: string,
   rejectedMessage: string,
   terminalRejection = false,
+  feedback?: string,
 ): Promise<void> {
+  const custom = feedback === undefined || feedback === '' ? undefined : feedback
+  const answer = custom === undefined
+    ? { answers: [{ id, selected: [label] }] }
+    : { answers: [{ id, selected: [], custom }] }
   try {
-    await wait.answer({ answers: [{ id, selected: [label] }] })
-  } catch {
-    const ErrorType = terminalRejection ? PlanApprovalResponseError : Error
-    throw new ErrorType(rejectedMessage)
+    await wait.answer(answer)
+  } catch (cause) {
+    throw terminalRejection
+      ? new PlanApprovalResponseError(rejectedMessage, { cause })
+      : new Error(rejectedMessage, { cause })
   }
 }
 
-async function respondCancel(wait: PendingQuestion, rejectedMessage: string): Promise<void> {
+/**
+ * Withdraw the takeover so the human can speak instead, on either Host
+ * generation; a Host exposing no withdrawal verb is named instead of guessed.
+ */
+async function respondDismiss(
+  wait: PendingQuestion,
+  rejectedMessage: string,
+  unsupportedMessage: string,
+): Promise<void> {
   try {
-    await wait.cancel()
-  } catch {
-    throw new Error(rejectedMessage)
+    await dismissPendingQuestion(wait)
+  } catch (cause) {
+    throw cause instanceof PlanDismissalUnsupportedError
+      ? new Error(unsupportedMessage, { cause })
+      : new Error(rejectedMessage, { cause })
   }
 }
 
@@ -163,9 +188,11 @@ function PlanReviewState({
 }: PlanReviewStateProps) {
   const { snapshot, getDirectorySnapshot, load, select } = directory
   const [execution, setExecution] = useState<ModelSelection | undefined>(snapshot.current ?? undefined)
+  const [feedback, setFeedback] = useState('')
   const [busy, setBusy] = useState(false)
   const [blocked, setBlocked] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const operationLocked = useRef(false)
 
   useEffect(() => { load() }, [load])
@@ -173,8 +200,14 @@ function PlanReviewState({
     if (execution === undefined && snapshot.current !== null) setExecution(snapshot.current)
   }, [execution, snapshot.current])
 
-  const settle = (send: () => Promise<void>): void => {
-    if (operationLocked.current || blocked) return
+  /**
+   * Run one takeover action. `force` reaches past a terminal answer state: the
+   * withdrawal action must stay reachable, or a rejected answer would leave the
+   * card with no way back to the composer.
+   */
+  const settle = (send: () => Promise<void>, force = false): void => {
+    if (busy) return
+    if (!force && (operationLocked.current || blocked)) return
     operationLocked.current = true
     let terminal = false
     void settlePlanAction(send, (state) => {
@@ -185,6 +218,16 @@ function PlanReviewState({
     }).then((completed) => {
       if (!completed && !terminal) operationLocked.current = false
     })
+  }
+
+  /** Re-read the Host and re-enable every action after a failed settlement. */
+  const recover = (): void => {
+    operationLocked.current = false
+    setBusy(false)
+    setBlocked(false)
+    setError(null)
+    setNotice(null)
+    load()
   }
 
   const settingsBlock = settingsUnavailableReason !== undefined && execution !== undefined
@@ -209,6 +252,10 @@ function PlanReviewState({
         selection: execution,
         current: snapshot.current,
         answer: () => respondAnswer(matched, review.id, review.approve.label, t('plan.responseRejected'), true),
+        onNotRestored: (model) => {
+          setNotice(t('plan.notRestored', { model }))
+          console.warn('dsh-model-switch: the Session model changed but the Main default was not restored', model)
+        },
       })
       if (!committed) {
         const message = getDirectorySnapshot().error
@@ -216,6 +263,8 @@ function PlanReviewState({
       }
     })
   }
+
+  const decline = review.decline
 
   return (
     <div className={css.frame} data-plan-review-key={matched.key}>
@@ -255,28 +304,50 @@ function PlanReviewState({
           <MarkdownText text={review.plan} labels={{ code: { copyLabel: t('markdown.copy'), copiedLabel: t('markdown.copied') }, footnotes: t('markdown.footnotes') }} />
         </div>
         <div className={css.footer}>
-          <div className={css.feedback} role="status">{action.error ?? (settingsBlock ? settingsUnavailableReason : null)}</div>
+          <div className={css.feedback} role="status">{action.error ?? notice ?? (settingsBlock ? settingsUnavailableReason : null)}</div>
+          {decline !== undefined && (
+            <div className={css.feedbackRow}>
+              <input
+                className={css.feedbackInput}
+                type="text"
+                value={feedback}
+                disabled={busy || blocked}
+                placeholder={t('plan.feedbackPlaceholder')}
+                aria-label={t('plan.feedback')}
+                onChange={event => { setFeedback(event.target.value) }}
+                onPointerDown={event => { event.stopPropagation() }}
+              />
+            </div>
+          )}
           <div className={css.bar}>
             <div className={css.actions}>
+              {error !== null && (
+                <Button variant="ghost" className={css.recover} onClick={recover}>
+                  {t('action.reload')}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 className={css.discuss}
                 icon={<IconEditOutlineRegular size={14} />}
-                disabled={busy || blocked}
+                disabled={busy}
                 onClick={() => {
-                  settle(() => respondCancel(matched, t('plan.cancelRejected')))
+                  settle(
+                    () => respondDismiss(matched, t('plan.cancelRejected'), t('plan.dismissUnsupported')),
+                    true,
+                  )
                 }}
               >
                 {t('plan.discuss')}
               </Button>
-              {review.decline !== undefined && (
+              {decline !== undefined && (
                 <Button
                   variant="outline"
                   className={css.keep}
                   disabled={busy || blocked}
-                  title={review.decline.description ?? t('plan.keep')}
+                  title={decline.description ?? t('plan.keep')}
                   onClick={() => {
-                    settle(() => respondAnswer(matched, review.id, review.decline!.label, t('plan.responseRejected')))
+                    settle(() => respondAnswer(matched, review.id, decline.label, t('plan.responseRejected'), false, feedback.trim()))
                   }}
                 >
                   {t('plan.keep')}

@@ -1,5 +1,6 @@
 import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types';
 import type { ModelDirectoryState } from '@deepseek-ai/dsh-client-ui-model-selection/client';
+import type { PlanCommitOutcome } from '../../picker/plan-review.ts';
 export type PickerDirectorySnapshot = Pick<ModelDirectoryState, 'current' | 'routable' | 'groups' | 'failures' | 'status' | 'error'>;
 export interface PickerDirectoryStore {
     subscribe: (listener: () => void) => () => void;
@@ -9,7 +10,7 @@ export interface PickerDirectoryStore {
 export interface PickerDirectoryOperations {
     getDirectorySnapshot: () => PickerDirectorySnapshot;
     load: () => void;
-    select: (selection: ModelSelection) => Promise<boolean>;
+    select: (selection: ModelSelection) => Promise<PlanCommitOutcome>;
 }
 /** The exact state and operations one picker render consumes. */
 export interface PickerDirectoryView extends PickerDirectoryOperations {
