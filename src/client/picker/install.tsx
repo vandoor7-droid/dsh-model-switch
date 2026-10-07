@@ -12,6 +12,7 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import { useEffect, useSyncExternalStore } from 'react'
 import { MAIN_DEFAULT_CONFIG_ID, PROVIDERS_CONFIG_ID, type MainSettingsView } from '../../client-contract.ts'
 import { selectPlanReview, type PlanCommitOutcome } from '../../picker/plan-review.ts'
+import type { GoalRemote } from '../../picker/plan-goal.ts'
 import { ComposerPicker } from './ComposerPicker.tsx'
 import type { ProviderOrderSettings } from 'dsh-llm-providers-ui/order'
 import { pickerDirectoryViewOrdered, type PickerDirectoryFace } from './PickerDirectory.ts'
@@ -57,6 +58,31 @@ function interactionOperationsFrom(ctx: ClientContext): PickerInteractionOperati
 const EMPTY_ORDER: readonly string[] = []
 
 /**
+ * Resolve the released goal remote without hard-depending on it.
+ *
+ * `remote.goals` exists only when the deployment mounts `@deepseek-ai/dsh-goal`,
+ * so the capability must be looked up per render rather than injected: an
+ * `inject` on a dotted service name would otherwise block this whole client
+ * plugin on a deployment that does not mount the goal package. The dotted name
+ * is read first, with the namespace object as the fallback shape.
+ * @param ctx - client root context holding the remote namespace.
+ * @returns The goal remote, or undefined when no goal service is mounted.
+ */
+function goalRemoteFrom(ctx: ClientContext): GoalRemote | undefined {
+  const read = (name: string): unknown => {
+    try {
+      return ctx.get(name, false)
+    } catch {
+      return undefined
+    }
+  }
+  const nested = read('remote.goals')
+  if (nested !== undefined && nested !== null) return nested as GoalRemote
+  const remote = read('remote') as { goals?: GoalRemote } | undefined
+  return remote?.goals
+}
+
+/**
  * Bind the optional Providers entry order as a React external store.
  * @returns A subscribable order snapshot with an invalidation hook for directory changes.
  */
@@ -91,6 +117,8 @@ interface DirectoryFace extends PickerDirectoryFace {
   /** Subscribe to official Main ConfigForm availability before offering a model switch. */
   subscribeMainDefaults: (listener: () => void) => () => void
   getMainDefaultsSnapshot: () => ConfigFormSnapshot<MainSettingsView>
+  /** Released goal remote; absent when this deployment mounts no goal service. */
+  goalRemote: () => GoalRemote | undefined
   /** Resolve a provider key to its ProviderDirectory role for runtime icons. */
   roleOf?: (key: string) => string | undefined
   /** Live catalog-group-id → card-key map from ProviderDirectory. */
@@ -204,6 +232,7 @@ export function installComposerPicker(ctx: ClientContext): void {
         },
         subscribeMainDefaults: listener => mainDefaults.subscribe(listener),
         getMainDefaultsSnapshot: () => mainDefaults.getSnapshot(),
+        goalRemote: () => goalRemoteFrom(scope),
         hooks: { directory: directory.store, providerOrder: orderStore },
         getDirectorySnapshot: directory.store.getSnapshot,
         resolveInteractionOperations,

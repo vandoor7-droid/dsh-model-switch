@@ -2,6 +2,14 @@
 
 Official DSH is a read-only dependency. This plugin degrades on a clean tag when a seam is absent.
 
+## Goal creation from a client slot
+
+- **Needed for:** arming a reviewed Plan as the session's goal before its review is answered, so `dsh-goal-round-driver` carries the Plan after plan mode exits.
+- **Where used:** `src/picker/plan-goal.ts`, `src/client/picker/PlanReviewCard.tsx`, `src/client/picker/install.tsx`.
+- **Status: released, though DSH's own surface deliberately does not use it.** `@deepseek-ai/dsh-goal` publishes `remote.goals.create` (`@Remote('create') remoteExportCreate`, resolved from the wire session identity) and `@deepseek-ai/dsh-api-remotes` wires it into the generated client face — its own e2e calls `client.remote.goals.create(rootAgent.id, { objective: 'root goal' })`. DSH's shipped `dsh-client-ui-goal` nevertheless documents *Goal creation remains outside this package* and routes only `get` / `edit` / `pause` / `resume` / `clear`, leaving `/goal <objective>` as the human creation path.
+- **Handling:** the card drives `create` (and, to replace an unfinished goal, `get` + `clear`) through a structurally typed face resolved **per render** with `ctx.get('remote.goals', false)` — never through this plugin's static `inject` list, because a dotted-service inject would block the whole client plugin on a deployment that mounts no goal package. Absent the service the action reports `unsupported` and disables itself while every other Plan Review action keeps working.
+- **Upstream:** nothing to request while the remote stays published; if a future Host drops `create` from the client face, `setPlanAsGoal` already reports `unsupported`. Recorded for the roadmap: a programmatic create entry in the shipped goal surface would let plugins set a goal without probing the remote face themselves.
+
 ## `session.selectModel` default-write ordering
 
 - **Needed for:** compensating the deployment-default write that `session.selectModel` performs alongside a Session-only switch, so the Main default a human configured in Settings survives a picker change.

@@ -26,6 +26,24 @@ const baseSnapshot = { current: selection, routable: true, groups: [], failures:
 const COMMITTED = { committed: true, mainDefaultRestored: true }
 const NOT_RESTORED = { committed: true, mainDefaultRestored: false }
 const REFUSED = { committed: false, mainDefaultRestored: true }
+
+/** A goal remote that always accepts; goal tests override it with spies. */
+function acceptingGoalRemote() {
+  return {
+    create: async () => ({ ok: true, value: { ref: { id: 'goal-1', revision: 1 } } }),
+    get: async () => ({ ok: true, value: { id: 'goal-1', revision: 3, phase: 'active', activation: 'armed' } }),
+    clear: async () => ({ ok: true, value: undefined }),
+  }
+}
+
+/** Click and let the whole async action chain settle. */
+async function actClick(click: () => void): Promise<void> {
+  await act(async () => {
+    click()
+    await new Promise(resolve => setTimeout(resolve, 0))
+  })
+}
+
 function wait(
   answer = vi.fn(async () => undefined),
   key = 'plan-1',
@@ -69,6 +87,7 @@ function props(overrides: Record<string, unknown> = {}) {
     setSnapshot: (next: typeof baseSnapshot) => { snapshot = next },
     load: () => undefined,
     select: vi.fn(async () => COMMITTED),
+    goalRemote: () => acceptingGoalRemote(),
     t: (key: string, params?: Record<string, string>) => params?.message === undefined ? key : `${key}: ${params.message}`,
     ...overrides,
   }
@@ -482,5 +501,87 @@ describe('PlanReviewCard', () => {
     )).toBe(true)
     expect(warn).toHaveBeenCalledOnce()
     warn.mockRestore()
+  })
+
+  it('arms the goal with the plan before approving', async () => {
+    const answer = vi.fn(async () => undefined)
+    // Named goalCreate: a local `create` would shadow react-test-renderer's.
+    const goalCreate = vi.fn(async () => ({ ok: true, value: { ref: { id: 'goal-1', revision: 1 } } }))
+    const fixture = props({
+      matched: wait(answer),
+      goalRemote: () => ({ create: goalCreate, get: acceptingGoalRemote().get, clear: acceptingGoalRemote().clear }),
+      t: locale(zh),
+    })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+
+    const goalButton = card.root.findAllByType('button').find(button => button.children.includes(zh['plan.goalRun']))!
+    expect(goalButton.props.disabled).toBe(false)
+    await actClick(() => goalButton.props.onClick())
+
+    expect(goalCreate).toHaveBeenCalledExactlyOnceWith('session-1', { objective: '# Plan' })
+    expect(answer).toHaveBeenCalledOnce()
+    // The goal is armed first: an approved Plan with no goal would leave the
+    // round driver with nothing to carry.
+    expect(goalCreate.mock.invocationCallOrder[0]).toBeLessThan(answer.mock.invocationCallOrder[0]!)
+    expect(card.root.findAllByProps({ role: 'status' }).some(node => node.children.length === 0)).toBe(true)
+  })
+
+  it('keeps the Plan pending when the goal cannot be set', async () => {
+    const answer = vi.fn(async () => undefined)
+    const goalCreate = vi.fn(async () => ({ ok: false, error: { code: 'GOAL_AGENT_NOT_LIVE', message: 'agent is gone' } }))
+    const fixture = props({
+      matched: wait(answer),
+      goalRemote: () => ({ create: goalCreate, get: acceptingGoalRemote().get, clear: acceptingGoalRemote().clear }),
+      t: locale(zh),
+    })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+
+    await actClick(() => card.root.findAllByType('button').find(button => button.children.includes(zh['plan.goalRun']))!.props.onClick())
+
+    expect(answer).not.toHaveBeenCalled()
+    const status = card.root.findAllByProps({ role: 'status' }).map(node => node.children.join('')).join('|')
+    expect(status).toContain(zh['plan.goalFailed'].replace('{message}', 'GOAL_AGENT_NOT_LIVE: agent is gone'))
+    // The refusal is a plain failure, not a settled response: the Plan stays approvable.
+    expect(approve(card, zh['plan.approve']).props.disabled).toBe(false)
+  })
+
+  it('reports a replaced goal and still approves the Plan', async () => {
+    const answer = vi.fn(async () => undefined)
+    let created = 0
+    const goalCreate = vi.fn(async () => {
+      created += 1
+      return created === 1
+        ? { ok: false, error: { code: 'GOAL_ALREADY_EXISTS', message: 'already active' } }
+        : { ok: true, value: { ref: { id: 'goal-2', revision: 1 } } }
+    })
+    const fixture = props({
+      matched: wait(answer),
+      goalRemote: () => ({ create: goalCreate, get: acceptingGoalRemote().get, clear: acceptingGoalRemote().clear }),
+      t: locale(zh),
+    })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+
+    await actClick(() => card.root.findAllByType('button').find(button => button.children.includes(zh['plan.goalRun']))!.props.onClick())
+
+    expect(goalCreate).toHaveBeenCalledTimes(2)
+    expect(answer).toHaveBeenCalledOnce()
+    expect(card.root.findAllByProps({ role: 'status' }).some(node =>
+      node.children.join('').includes(zh['plan.goalReplaced']),
+    )).toBe(true)
+  })
+
+  it('disables the goal action when the deployment mounts no goal service', async () => {
+    const fixture = props({ goalRemote: () => undefined, t: locale(zh) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+
+    const goalButton = card.root.findAllByType('button').find(button => button.children.includes(zh['plan.goalRun']))!
+    expect(goalButton.props.disabled).toBe(true)
+    expect(goalButton.props.title).toBe(zh['plan.goalUnsupported'])
+    // The other actions keep working without the goal service.
+    expect(approve(card, zh['plan.approve']).props.disabled).toBe(false)
   })
 })

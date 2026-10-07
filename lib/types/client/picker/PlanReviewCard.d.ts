@@ -2,6 +2,7 @@ import type { PendingQuestion } from '@deepseek-ai/dsh-client-ui-user-questions/
 import type { ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client';
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import type { MainSettingsView } from '../../client-contract.ts';
+import { type GoalRemote } from '../../picker/plan-goal.ts';
 import { type PickerDirectoryFace } from './PickerDirectory.ts';
 import type { PickerInteractionOperations } from './popup-dismissal.ts';
 import { type RuntimeProviderLock } from '../runtime-lock.ts';
@@ -22,6 +23,8 @@ export interface PlanReviewFace extends PickerDirectoryFace {
     refreshProviderLock: () => void;
     subscribeMainDefaults: (listener: () => void) => () => void;
     getMainDefaultsSnapshot: () => ConfigFormSnapshot<MainSettingsView>;
+    /** Released goal remote; absent when this deployment mounts no goal service. */
+    goalRemote: () => GoalRemote | undefined;
     /** Live catalog-group-id → card-key map from ProviderDirectory. */
     catalogRoutes?: () => Readonly<Record<string, string>>;
 }

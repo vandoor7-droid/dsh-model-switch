@@ -161,6 +161,7 @@
 
 .discuss,
 .keep,
+.goalRun,
 .approve,
 .recover {
   height: 32px;
@@ -226,6 +227,7 @@
 
   .discuss,
   .keep,
+  .goalRun,
   .approve,
   .recover {
     flex: 1 1 0;

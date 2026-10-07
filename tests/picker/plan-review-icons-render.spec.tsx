@@ -68,6 +68,8 @@ function propsFor(provider: string, roleOf?: (key: string) => string | undefined
     getDirectorySnapshot: () => snapshot,
     load: vi.fn(() => undefined),
     select: vi.fn(async () => true),
+    // These cases only assert runtime icons; the goal service stays absent here.
+    goalRemote: () => undefined,
     t: (key: string) => key,
     ...(roleOf === undefined ? {} : { roleOf }),
   }

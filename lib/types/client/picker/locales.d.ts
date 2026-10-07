@@ -44,6 +44,10 @@ export declare const zh: {
     'plan.feedbackPlaceholder': string;
     'plan.notRestored': string;
     'plan.dismissUnsupported': string;
+    'plan.goalRun': string;
+    'plan.goalFailed': string;
+    'plan.goalReplaced': string;
+    'plan.goalUnsupported': string;
     'plan.responseRejected': string;
     'plan.cancelRejected': string;
     'markdown.copy': string;
@@ -96,6 +100,10 @@ export declare const en: {
     'plan.feedbackPlaceholder': string;
     'plan.notRestored': string;
     'plan.dismissUnsupported': string;
+    'plan.goalRun': string;
+    'plan.goalFailed': string;
+    'plan.goalReplaced': string;
+    'plan.goalUnsupported': string;
     'plan.responseRejected': string;
     'plan.cancelRejected': string;
     'markdown.copy': string;

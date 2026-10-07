@@ -79,6 +79,8 @@ Plan Review owns an execution-model draft separate from Main. **Confirm** first 
 
 **Reject** sends the option the asker offered, and any text typed in the card's feedback field as the answer's own `custom` text — plan mode reports that text back to the model as the reason to keep planning, so a rejection can carry what to change. **Discuss in chat** withdraws the takeover so the composer returns and the human speaks in their own words; it uses the Host's `dismiss()` where published and the older generation's `cancel()` otherwise, and names the Host when neither exists. Answering a settled review closes Confirm and Reject, while Discuss and the reload affordance stay reachable so the card always has a way back. Failures keep their wire code (`session/writer-held: …`) visible instead of a bare localized sentence.
 
+**Set as goal and run** arms this Plan as the session's goal and only then answers it, so `dsh-goal-round-driver` keeps the Plan moving after plan mode exits. It calls the released `remote.goals.create`; when a non-complete goal already exists it clears that one first so the new Plan starts with a fresh round cap, and says so in the card. A refusal keeps the review pending with its wire code (`GOAL_AGENT_NOT_LIVE: …`), and a deployment that mounts no goal service disables the button with an explicit reason while the other three actions keep working. The objective is the Plan's full markdown, trimmed — the goal domain imposes no length limit, and the objective rides along as model-visible context every round, so a long Plan costs tokens on each continuation.
+
 ![Plan Review with an execution-model picker](docs/screenshots/plan-review.png)
 
 ## Send-time context protection

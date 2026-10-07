@@ -1,4 +1,5 @@
 import React from 'react'
+import { readFileSync } from 'node:fs'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -313,5 +314,25 @@ describe('composer picker seat ownership', () => {
     expect(() => face.resolveInteractionOperations()).not.toThrow()
     expect(face.resolveInteractionOperations()).toBeUndefined()
     expect(directInteractionReads()).toBe(0)
+  })
+
+  it('resolves the goal remote per render instead of injecting it', () => {
+    const { entries, raw } = bench()
+    const composer = entries.find(({ spec }) => spec.name === 'conversation.composer')!
+    const face = (composer.spec.inject as (id: string) => { goalRemote(): unknown })('session-1')
+    expect(typeof face.goalRemote).toBe('function')
+    expect(face.goalRemote()).toBeUndefined()
+
+    const stub = { create: async () => ({ ok: true, value: { ref: { id: 'goal-1', revision: 1 } } }) }
+    raw.get = (name: string) => name === 'remote.goals' ? stub : undefined
+    expect(face.goalRemote()).toBe(stub)
+  })
+
+  it('keeps the goal service out of the static client inject list', () => {
+    // An inject on 'remote.goals' would block this whole client plugin on a
+    // deployment that does not mount @deepseek-ai/dsh-goal.
+    const source = readFileSync(new URL('../../src/client/index.tsx', import.meta.url), 'utf8')
+    expect(source).toMatch(/export const inject = \[/u)
+    expect(source).not.toContain('remote.goals')
   })
 })

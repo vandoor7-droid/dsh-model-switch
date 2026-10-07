@@ -1,3 +1,13 @@
+## v0.4.19
+
+Plan Review gains a **Set as goal and run** action: it arms the reviewed Plan as the session's goal and only then answers it, so `dsh-goal-round-driver` carries the Plan after plan mode exits.
+
+- The goal is set before the answer, matching the card's existing commit-then-answer order; a refusal keeps the review pending and reports the Host's own wire code.
+- An unfinished goal is replaced through `get` + `clear` + `create` rather than edited, so a new Plan starts with a fresh round cap, and the card says it replaced the previous goal.
+- The goal face is resolved per render (`ctx.get('remote.goals', false)`) instead of listed in the static client `inject`, so a deployment that mounts no `@deepseek-ai/dsh-goal` keeps loading this plugin and the action disables itself with an explicit reason while the other three actions keep working. `@deepseek-ai/dsh-goal` is declared as an optional peer.
+- The objective is the Plan's trimmed markdown. The plugin stores no goal state, owns no part of the goal domain, and schedules no rounds.
+- Records the seam in `docs/seam-gap.md` (the released `remote.goals.create` exists while DSH's own goal surface deliberately omits creation) and the action in PRODUCT.md and both READMEs.
+
 ## v0.4.18
 
 Declare official DSH `0.2.0-rc.2` compatible in `package.json#dsh.compatibility.dshReleases`.

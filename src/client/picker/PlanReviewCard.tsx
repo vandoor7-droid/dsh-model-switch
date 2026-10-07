@@ -9,6 +9,7 @@ import {
   PlanApprovalResponseError, approvePlanReview, planActionView, planReviewOf, settlePlanAction,
 } from '../../picker/plan-review.ts'
 import { PlanDismissalUnsupportedError, dismissPendingQuestion } from '../../picker/pending-dismissal.ts'
+import { setPlanAsGoal, type GoalRemote } from '../../picker/plan-goal.ts'
 import { ComposerPicker } from './ComposerPicker.tsx'
 import { pickerDirectoryViewOrdered, type PickerDirectoryFace, type PickerDirectoryView } from './PickerDirectory.ts'
 import type { PickerInteractionOperations } from './popup-dismissal.ts'
@@ -50,6 +51,8 @@ export interface PlanReviewFace extends PickerDirectoryFace {
   refreshProviderLock: () => void
   subscribeMainDefaults: (listener: () => void) => () => void
   getMainDefaultsSnapshot: () => ConfigFormSnapshot<MainSettingsView>
+  /** Released goal remote; absent when this deployment mounts no goal service. */
+  goalRemote: () => GoalRemote | undefined
   /** Live catalog-group-id → card-key map from ProviderDirectory. */
   catalogRoutes?: () => Readonly<Record<string, string>>
 }
@@ -116,6 +119,7 @@ interface PlanReviewStateProps {
   settingsUnavailableReason?: string
   directory: PickerDirectoryView
   t: PlanReviewCardProps['t']
+  goalRemote: () => GoalRemote | undefined
   resolveInteractionOperations?: () => PickerInteractionOperations | undefined
   /** Resolve a provider key to its ProviderDirectory role for runtime icons. */
   roleOf?: (providerKey: string) => string | undefined
@@ -178,13 +182,14 @@ export function PlanReviewCard(props: PlanReviewCardProps) {
     {...(settingsUnavailableReason === undefined ? {} : { settingsUnavailableReason })}
     directory={pickerDirectoryViewOrdered(snapshot, props, order, props.catalogRoutes?.() ?? {})}
     t={props.t}
+    goalRemote={props.goalRemote}
     {...props.resolveInteractionOperations === undefined ? {} : { resolveInteractionOperations: props.resolveInteractionOperations }}
     {...props.roleOf === undefined ? {} : { roleOf: props.roleOf }}
   />
 }
 
 function PlanReviewState({
-  matched, review, available, providerLock, agentLocked, lockFailed, settingsUnavailableReason, directory, t, resolveInteractionOperations, roleOf,
+  matched, review, available, providerLock, agentLocked, lockFailed, settingsUnavailableReason, directory, t, goalRemote, resolveInteractionOperations, roleOf,
 }: PlanReviewStateProps) {
   const { snapshot, getDirectorySnapshot, load, select } = directory
   const [execution, setExecution] = useState<ModelSelection | undefined>(snapshot.current ?? undefined)
@@ -244,23 +249,51 @@ function PlanReviewState({
     )
   const action = planActionView({ busy, blocked, error }, available, executionAllowed)
 
+  /** Approve this review after committing its execution model; a refused commit keeps the Plan pending. */
+  const approveWith = async (model: ModelSelection): Promise<void> => {
+    const committed = await approvePlanReview({
+      select,
+      selection: model,
+      current: snapshot.current,
+      answer: () => respondAnswer(matched, review.id, review.approve.label, t('plan.responseRejected'), true),
+      onNotRestored: (switched) => {
+        setNotice(t('plan.notRestored', { model: switched }))
+        console.warn('dsh-model-switch: the Session model changed but the Main default was not restored', switched)
+      },
+    })
+    if (!committed) {
+      const message = getDirectorySnapshot().error
+      throw new Error(message === null ? t('plan.modelFailed') : t('error.action', { message }))
+    }
+  }
+
   const onApprove = (): void => {
     if (execution === undefined || !executionAllowed || !available || busy || blocked) return
+    settle(() => approveWith(execution))
+  }
+
+  // Resolved per render so a deployment without the goal service reports an
+  // honest disabled reason instead of failing at click time.
+  const goal = goalRemote()
+  const goalReason = goal === undefined ? t('plan.goalUnsupported') : undefined
+
+  /**
+   * Arm this plan as the session's goal first, then approve. The goal must be
+   * set before the answer because a refusal must leave the Plan pending, and
+   * because only an armed goal lets the round driver carry the plan after plan
+   * mode exits.
+   */
+  const onRunAsGoal = (): void => {
+    if (execution === undefined || !executionAllowed || !available || busy || blocked || goal === undefined) return
     settle(async () => {
-      const committed = await approvePlanReview({
-        select,
-        selection: execution,
-        current: snapshot.current,
-        answer: () => respondAnswer(matched, review.id, review.approve.label, t('plan.responseRejected'), true),
-        onNotRestored: (model) => {
-          setNotice(t('plan.notRestored', { model }))
-          console.warn('dsh-model-switch: the Session model changed but the Main default was not restored', model)
-        },
-      })
-      if (!committed) {
-        const message = getDirectorySnapshot().error
-        throw new Error(message === null ? t('plan.modelFailed') : t('error.action', { message }))
+      const handoff = await setPlanAsGoal(goal, matched.sessionId, review.plan)
+      if (handoff.kind === 'unsupported') throw new Error(t('plan.goalUnsupported'))
+      if (handoff.kind === 'failed') {
+        const message = handoff.code === undefined ? handoff.message : `${handoff.code}: ${handoff.message}`
+        throw new Error(t('plan.goalFailed', { message }))
       }
+      if (handoff.kind === 'replaced') setNotice(t('plan.goalReplaced'))
+      await approveWith(execution)
     })
   }
 
@@ -353,6 +386,15 @@ function PlanReviewState({
                   {t('plan.keep')}
                 </Button>
               )}
+              <Button
+                variant="outline"
+                className={css.goalRun}
+                disabled={action.approveDisabled || goalReason !== undefined}
+                {...(goalReason === undefined ? {} : { title: goalReason })}
+                onClick={onRunAsGoal}
+              >
+                {t('plan.goalRun')}
+              </Button>
               <Button variant="primary" className={css.approve} disabled={action.approveDisabled} onClick={onApprove}>
                 {t('plan.approve')}
               </Button>

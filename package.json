@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-switch",
-  "version": "0.4.18",
+  "version": "0.4.19",
   "description": "Explicit model routing plus composer/Plan picker for DeepSeek Harness",
   "repository": {
     "type": "git",
@@ -119,6 +119,7 @@
     "@deepseek-ai/dsh-compaction": ">=0.1.7-alpha.2",
     "@deepseek-ai/dsh-compaction-basic": ">=0.1.7-alpha.2",
     "@deepseek-ai/dsh-credentials": ">=0.1.7-alpha.2",
+    "@deepseek-ai/dsh-goal": ">=0.1.7-alpha.2",
     "@deepseek-ai/dsh-launch-environment": ">=0.1.7-alpha.2",
     "@deepseek-ai/dsh-llm": ">=0.1.7-alpha.2",
     "@deepseek-ai/dsh-permission-presets": ">=0.1.7-alpha.2",
@@ -334,6 +335,9 @@
       "optional": true
     },
     "@deepseek-ai/dsh-credentials": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-goal": {
       "optional": true
     },
     "@deepseek-ai/dsh-client-connection": {
