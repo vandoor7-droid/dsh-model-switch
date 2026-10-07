@@ -66,6 +66,25 @@ jobs:
       - name: Release gate (build, tests, pack check)
         run: pnpm run check
 
+      # Fail fast when the OIDC grant is missing or broken: without it npm cannot
+      # exchange a token for a short-lived publish credential, and the publish
+      # would surface a far less obvious authentication error instead.
+      - name: Confirm the OIDC grant for trusted publishing
+        run: |
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL}" ]; then
+            echo "::error::no OIDC request URL — add 'id-token: write' to this job's permissions"
+            exit 1
+          fi
+          status="$(curl -sS -o /tmp/oidc.json -w '%{http_code}' \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=npm:registry.npmjs.org")"
+          if [ "${status}" != "200" ]; then
+            echo "::error::OIDC token request failed with HTTP ${status}"
+            cat /tmp/oidc.json
+            exit 1
+          fi
+          node -e 'const j = require("/tmp/oidc.json"); if (typeof j.value !== "string" || j.value.split(".").length !== 3) { console.error("unexpected OIDC payload"); process.exit(1) } console.log(`OIDC token issued for npm:registry.npmjs.org (${j.value.length} chars)`)'
+
       - name: Publish to npm with trusted publishing
         if: github.ref_type == 'tag'
         run: npm publish
