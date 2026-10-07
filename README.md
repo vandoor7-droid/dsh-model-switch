@@ -97,7 +97,19 @@ When a sent message will use a different model or context-tier id than the last 
 
 ## Installation
 
-Install Model Switch and only the provider adapters you use. This release was checked against official DeepSeek Harness `0.1.7-rc.2`:
+Model Switch ships prebuilt code, so an install needs no build authorization. Install it from the npm registry:
+
+```sh
+dsh plugin --profile web add --force dsh-model-switch
+```
+
+A packed tarball installs the same build without a registry:
+
+```sh
+dsh plugin --profile web add --force ./dsh-model-switch-0.4.17.tgz
+```
+
+Then install only the provider adapters you use. This release was checked against official DeepSeek Harness `0.1.7-rc.2`:
 
 ```sh
 dsh plugin --profile web add --force \
@@ -106,8 +118,6 @@ dsh plugin --profile web add --force \
   https://github.com/NOirBRight/dsh-llm-codex/releases/latest/download/dsh-llm-codex-0.3.23.tgz
 dsh plugin --profile web add --force \
   https://github.com/NOirBRight/dsh-llm-grok/releases/latest/download/dsh-llm-grok-0.3.19.tgz
-dsh plugin --profile web add --force \
-  https://github.com/NOirBRight/dsh-model-switch/releases/latest/download/dsh-model-switch-0.4.16.tgz
 ```
 
 ### Search routing (0.4.7)
@@ -124,7 +134,7 @@ Release-aligned search regression: `DSH_RELEASE_ANCHOR=/path/to/official/install
 
 If `dsh-composer-picker` is installed, remove it from the profile before enabling Model Switch. Model Switch already owns the Composer Picker and Plan Review seat; two owners produce duplicate or competing UI.
 
-Production profiles must use released GitHub tags rather than workspace-local dependencies. Restart the selected DSH profile after installation or route changes.
+Production profiles must use a released registry version or GitHub tag rather than workspace-local dependencies. Restart the selected DSH profile after installation or route changes.
 
 ## Compatibility
 

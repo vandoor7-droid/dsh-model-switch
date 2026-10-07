@@ -1,4 +1,6 @@
-## Unreleased
+## v0.4.17
+
+First release published to the npm registry, so `dsh plugin --profile <name> add dsh-model-switch` installs prebuilt code without a git build authorization. Publishing builds `lib/` through `prepublishOnly`, and `pnpm run check` now runs its pack gate on Windows as well.
 
 - Plan Review **Discuss in chat** now withdraws the takeover through the verb the running Host publishes (`PendingQuestion.dismiss()` on 0.2.x, `cancel()` on 0.1.x) instead of calling `cancel()` unconditionally, which threw on a Host that renamed it; a Host exposing neither is named explicitly.
 - Plan Review **Reject** sends text from the card's feedback field as the answer's `custom` text, so a rejection reaches the model with what to change instead of a bare option label.
@@ -6,6 +8,7 @@
 - Treat a refused official `ModelDirectory.select` result as an uncommitted model change instead of reporting success.
 - Keep Confirm and Reject closed after a settled review while Discuss and a reload affordance stay reachable, and surface the wire code of a failed action.
 - Fix a line-ending fragile mobile width-budget assertion.
+- Make the pack gate portable: resolve npm's own CLI when a shell-less spawn cannot launch the Windows `.cmd` shim, compare archive members across line endings, and link the extracted package with a junction on Windows.
 
 ## v0.4.16
 

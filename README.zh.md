@@ -95,7 +95,19 @@ Plan Review 拥有独立于 Main 的执行模型草稿。**确认执行**会先�
 
 ## 安装
 
-安装 Model Switch，以及实际使用的 Provider Adapter。此版本已在官方 DeepSeek Harness `0.1.7-rc.2` 上检查：
+Model Switch 交付的是预构建代码，安装不需要任何构建授权。从 npm 注册表安装：
+
+```sh
+dsh plugin --profile web add --force dsh-model-switch
+```
+
+打包好的 tarball 可以在不走注册表的情况下安装同一份构建：
+
+```sh
+dsh plugin --profile web add --force ./dsh-model-switch-0.4.17.tgz
+```
+
+然后只安装实际使用的 Provider Adapter。此版本已在官方 DeepSeek Harness `0.1.7-rc.2` 上检查：
 
 ```sh
 dsh plugin --profile web add --force \
@@ -104,8 +116,6 @@ dsh plugin --profile web add --force \
   https://github.com/NOirBRight/dsh-llm-codex/releases/latest/download/dsh-llm-codex-0.3.23.tgz
 dsh plugin --profile web add --force \
   https://github.com/NOirBRight/dsh-llm-grok/releases/latest/download/dsh-llm-grok-0.3.19.tgz
-dsh plugin --profile web add --force \
-  https://github.com/NOirBRight/dsh-model-switch/releases/latest/download/dsh-model-switch-0.4.16.tgz
 ```
 
 ### 搜索供应商统一接入（0.4.7）
@@ -122,7 +132,7 @@ DeepSeek 薄适配器调用官方公开 `DeepSeekSearchProvider`，复用用户�
 
 如果 profile 已安装 `dsh-composer-picker`，请先移除它。Model Switch 已经拥有 Composer Picker 和 Plan Review 席位；同时安装会产生重复或竞争 UI。
 
-生产 profile 必须使用已发布的 GitHub tag，不能使用工作区本地依赖。安装或修改路由后重启对应的 DSH profile。
+生产 profile 必须使用已发布的注册表版本或 GitHub tag，不能使用工作区本地依赖。安装或修改路由后重启对应的 DSH profile。
 
 ## 兼容性
 

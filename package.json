@@ -1,14 +1,17 @@
 {
   "name": "dsh-model-switch",
-  "version": "0.4.16",
+  "version": "0.4.17",
   "description": "Explicit model routing plus composer/Plan picker for DeepSeek Harness",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NOirBRight/dsh-model-switch.git"
+    "url": "git+https://github.com/vandoor7-droid/dsh-model-switch.git"
   },
-  "homepage": "https://github.com/NOirBRight/dsh-model-switch#readme",
+  "homepage": "https://github.com/vandoor7-droid/dsh-model-switch#readme",
   "bugs": {
-    "url": "https://github.com/NOirBRight/dsh-model-switch/issues"
+    "url": "https://github.com/vandoor7-droid/dsh-model-switch/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "packageManager": "pnpm@10.33.0",
   "type": "module",
@@ -59,6 +62,7 @@
   "scripts": {
     "bundle": "tsdown",
     "build": "tsc -p tsconfig.json && tsdown",
+    "prepublishOnly": "pnpm run build",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pack:check": "node scripts/check-rc1-pack.mjs",
