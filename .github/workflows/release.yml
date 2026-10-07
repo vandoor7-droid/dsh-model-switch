@@ -1,0 +1,88 @@
+name: Release
+
+# Publishing runs on GitHub's runners through npm trusted publishing (OIDC), so
+# no long-lived registry credential exists in this repository, on any machine,
+# or in GitHub secrets. Before the first tag, configure the trusted publisher on
+# npmjs.com for this package:
+#
+#   Package settings -> Trusted Publisher -> GitHub Actions
+#     Organization or user : vandoor7-droid
+#     Repository           : dsh-model-switch
+#     Workflow filename    : release.yml      (must match this file exactly)
+#     Environment          : (leave empty)
+#
+# npm expires a trusted-publisher configuration that is never used, so configure
+# it when a release is imminent rather than weeks ahead.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # the OIDC token npm exchanges for a short-lived publish credential
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Require the tag to match package.json
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${version}"
+            exit 1
+          fi
+          echo "releasing ${version}"
+
+      # Trusted publishing needs npm >= 11.5.1; pin the 11.x line so a v12 runner
+      # image cannot change publish behavior underneath a release.
+      - name: Install a trusted-publishing-capable npm
+        run: |
+          npm install --global 'npm@^11.5.1'
+          npm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Release gate (build, tests, pack check)
+        run: pnpm run check
+
+      - name: Publish to npm with trusted publishing
+        run: npm publish
+
+  release:
+    needs: publish
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub release for the tag that was published
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes
