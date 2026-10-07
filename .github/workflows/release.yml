@@ -17,6 +17,8 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # A manual run rehearses the release gate above and stops before publishing,
+  # so it can never push a version by accident.
   workflow_dispatch:
 
 permissions:
@@ -65,6 +67,7 @@ jobs:
         run: pnpm run check
 
       - name: Publish to npm with trusted publishing
+        if: github.ref_type == 'tag'
         run: npm publish
 
   release:
