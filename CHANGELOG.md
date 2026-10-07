@@ -1,3 +1,14 @@
+## v0.4.18
+
+Declare official DSH `0.2.0-rc.2` compatible in `package.json#dsh.compatibility.dshReleases`.
+
+Evidence, in the order this repository's compatibility policy requires:
+
+- **Public API review:** the 0.2.x Host renamed the pending-question withdrawal verb (`PendingQuestion.cancel()` → `dismiss()`), fires `session.selectModel`'s deployment-default write without awaiting it, and reports a refused `ModelDirectory.select` as a returned `{ ok: false }` value instead of throwing. Each difference broke v0.4.16, and each is fixed in v0.4.17.
+- **Tests and build:** `pnpm run check` green — `tsc` + `tsdown`, the full vitest suite, and the pack gate against a real tarball.
+- **Lab plane:** profile composition `exit 0` with no skipped bundle, Host boot on port 3082 with the plugin's capability RPC answering, and the npm-installed build booting on port 3085 with its client bundle served.
+- **Live desktop verification on 0.2.0-rc.2:** all three Plan Review actions exercised against a real session — Discuss withdraws the takeover and returns the composer; Reject delivers typed feedback verbatim as the answer's `custom` text; Confirm commits a different execution model, approves the plan, and restores the Main default to its pre-switch value.
+
 ## v0.4.17
 
 First release published to the npm registry, so `dsh plugin --profile <name> add dsh-model-switch` installs prebuilt code without a git build authorization. Publishing builds `lib/` through `prepublishOnly`, and `pnpm run check` now runs its pack gate on Windows as well.

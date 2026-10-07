@@ -107,7 +107,7 @@ dsh plugin --profile web add --force dsh-model-switch
 dsh plugin --profile web add --force ./dsh-model-switch-0.4.17.tgz
 ```
 
-然后只安装实际使用的 Provider Adapter。此版本已在官方 DeepSeek Harness `0.1.7-rc.2` 上检查：
+然后只安装实际使用的 Provider Adapter。此版本已在官方 DeepSeek Harness `0.1.7-rc.2` 上检查，并在 `0.2.0-rc.2` 上验证：
 
 ```sh
 dsh plugin --profile web add --force \
@@ -138,6 +138,8 @@ DeepSeek 薄适配器调用官方公开 `DeepSeekSearchProvider`，复用用户�
 
 DSH Host peer 和开发依赖接受 `>=0.1.7-alpha.2`，包括 rc.1 和后续版本。开发锁文件解析到 rc.2。Cordis 接受 `>=4.0.4 <5.0.0`。
 
+已验证版本：`0.1.7-alpha.2`、`0.1.7-rc.1`、`0.1.7-rc.2`、`0.2.0-rc.2`。0.2.0 的声明覆盖三处差异：Host 改名的提问撤下动词（`cancel()` → `dismiss()`）、`session.selectModel` 不 await 的部署默认值写入、以返回值报出的 `ModelDirectory.select` 拒绝；三者均已在 lab（3082/3085）与真实桌面会话中逐一验证。
+
 `package.json#dsh.compatibility.dshReleases` 中的已验证版本是证据，不是允许列表。新增验证声明前要审查公开 API 变化并测试新 Host 版本。
 
 ## 开发
@@ -153,7 +155,7 @@ pnpm run check
 
 ## 正式版安装（Latest）
 
-本版在官方 DeepSeek Harness `0.1.7-rc.2` 上验证了 Main、子代理、Composer 与能力路由；发布包只包含构建后的 Host/Client 产物，不包含兄弟仓库源码或本机路径。
+本版在官方 DeepSeek Harness `0.1.7-rc.2` 与 `0.2.0-rc.2` 上验证了 Main、子代理、Composer、Plan Review 与能力路由；发布包只包含构建后的 Host/Client 产物，不包含兄弟仓库源码或本机路径。
 
 Latest 安装命令（资产文件名必须与当前 latest Release 一致）：
 

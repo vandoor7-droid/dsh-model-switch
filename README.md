@@ -109,7 +109,7 @@ A packed tarball installs the same build without a registry:
 dsh plugin --profile web add --force ./dsh-model-switch-0.4.17.tgz
 ```
 
-Then install only the provider adapters you use. This release was checked against official DeepSeek Harness `0.1.7-rc.2`:
+Then install only the provider adapters you use. This release was checked against official DeepSeek Harness `0.1.7-rc.2` and verified on `0.2.0-rc.2`:
 
 ```sh
 dsh plugin --profile web add --force \
@@ -140,6 +140,8 @@ Production profiles must use a released registry version or GitHub tag rather th
 
 DSH Host peers and development dependencies accept `>=0.1.7-alpha.2`, including rc.1 and later releases. The development lockfile resolves to rc.2. Cordis accepts `>=4.0.4 <5.0.0`.
 
+Verified releases: `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.2`. The 0.2.0 claim covers the Host's renamed question verbs, its unawaited `session.selectModel` default write, and its returned `ModelDirectory.select` refusal, each verified in the lab and on a live desktop session.
+
 The verified releases in `package.json#dsh.compatibility.dshReleases` are evidence, not an allowlist. Review public API changes and test new Host releases before adding a verification claim.
 
 ## Development
@@ -155,7 +157,7 @@ pnpm run check
 
 ## Release installation (Latest)
 
-Explicit model routing for Main, Subagent, Composer, Plan Review, and capability tools, checked on official DeepSeek Harness `0.1.7-rc.2`. The release artifact contains built Host/Client files, not sibling source or local paths.
+Explicit model routing for Main, Subagent, Composer, Plan Review, and capability tools, checked on official DeepSeek Harness `0.1.7-rc.2` and `0.2.0-rc.2`. The release artifact contains built Host/Client files, not sibling source or local paths.
 
 Latest installation (the asset filename must match the current latest release):
 
