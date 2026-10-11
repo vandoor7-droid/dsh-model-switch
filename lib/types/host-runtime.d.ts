@@ -21,6 +21,9 @@ export declare class ModelSwitchRuntime extends Service {
         imageProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
         imageModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
         compactOnSwitch: import("@deepseek-ai/schemastery").default<boolean, boolean, "volatile-defined">;
+        autoReviewProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
+        autoReviewModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
+        planCompactThreshold: import("@deepseek-ai/schemastery").default<number, number, "volatile-defined">;
     }>>, Schemastery.ObjectT<NoInfer<{
         subagentMode: import("@deepseek-ai/schemastery").default<"follow-main" | "fixed", "follow-main" | "fixed", "volatile-defined">;
         subagentProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
@@ -31,6 +34,9 @@ export declare class ModelSwitchRuntime extends Service {
         imageProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
         imageModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
         compactOnSwitch: import("@deepseek-ai/schemastery").default<boolean, boolean, "volatile-defined">;
+        autoReviewProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
+        autoReviewModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
+        planCompactThreshold: import("@deepseek-ai/schemastery").default<number, number, "volatile-defined">;
     }>>, "plain">;
     get capabilities(): {
         searchProviderAdapters: {

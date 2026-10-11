@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { subagentModeForEnabled, type CapabilityRouteView, type MainSettingsView, type ModelSwitchSettingsView, type SubagentSettingsView } from '../client-contract.js'
+import { autoReviewRouteConfigured, subagentModeForEnabled, type CapabilityRouteView, type MainSettingsView, type ModelSwitchSettingsView, type SubagentSettingsView } from '../client-contract.js'
 import type { RuntimeCapabilities } from '../runtime-capabilities.js'
 import { searchGroupsFromCapabilities, type CapabilitiesSnapshot } from './search-capabilities.js'
 import type { ModelSwitchLocaleKey } from './locales.js'
@@ -13,12 +13,13 @@ import type { ConfigViewForm } from './derived-config-form.js'
 
 export interface ModelSwitchSettingsFace {
   t: (key: ModelSwitchLocaleKey) => string
-  hooks: { mainSettings: ConfigViewForm<MainSettingsView>; subagentSettings: ConfigViewForm<SubagentSettingsView>; searchSettings: ConfigViewForm<CapabilityRouteView>; imageSettings: ConfigViewForm<CapabilityRouteView>; switchSettings: Pick<ConfigForm<ModelSwitchSettingsView>, 'getSnapshot' | 'subscribe'> }
+  hooks: { mainSettings: ConfigViewForm<MainSettingsView>; subagentSettings: ConfigViewForm<SubagentSettingsView>; searchSettings: ConfigViewForm<CapabilityRouteView>; imageSettings: ConfigViewForm<CapabilityRouteView>; autoReviewSettings: ConfigViewForm<CapabilityRouteView>; switchSettings: Pick<ConfigForm<ModelSwitchSettingsView>, 'getSnapshot' | 'subscribe'> }
   capabilities: RuntimeCapabilities
   saveMain: (next: MainSettingsView, expectedRevision: number) => Promise<number>
   setSubagent: (field: 'mode' | 'provider' | 'model' | 'reasoningEffort', value: string | undefined) => Promise<void>
-  setCapability: (route: 'search' | 'image', field: 'provider' | 'model', value: string | undefined) => Promise<void>
+  setCapability: (route: 'search' | 'image' | 'autoReview', field: 'provider' | 'model', value: string | undefined) => Promise<void>
   setCompactOnSwitch: (value: boolean) => Promise<void>
+  setPlanCompactThreshold: (value: number) => Promise<void>
   loadCatalog: () => Promise<readonly ModelProviderGroup[]>
   /** Host capabilities long-poll; absent in legacy faces, which keep the static-capabilities path. */
   loadCapabilities?: (revision?: number, signal?: AbortSignal) => Promise<CapabilitiesSnapshot>
@@ -28,7 +29,7 @@ export interface ModelSwitchSettingsFace {
 }
 
 export type ModelSwitchSettingsProps = PropsRuntime<'settings.section'> & InjectFace<ModelSwitchSettingsFace>
-type RouteId = 'main' | 'subagent' | 'search' | 'image'
+type RouteId = 'main' | 'subagent' | 'search' | 'image' | 'autoReview'
 type RouteIconKind = RouteId
 
 function cx(...values: Array<string | undefined | false>): string { return values.filter(Boolean).join(' ') }
@@ -39,6 +40,7 @@ function RouteIcon({ kind }: { kind: RouteIconKind }): ReactNode {
   if (kind === 'subagent') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="2.5" stroke="currentColor" /><circle cx="12.5" cy="11.5" r="2" stroke="currentColor" /><path d="M3 14c.4-2.5 1.6-4 3-4s2.6 1.5 3 4M10 7.5c.5-.8 1.3-1.2 2.2-1.2 1.5 0 2.6 1 2.8 2.7" stroke="currentColor" strokeLinecap="round" /></svg>
   if (kind === 'search') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="4.5" stroke="currentColor" /><path d="m11.5 11.5 3.5 3.5" stroke="currentColor" strokeLinecap="round" /></svg>
   if (kind === 'image') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="3" width="13" height="12" rx="2" stroke="currentColor" /><circle cx="6.5" cy="7" r="1.3" stroke="currentColor" /><path d="m4 13 3.5-3 2.2 2 1.8-1.6 2.5 2.6" stroke="currentColor" strokeLinejoin="round" /></svg>
+  if (kind === 'autoReview') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5 14.5 4.8v4.1c0 3.1-2.3 5.7-5.5 6.6-3.2-.9-5.5-3.5-5.5-6.6V4.8L9 2.5Z" stroke="currentColor" strokeLinejoin="round" /><path d="m6.6 8.9 1.7 1.7 3.2-3.4" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" /></svg>
   return null
 }
 
@@ -110,15 +112,41 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const { main, subagent, draft, groups } = controller
   const search = props.useSearchSettings(value => value)
   const image = props.useImageSettings(value => value)
+  const autoReview = props.useAutoReviewSettings(value => value)
   const switchSettings = props.useSwitchSettings(value => value)
   const [open, setOpen] = useState<RouteId | undefined>()
   const [subagentDraft, setSubagentDraft, resetSubagent] = useDraft(subagent)
   const [searchDraft, setSearchDraft, resetSearch] = useDraft(search)
   const [imageDraft, setImageDraft, resetImage] = useDraft(image)
+  const [autoReviewDraft, setAutoReviewDraft, resetAutoReview] = useDraft(autoReview)
   const [busy, setBusy] = useState<RouteId | undefined>()
   const [message, setMessage] = useState<{ route: RouteId; text: string } | undefined>()
   const [compactBusy, setCompactBusy] = useState(false)
   const [compactError, setCompactError] = useState<string>()
+  const planCompactValue = switchSettings.value?.planCompactThreshold ?? 200_000
+  const [planCompactDraft, setPlanCompactDraft] = useState(() => String(planCompactValue))
+  const [planCompactBusy, setPlanCompactBusy] = useState(false)
+  const [planCompactError, setPlanCompactError] = useState<string>()
+  useEffect(() => { setPlanCompactDraft(String(planCompactValue)); setPlanCompactError(undefined) }, [planCompactValue])
+  /** Commit the threshold on blur/Enter only when it is a non-negative integer. */
+  const commitPlanCompactThreshold = (): void => {
+    const parsed = Number(planCompactDraft)
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      setPlanCompactError(props.t('planCompactThresholdInvalid'))
+      return
+    }
+    if (parsed === planCompactValue) { setPlanCompactError(undefined); return }
+    setPlanCompactBusy(true)
+    setPlanCompactError(undefined)
+    void props.setPlanCompactThreshold(parsed).then(
+      () => { setPlanCompactBusy(false) },
+      error => {
+        setPlanCompactBusy(false)
+        setPlanCompactDraft(String(planCompactValue))
+        setPlanCompactError(error instanceof Error ? error.message : props.t('requestFailed'))
+      },
+    )
+  }
   const loadSearchCapabilities = props.loadCapabilities
   const [searchSnapshot, setSearchSnapshot] = useState<CapabilitiesSnapshot | undefined>(undefined)
   const [searchError, setSearchError] = useState<string | undefined>(undefined)
@@ -178,7 +206,9 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const searchChoices = capabilityChoices(searchGroups, searchDraft, undefined, 'search')
   const searchAvailable = searchLive?.searchProviderAdapters.available ?? false
   const imageChoices = capabilityChoices(groups, imageDraft, props.capabilities.imageProviderAdapters.providers ?? [], 'image')
-  const synced = [main, subagent, search, image].every(snapshot => snapshot.status === 'ready')
+  const autoReviewChoices = deriveRouteChoices(groups, autoReviewDraft)
+  const autoReviewOn = autoReviewRouteConfigured(autoReview.value)
+  const synced = [main, subagent, search, image, autoReview].every(snapshot => snapshot.status === 'ready')
   const run = async (route: RouteId, operation: () => Promise<void>): Promise<void> => {
     if (busy !== undefined) return
     setBusy(route); setMessage(undefined)
@@ -215,6 +245,44 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     if (current.value?.provider !== next.provider) await props.setCapability(route, 'provider', next.provider)
     if (current.value?.model !== next.model) await props.setCapability(route, 'model', next.model)
   }) }
+  const saveAutoReview = (): void => { if (autoReviewDraft === undefined) return; void run('autoReview', async () => {
+    if (autoReview.value?.provider !== autoReviewDraft.provider) await props.setCapability('autoReview', 'provider', autoReviewDraft.provider)
+    if (autoReview.value?.model !== autoReviewDraft.model) await props.setCapability('autoReview', 'model', autoReviewDraft.model)
+  }) }
+  /**
+   * The reviewer switch: Off unsets both stored fields (follow the session
+   * model); On seeds the route from Main so the pin takes effect immediately
+   * and stays editable below. A failed write reports, never flips silently.
+   */
+  const persistAutoReviewEnabled = (enabled: boolean): void => {
+    if (busy === 'autoReview' || !autoReview.writable || autoReview.value === undefined) return
+    if (!enabled) {
+      setOpen(current => current === 'autoReview' ? undefined : current)
+      void run('autoReview', async () => {
+        if (autoReview.value?.provider !== undefined) await props.setCapability('autoReview', 'provider', undefined)
+        if (autoReview.value?.model !== undefined) await props.setCapability('autoReview', 'model', undefined)
+      })
+      return
+    }
+    const seed = draft
+    if (seed === undefined || seed.provider.trim() === '' || seed.model.trim() === '') return
+    setBusy('autoReview')
+    setMessage(undefined)
+    void (async () => {
+      if (autoReview.value?.provider !== seed.provider) await props.setCapability('autoReview', 'provider', seed.provider)
+      if (autoReview.value?.model !== seed.model) await props.setCapability('autoReview', 'model', seed.model)
+    })().then(
+      () => {
+        setAutoReviewDraft({ provider: seed.provider, model: seed.model })
+        setBusy(undefined)
+        setOpen('autoReview')
+      },
+      error => {
+        setBusy(undefined)
+        setMessage({ route: 'autoReview', text: error instanceof Error ? error.message : props.t('requestFailed') })
+      },
+    )
+  }
   const mainSummary = draft === undefined ? props.t('loading') : compact(routeName(groups, draft), mainEffectiveEffort)
   const subagentRole = subagentDraft?.mode === 'fixed' && subagentDraft.provider !== undefined && subagentDraft.provider !== '' ? props.providerRoleOf?.(subagentDraft.provider) : undefined
   const subagentOn = subagentDraft?.mode === 'fixed'
@@ -223,6 +291,7 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     : props.t('subagentOff')
   const subagentDisabled = subagent.status !== 'ready' || !subagent.writable || subagentDraft === undefined || busy === 'subagent' || !subagentOn || (subagentDraft.provider ?? '').trim() === '' || (subagentDraft.model ?? '').trim() === ''
   const capabilityDisabled = (route: 'search' | 'image', snapshot: ConfigFormSnapshot<CapabilityRouteView>, next: CapabilityRouteView | undefined): boolean => snapshot.status !== 'ready' || !snapshot.writable || next === undefined || busy === route || (next.provider ?? '').trim() === '' || (next.model ?? '').trim() === ''
+  const autoReviewDisabled = autoReview.status !== 'ready' || !autoReview.writable || autoReviewDraft === undefined || busy === 'autoReview' || !autoReviewOn || (autoReviewDraft.provider ?? '').trim() === '' || (autoReviewDraft.model ?? '').trim() === ''
 
   return <main className={css.section}>
     <h1 className={css.title}>{props.t('title')}</h1>
@@ -248,6 +317,27 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
             },
           )
         }} />
+      </div>
+      <div className={css.rowCard}>
+        <span className={css.routeIcon} aria-hidden="true"><svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4 5.5h10M4 9h7M4 12.5h5" stroke="currentColor" strokeLinecap="round" /><path d="M13 11.5v3.5l2-1.6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
+        <div className={css.rowCopy}>
+          <span className={css.rowTitle}>{props.t('planCompactThreshold')}</span>
+          <p className={css.hint}>{props.t('planCompactThresholdHelp')}</p>
+          {planCompactError === undefined ? null : <p className={cx(css.hint, css.message)}>{planCompactError}</p>}
+        </div>
+        <input
+          className={css.input}
+          type="number"
+          min={0}
+          step={1000}
+          inputMode="numeric"
+          aria-label={props.t('planCompactThreshold')}
+          value={planCompactDraft}
+          disabled={!switchSettings.writable || planCompactBusy}
+          onChange={event => { setPlanCompactDraft(event.target.value); setPlanCompactError(undefined) }}
+          onBlur={commitPlanCompactThreshold}
+          onKeyDown={event => { if (event.key === 'Enter') commitPlanCompactThreshold() }}
+        />
       </div>
     </section>
 
@@ -281,6 +371,13 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
           <Field label={props.t('model')} value={imageDraft.model} disabled={busy === 'image' || !image.writable} choices={imageChoices.models} onChange={model => { setImageDraft({ ...imageDraft, model }) }} />
         </div><Actions t={props.t} busy={busy === 'image'} disabled={capabilityDisabled('image', image, imageDraft)} {...(message?.route === 'image' ? { message: message.text } : {})} onCancel={() => { resetImage(); setMessage(undefined) }} onSave={() => { saveCapability('image', image, imageDraft) }} /></>}
       </RouteCard> : <RouteCard title={props.t('image')} summary={unavailable('imageProviderAdapters')} icon="image" open={false} onToggle={() => {}} disabled badge={props.t('unavailable')} badgeWarn />}
+
+      <RouteCard title={props.t('autoReview')} summary={autoReviewDraft === undefined ? props.t('loading') : autoReviewOn ? routeName(groups, autoReviewDraft) : props.t('autoReviewFollow')} hint={props.t('autoReviewHelp')} icon="autoReview" open={open === 'autoReview' && autoReviewOn} onToggle={() => { if (autoReviewOn) toggle('autoReview') }} expandable={autoReviewOn} trailing={autoReviewDraft === undefined ? undefined : <InstantSwitch checked={autoReviewOn} disabled={busy === 'autoReview' || !autoReview.writable} label={props.t('autoReview')} onChange={persistAutoReviewEnabled} />}>
+        {autoReviewDraft === undefined ? <p className={css.hint}>{props.t('loading')}</p> : <><p className={css.hint}>{props.t('autoReviewRouteHelp')}</p><div className={css.formGrid}>
+          <Field label={props.t('provider')} value={autoReviewDraft.provider ?? ''} disabled={busy === 'autoReview' || !autoReview.writable} choices={autoReviewChoices.providers} onChange={provider => { const first = groups.find(group => group.id === provider)?.models[0]; setAutoReviewDraft({ provider, ...(first === undefined ? {} : { model: first.id }) }) }} />
+          <Field label={props.t('model')} value={autoReviewDraft.model ?? ''} disabled={busy === 'autoReview' || !autoReview.writable} choices={autoReviewChoices.models} onChange={model => { setAutoReviewDraft({ ...autoReviewDraft, model }) }} />
+        </div><Actions t={props.t} busy={busy === 'autoReview'} disabled={autoReviewDisabled} {...(message?.route === 'autoReview' ? { message: message.text } : {})} onCancel={() => { resetAutoReview(); setMessage(undefined) }} onSave={saveAutoReview} /></>}
+      </RouteCard>
     </section>
 
   </main>

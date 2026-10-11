@@ -7,6 +7,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => {
   const Stub = () => null
   return {
     Button: Stub, Input: Stub, Toast: Stub, MarkdownText: Stub,
+    extractMarkdownPlainText: Stub,
     IconCheckOutlineRegular: Stub, IconChevronDownOutlineRegular: Stub, IconChevronLeftOutlineRegular: Stub,
     IconChevronRightOutlineRegular: Stub, IconCloseOutlineRegular: Stub, IconSearchOutlineRegular: Stub, IconWarningOutlineRegular: Stub,
   }
@@ -53,6 +54,7 @@ function bench(strictOptionalLookup = false) {
         entries.push({ spec, component })
         return () => undefined
       },
+      entries: vi.fn(() => []),
     },
     uiConversation: { views: { register: vi.fn(() => vi.fn()) }, events: { register: vi.fn(() => vi.fn()) } },
     modelDirectories: { directoryFor: vi.fn(() => directory) },
@@ -242,6 +244,7 @@ describe('composer picker seat ownership', () => {
       slots: {
         inject: (_name: string, register: () => unknown) => register(),
         register: (spec: Record<string, unknown>) => { entries.push({ spec }); return () => undefined },
+        entries: vi.fn(() => []),
       },
       uiConversation: { views: { register: vi.fn(() => vi.fn()) }, events: { register: vi.fn(() => vi.fn()) } },
       modelDirectories: { directoryFor: vi.fn(() => directory) },

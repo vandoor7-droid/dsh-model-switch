@@ -2,6 +2,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { clientRequestSchema, type ConnectionRpcHandler, type ConnectionRpcHandlerResult } from '@deepseek-ai/dsh-client-connection'
 import type { ModelSwitchAdapterRegistry } from './adapter-registry.js'
 import type { RuntimeCapabilities } from './runtime-capabilities.js'
+import type { PlanCompactRunner } from './plan-compact.js'
 
 export const CAPABILITIES_RPC_METHOD = 'plugin-rpc/model-switch'
 export interface CapabilitiesSnapshot { readonly revision: number; readonly capabilities: RuntimeCapabilities }
@@ -54,8 +55,20 @@ async function handleFetchRpc(
   }
 }
 
+/** Validate one plan-compact payload; returns the request or an error string. */
+function planCompactRequest(payload: unknown): { ok: true; request: { sessionId: string; provider: string; model: string } } | { ok: false; message: string } {
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return { ok: false, message: 'Expected an object payload' }
+  const { sessionId, provider, model } = payload as { sessionId?: unknown; provider?: unknown; model?: unknown }
+  if (typeof sessionId !== 'string' || sessionId.length === 0
+    || typeof provider !== 'string' || provider.length === 0
+    || typeof model !== 'string' || model.length === 0) {
+    return { ok: false, message: 'Expected sessionId, provider, and model strings' }
+  }
+  return { ok: true, request: { sessionId, provider, model } }
+}
+
 /** Bounded long-poll on the existing registry; each caller owns and disposes its subscription. */
-export function capabilitiesRpc(registry: ModelSwitchAdapterRegistry, snapshot: () => RuntimeCapabilities, lifetime: AbortSignal): ConnectionRpcHandler {
+export function capabilitiesRpc(registry: ModelSwitchAdapterRegistry, snapshot: () => RuntimeCapabilities, lifetime: AbortSignal, planCompact?: PlanCompactRunner): ConnectionRpcHandler {
   let revision = 0
   let previous: string | undefined
   const read = (): CapabilitiesSnapshot => {
@@ -66,6 +79,20 @@ export function capabilitiesRpc(registry: ModelSwitchAdapterRegistry, snapshot: 
     return { revision, capabilities }
   }
   return async (endpoint, payload, signal) => {
+    if (endpoint === 'plan-compact') {
+      if (planCompact === undefined) {
+        return { ok: false, error: { details: {}, code: 'unavailable', message: 'Plan compaction is not mounted on this Host' } }
+      }
+      const request = planCompactRequest(payload)
+      if (!request.ok) return { ok: false, error: { details: {}, code: 'invalid-request', message: request.message } }
+      try {
+        // Every verdict travels as a value: the card distinguishes "may proceed"
+        // from "keep the Plan pending" by status, never by transport failure.
+        return { ok: true, value: await planCompact(request.request, signal) }
+      } catch (cause) {
+        return { ok: true, value: { status: 'error', message: cause instanceof Error ? cause.message : String(cause) } }
+      }
+    }
     if (endpoint !== 'capabilities') return { ok: false, error: { details: {}, code: 'unknown-endpoint', message: 'Unknown Model Switch endpoint' } }
     if (payload === null || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).some(key => key !== 'revision')) return { ok: false, error: { details: {}, code: 'invalid-request', message: 'Expected optional revision' } }
     const requested = (payload as { revision?: unknown }).revision
@@ -83,10 +110,10 @@ export function capabilitiesRpc(registry: ModelSwitchAdapterRegistry, snapshot: 
   }
 }
 
-export function installCapabilitiesRpc(ctx: Context, registry: ModelSwitchAdapterRegistry, snapshot: () => RuntimeCapabilities): void {
+export function installCapabilitiesRpc(ctx: Context, registry: ModelSwitchAdapterRegistry, snapshot: () => RuntimeCapabilities, planCompact?: PlanCompactRunner): void {
   ctx.inject(['connection'], scope => scope.effect(() => {
     const lifetime = new AbortController()
-    const handler = capabilitiesRpc(registry, snapshot, lifetime.signal)
+    const handler = capabilitiesRpc(registry, snapshot, lifetime.signal, planCompact)
     const dispose = scope.connection.fetch.register({
       path: '/api/plugin-rpc/model-switch',
       methods: ['POST'],

@@ -12,6 +12,12 @@ export interface ModelSwitchSettings {
     imageProvider?: string;
     imageModel?: string;
     compactOnSwitch: boolean;
+    /** Reviewer provider for the Auto preset; both fields unset = follow the session model. */
+    autoReviewProvider?: string;
+    /** Reviewer model for the Auto preset; set together with `autoReviewProvider`. */
+    autoReviewModel?: string;
+    /** Plan-exit compaction threshold in tokens; 0 disables the mechanism. */
+    planCompactThreshold: number;
 }
 /** Loader-owned references; every field is directly editable in the profile form. */
 export interface Config {
@@ -24,6 +30,9 @@ export interface Config {
     imageProvider: Volatile<string | undefined>;
     imageModel: Volatile<string | undefined>;
     compactOnSwitch: Volatile<boolean>;
+    autoReviewProvider: Volatile<string | undefined>;
+    autoReviewModel: Volatile<string | undefined>;
+    planCompactThreshold: Volatile<number>;
 }
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     subagentMode: z<"follow-main" | "fixed", "follow-main" | "fixed", "volatile-defined">;
@@ -35,6 +44,9 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     imageProvider: z<string, string, "volatile">;
     imageModel: z<string, string, "volatile">;
     compactOnSwitch: z<boolean, boolean, "volatile-defined">;
+    autoReviewProvider: z<string, string, "volatile">;
+    autoReviewModel: z<string, string, "volatile">;
+    planCompactThreshold: z<number, number, "volatile-defined">;
 }>>, Schemastery.ObjectT<NoInfer<{
     subagentMode: z<"follow-main" | "fixed", "follow-main" | "fixed", "volatile-defined">;
     subagentProvider: z<string, string, "volatile">;
@@ -45,5 +57,8 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     imageProvider: z<string, string, "volatile">;
     imageModel: z<string, string, "volatile">;
     compactOnSwitch: z<boolean, boolean, "volatile-defined">;
+    autoReviewProvider: z<string, string, "volatile">;
+    autoReviewModel: z<string, string, "volatile">;
+    planCompactThreshold: z<number, number, "volatile-defined">;
 }>>, "plain">;
 export declare function readConfig(config: Config): ModelSwitchSettings;

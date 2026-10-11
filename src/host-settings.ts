@@ -14,6 +14,12 @@ export interface ModelSwitchSettings {
   imageProvider?: string
   imageModel?: string
   compactOnSwitch: boolean
+  /** Reviewer provider for the Auto preset; both fields unset = follow the session model. */
+  autoReviewProvider?: string
+  /** Reviewer model for the Auto preset; set together with `autoReviewProvider`. */
+  autoReviewModel?: string
+  /** Plan-exit compaction threshold in tokens; 0 disables the mechanism. */
+  planCompactThreshold: number
 }
 
 /** Loader-owned references; every field is directly editable in the profile form. */
@@ -27,6 +33,9 @@ export interface Config {
   imageProvider: Volatile<string | undefined>
   imageModel: Volatile<string | undefined>
   compactOnSwitch: Volatile<boolean>
+  autoReviewProvider: Volatile<string | undefined>
+  autoReviewModel: Volatile<string | undefined>
+  planCompactThreshold: Volatile<number>
 }
 
 export const Config = z.object({
@@ -39,6 +48,11 @@ export const Config = z.object({
   imageProvider: z.string().volatile(),
   imageModel: z.string().volatile(),
   compactOnSwitch: z.boolean().default(true).volatile(),
+  autoReviewProvider: z.string().volatile(),
+  autoReviewModel: z.string().volatile(),
+  // Schemastery exposes no numeric validators; the runner treats any value
+  // below 1 or not finite as "disabled", and the Settings UI rejects negatives.
+  planCompactThreshold: z.number().default(200_000).volatile(),
 })
 
 export function readConfig(config: Config): ModelSwitchSettings {
@@ -49,6 +63,8 @@ export function readConfig(config: Config): ModelSwitchSettings {
   const searchModel = config.searchModel.get()
   const imageProvider = config.imageProvider.get()
   const imageModel = config.imageModel.get()
+  const autoReviewProvider = config.autoReviewProvider.get()
+  const autoReviewModel = config.autoReviewModel.get()
   return {
     subagentMode: config.subagentMode.get(),
     ...(subagentProvider === undefined ? {} : { subagentProvider }),
@@ -59,5 +75,8 @@ export function readConfig(config: Config): ModelSwitchSettings {
     ...(imageProvider === undefined ? {} : { imageProvider }),
     ...(imageModel === undefined ? {} : { imageModel }),
     compactOnSwitch: config.compactOnSwitch.get(),
+    ...(autoReviewProvider === undefined || autoReviewProvider === '' ? {} : { autoReviewProvider }),
+    ...(autoReviewModel === undefined || autoReviewModel === '' ? {} : { autoReviewModel }),
+    planCompactThreshold: config.planCompactThreshold.get(),
   }
 }

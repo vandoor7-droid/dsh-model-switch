@@ -12,6 +12,7 @@ import { installCapabilitiesRpc } from './capabilities-rpc.js'
 import { installDeepSeekSearchAdapter } from './deepseek-search-adapter.js'
 import { allowDshRuntime } from './compatibility.js'
 import { installSwitchCompaction } from './switch-compact.js'
+import { planCompactRunner } from './plan-compact.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { modelSwitch: ModelSwitchRuntime }
@@ -39,7 +40,7 @@ export class ModelSwitchRuntime extends Service {
     installSwitchCompaction(ctx, () => this.source(), provider => this.adapters.get(provider)?.role)
     installDeepSeekSearchAdapter(ctx)
     installModelSwitchSearchProvider(ctx, this)
-    installCapabilitiesRpc(ctx, this.adapters, () => this.capabilities)
+    installCapabilitiesRpc(ctx, this.adapters, () => this.capabilities, planCompactRunner(ctx, () => this.source()))
     const imageTool = installGenerateImageTool(ctx, this)
     ctx.on('loader/volatile-update', () => {
       void imageTool.reconcile().catch(error => {

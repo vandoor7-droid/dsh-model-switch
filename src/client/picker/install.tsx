@@ -13,13 +13,16 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { MAIN_DEFAULT_CONFIG_ID, PROVIDERS_CONFIG_ID, type MainSettingsView } from '../../client-contract.ts'
 import { selectPlanReview, type PlanCommitOutcome } from '../../picker/plan-review.ts'
 import type { GoalRemote } from '../../picker/plan-goal.ts'
+import { isPlanCompactOutcome, type PlanCompactOutcome } from '../../picker/plan-compact.ts'
 import { ComposerPicker } from './ComposerPicker.tsx'
+import { createPlanPreviewBinding, type PlanPreviewBinding } from './plan-preview.ts'
 import type { ProviderOrderSettings } from 'dsh-llm-providers-ui/order'
 import { pickerDirectoryViewOrdered, type PickerDirectoryFace } from './PickerDirectory.ts'
 import { restoreMainDefault } from './main-default-restore.ts'
 import type { PickerInteractionOperations } from './popup-dismissal.ts'
 import { mainDefaultsUnavailableReason, PlanReviewCard, ProviderLockHint } from './PlanReviewCard.tsx'
 import { PickerSeatBoundary } from './PickerSeatBoundary.tsx'
+import { callPluginRpc, type PluginRpcClient } from '../plugin-rpc.ts'
 import {
   agentProviderLocked,
   createProviderLockStore,
@@ -56,6 +59,33 @@ function interactionOperationsFrom(ctx: ClientContext): PickerInteractionOperati
 }
 
 const EMPTY_ORDER: readonly string[] = []
+
+/**
+ * Ask the Host to compact this session before a switched approval executes.
+ *
+ * An absent connection degrades to `skipped` (with a console note): the
+ * mechanism protects against long-context timeouts, it must not brick plan
+ * approvals in environments that expose no Host RPC at all.
+ * @param rpcOf - resolves the live connection RPC.
+ * @returns The card-facing runner bound to this seat's connection.
+ */
+function planCompactFrom(rpcOf: () => PluginRpcClient | undefined) {
+  return async (sessionId: string, provider: string, model: string): Promise<PlanCompactOutcome> => {
+    const rpc = rpcOf()
+    if (rpc === undefined) {
+      console.warn('dsh-model-switch: Host RPC unavailable; executing the Plan without a compaction check')
+      return { status: 'skipped' }
+    }
+    try {
+      const response = await callPluginRpc(rpc, 'plugin-rpc/model-switch', 'plan-compact', { sessionId, provider, model })
+      if (!response.ok) return { status: 'error', message: 'the Host rejected the plan compaction request' }
+      if (!isPlanCompactOutcome(response.value)) return { status: 'error', message: 'the Host returned an unreadable plan compaction verdict' }
+      return response.value
+    } catch (cause) {
+      return { status: 'error', message: cause instanceof Error ? cause.message : String(cause) }
+    }
+  }
+}
 
 /**
  * Resolve the released goal remote without hard-depending on it.
@@ -119,6 +149,10 @@ interface DirectoryFace extends PickerDirectoryFace {
   getMainDefaultsSnapshot: () => ConfigFormSnapshot<MainSettingsView>
   /** Released goal remote; absent when this deployment mounts no goal service. */
   goalRemote: () => GoalRemote | undefined
+  /** Full-plan sidebar navigation (ui-plan's registered opener). */
+  planPreview: PlanPreviewBinding
+  /** Host-backed pre-execution compaction for a switched approval. */
+  planCompact: (sessionId: string, provider: string, model: string) => Promise<PlanCompactOutcome>
   /** Resolve a provider key to its ProviderDirectory role for runtime icons. */
   roleOf?: (key: string) => string | undefined
   /** Live catalog-group-id → card-key map from ProviderDirectory. */
@@ -208,6 +242,8 @@ export function installComposerPicker(ctx: ClientContext): void {
       })
     })
     const resolveInteractionOperations = (): PickerInteractionOperations | undefined => interactionOperationsFrom(scope)
+    // ui-plan owns the review-preview address; the takeover card drives its opener.
+    const planPreview = createPlanPreviewBinding(scope.slots)
     type SessionRpc = Parameters<typeof fetchSessionBinding>[0]
     const rpcOf = (): SessionRpc => {
       const connection = scope.get('connection', false) as { rpc?: SessionRpc } | undefined
@@ -233,6 +269,8 @@ export function installComposerPicker(ctx: ClientContext): void {
         subscribeMainDefaults: listener => mainDefaults.subscribe(listener),
         getMainDefaultsSnapshot: () => mainDefaults.getSnapshot(),
         goalRemote: () => goalRemoteFrom(scope),
+        planPreview,
+        planCompact: planCompactFrom(rpcOf),
         hooks: { directory: directory.store, providerOrder: orderStore },
         getDirectorySnapshot: directory.store.getSnapshot,
         resolveInteractionOperations,

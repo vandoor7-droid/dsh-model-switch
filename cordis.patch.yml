@@ -9,6 +9,14 @@
   name: '@deepseek-ai/dsh-subagent'
   disabled: true
 
+# The official Auto reviewer hardwires the session route; Model Switch replaces
+# it with its own row so the reviewer model stays configurable (one registerAuto
+# per context). A profile that never enabled the optional bundle has no such
+# row: the non-insert target is then unknown and skipped with a warning.
+- id: auto-review
+  name: '@deepseek-ai/dsh-experimental-auto-review'
+  disabled: true
+
 - insert:
     # Register Model Switch Host Settings/Main runtime before routed Subagents.
     - id: model-switch
@@ -16,3 +24,7 @@
 
     - id: model-switch-subagent-runtime
       name: 'dsh-model-switch/subagent-runtime'
+
+    # The official auto-review gate under the reviewer-route llm scope.
+    - id: model-switch-auto-review
+      name: 'dsh-model-switch/auto-review'

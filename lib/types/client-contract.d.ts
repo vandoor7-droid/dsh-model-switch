@@ -19,6 +19,10 @@ export interface ModelSwitchSettingsView {
     imageProvider?: string;
     imageModel?: string;
     compactOnSwitch?: boolean;
+    autoReviewProvider?: string;
+    autoReviewModel?: string;
+    /** Plan-exit compaction threshold in tokens; absent = the shipped default. */
+    planCompactThreshold?: number;
 }
 export interface SubagentSettingsView {
     mode: 'follow-main' | 'fixed';
@@ -46,6 +50,14 @@ export declare const IMAGE_SETTINGS_FIELDS: Readonly<{
     readonly provider: "imageProvider";
     readonly model: "imageModel";
 }>;
+/** Auto-preset reviewer route; both unset means the reviewer follows the session model. */
+export declare const AUTO_REVIEW_SETTINGS_FIELDS: Readonly<{
+    readonly provider: "autoReviewProvider";
+    readonly model: "autoReviewModel";
+}>;
 export declare function deriveSubagentSettings(settings: ModelSwitchSettingsView): SubagentSettingsView;
 export declare function deriveSearchSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 export declare function deriveImageSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
+export declare function deriveAutoReviewSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
+/** Whether both reviewer fields form a complete route; an incomplete pair still follows the session model. */
+export declare function autoReviewRouteConfigured(route: CapabilityRouteView | undefined): boolean;

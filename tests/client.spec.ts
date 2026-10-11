@@ -6,6 +6,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => {
   const Stub = () => null
   return {
     Button: Stub, Input: Stub, Toast: Stub, MarkdownText: Stub,
+    extractMarkdownPlainText: Stub,
     IconCheckOutlineRegular: Stub, IconChevronDownOutlineRegular: Stub, IconChevronLeftOutlineRegular: Stub,
     IconChevronRightOutlineRegular: Stub, IconCloseOutlineRegular: Stub, IconSearchOutlineRegular: Stub, IconWarningOutlineRegular: Stub,
   }

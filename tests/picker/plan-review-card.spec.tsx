@@ -8,6 +8,13 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   Button: ({ children, icon, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { icon?: React.ReactNode }) => <button {...props}>{icon}{children}</button>,
   MarkdownText: ({ text }: { text: string }) => <span>{text}</span>,
   IconEditOutlineRegular: () => <span data-icon-edit />,
+  extractMarkdownPlainText: (markdown: string, options?: { mode?: string }): string => {
+    const blocks = markdown.split(/\r?\n\r?\n/u).map(block => block.trim()).filter(block => block !== '')
+    const firstLine = (blocks[0] ?? '').split(/\r?\n/u)[0]!.replace(/^#{1,6}\s+/u, '').trim()
+    if (options?.mode === 'first-line') return firstLine
+    const paragraph = blocks.find(block => !/^#{1,6}\s/u.test(block))
+    return (paragraph ?? firstLine).replace(/^#{1,6}\s+/u, '').replace(/\s+/gu, ' ').trim()
+  },
 }))
 vi.mock('../../src/client/picker/ComposerPicker.tsx', () => ({
   ComposerPicker: (props: { tone?: string; embedded?: boolean }) => {
@@ -88,12 +95,25 @@ function props(overrides: Record<string, unknown> = {}) {
     load: () => undefined,
     select: vi.fn(async () => COMMITTED),
     goalRemote: () => acceptingGoalRemote(),
+    // Default bench: the Host compaction check answers "nothing to do".
+    planCompact: vi.fn(async () => ({ status: 'skipped' as const })),
+    // Default bench has no ui-plan opener registered; preview cases override.
+    planPreview: { available: () => false, open: () => false, autoOpen: () => () => undefined },
     t: (key: string, params?: Record<string, string>) => params?.message === undefined ? key : `${key}: ${params.message}`,
     ...overrides,
   }
 }
 function chooseExecution(card: ReturnType<typeof create>) {
   card.root.findByType(ComposerPicker).props.onDraftChange(executionSelection)
+}
+
+/** Plain rendered text of one subtree (fiber-safe, unlike JSON.stringify). */
+function textContent(node: { children: ReadonlyArray<unknown> }): string {
+  return node.children.map(child => {
+    if (typeof child === 'string') return child
+    if (child === null || typeof child !== 'object') return ''
+    return textContent(child as { children: ReadonlyArray<unknown> })
+  }).join('')
 }
 
 function approve(card: ReturnType<typeof create>, label = 'plan.approve') {
@@ -583,5 +603,139 @@ describe('PlanReviewCard', () => {
     expect(goalButton.props.title).toBe(zh['plan.goalUnsupported'])
     // The other actions keep working without the goal service.
     expect(approve(card, zh['plan.approve']).props.disabled).toBe(false)
+  })
+
+  it('shows only the official summary and drives the full-plan sidebar preview', async () => {
+    const open = vi.fn(() => true)
+    const stopAutoOpen = vi.fn()
+    const autoOpen = vi.fn(() => stopAutoOpen)
+    const matched = {
+      ...wait(),
+      questions: [{
+        ...wait().questions[0]!,
+        detail: '# Shipping the parser\n\nFirst paragraph of the plan.\n\n- a detail line only the sidebar should show',
+      }],
+    }
+    const fixture = props({
+      matched: matched as never,
+      planPreview: { available: () => true, open, autoOpen },
+      t: locale(en),
+    })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+
+    // The card body carries the two-part summary, never the whole document.
+    const summary = card.root.findByProps({ 'data-plan-review-summary': true })
+    expect(summary.children.join('')).toBe('Shipping the parser')
+    const rendered = textContent(card.root)
+    expect(rendered).toContain('First paragraph of the plan.')
+    expect(rendered).not.toContain('a detail line only the sidebar should show')
+
+    // Mounting auto-opens the sidebar preview exactly once, with this request's identity.
+    expect(autoOpen).toHaveBeenCalledExactlyOnceWith('session-1', expect.objectContaining({ plan: expect.any(String) }), 'plan-1')
+
+    const preview = card.root.findByProps({ 'data-plan-preview-open': true })
+    expect(preview.children.join('')).toBe(en['plan.openFull'])
+    await actClick(() => preview.props.onClick())
+    expect(open).toHaveBeenCalledExactlyOnceWith('session-1', expect.objectContaining({ id: 'approve-plan' }), 'plan-1')
+
+    await act(async () => { card.unmount() })
+    expect(stopAutoOpen).toHaveBeenCalledOnce()
+  })
+
+  it('hides the preview action when no opener entry is registered', async () => {
+    const fixture = props({ t: locale(en) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+    expect(card.root.findAllByProps({ 'data-plan-preview-open': true })).toHaveLength(0)
+  })
+
+  it('compacts a switched approval before committing the model and answering', async () => {
+    const answer = vi.fn(async () => undefined)
+    const select = vi.fn(async () => COMMITTED)
+    const planCompact = vi.fn(async () => ({ status: 'skipped' as const }))
+    const fixture = props({ matched: wait(answer), planCompact, select, t: locale(en) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+    await actClick(() => { chooseExecution(card) })
+    await actClick(() => approve(card, en['plan.approve']).props.onClick())
+
+    expect(planCompact).toHaveBeenCalledExactlyOnceWith('session-1', 'codex', 'gpt-5.6-luna')
+    expect(answer).toHaveBeenCalledOnce()
+    // compact → commit the switched model → answer, in that order.
+    expect(planCompact.mock.invocationCallOrder[0]).toBeLessThan(select.mock.invocationCallOrder[0]!)
+    expect(select.mock.invocationCallOrder[0]).toBeLessThan(answer.mock.invocationCallOrder[0]!)
+    await act(async () => { card.unmount() })
+  })
+
+  it('never asks for compaction when the approval keeps the model', async () => {
+    const answer = vi.fn(async () => undefined)
+    const planCompact = vi.fn(async () => ({ status: 'compacted' as const }))
+    const fixture = props({ matched: wait(answer), planCompact, t: locale(en) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+    await actClick(() => approve(card, en['plan.approve']).props.onClick())
+
+    expect(planCompact).not.toHaveBeenCalled()
+    expect(answer).toHaveBeenCalledOnce()
+    await act(async () => { card.unmount() })
+  })
+
+  it('keeps the Plan pending and retryable when compaction fails', async () => {
+    const answer = vi.fn(async () => undefined)
+    const select = vi.fn(async () => COMMITTED)
+    const planCompact = vi.fn(async () => ({ status: 'error' as const, message: 'summary rejected' }))
+    const fixture = props({ matched: wait(answer), planCompact, select, t: locale(en) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+    await actClick(() => { chooseExecution(card) })
+    await actClick(() => approve(card, en['plan.approve']).props.onClick())
+
+    expect(planCompact).toHaveBeenCalledOnce()
+    expect(select).not.toHaveBeenCalled()
+    expect(answer).not.toHaveBeenCalled()
+    const status = card.root.findAllByProps({ role: 'status' }).map(node => node.children.join('')).join('|')
+    expect(status).toContain(en['plan.compactFailed'].replace('{message}', 'summary rejected'))
+    // A refusal is a plain failure: the approval stays available for a retry.
+    expect(approve(card, en['plan.approve']).props.disabled).toBe(false)
+    await act(async () => { card.unmount() })
+  })
+
+  it('proceeds when nothing was compactable', async () => {
+    const answer = vi.fn(async () => undefined)
+    const planCompact = vi.fn(async () => ({ status: 'empty' as const }))
+    const fixture = props({ matched: wait(answer), planCompact, t: locale(en) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+    await actClick(() => { chooseExecution(card) })
+    await actClick(() => approve(card, en['plan.approve']).props.onClick())
+    expect(answer).toHaveBeenCalledOnce()
+    const status = card.root.findAllByProps({ role: 'status' }).map(node => node.children.join('')).join('|')
+    expect(status).toContain(en['plan.compactEmpty'])
+    await act(async () => { card.unmount() })
+  })
+
+  it('compacts before arming the goal on the goal path', async () => {
+    const answer = vi.fn(async () => undefined)
+    const goalCreate = vi.fn(async () => ({ ok: true, value: { ref: { id: 'goal-1', revision: 1 } } }))
+    const planCompact = vi.fn(async () => ({ status: 'skipped' as const }))
+    const fixture = props({
+      matched: wait(answer),
+      planCompact,
+      goalRemote: () => ({ create: goalCreate, get: acceptingGoalRemote().get, clear: acceptingGoalRemote().clear }),
+      t: locale(zh),
+    })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+    await actClick(() => { chooseExecution(card) })
+    await actClick(() => card.root.findAllByType('button').find(button => button.children.includes(zh['plan.goalRun']))!.props.onClick())
+
+    expect(planCompact).toHaveBeenCalledExactlyOnceWith('session-1', 'codex', 'gpt-5.6-luna')
+    expect(goalCreate).toHaveBeenCalledOnce()
+    expect(answer).toHaveBeenCalledOnce()
+    // compact → arm the goal → answer.
+    expect(planCompact.mock.invocationCallOrder[0]).toBeLessThan(goalCreate.mock.invocationCallOrder[0]!)
+    expect(goalCreate.mock.invocationCallOrder[0]).toBeLessThan(answer.mock.invocationCallOrder[0]!)
+    await act(async () => { card.unmount() })
   })
 })

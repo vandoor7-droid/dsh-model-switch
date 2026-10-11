@@ -45,6 +45,7 @@ function faceProps(loadCapabilities: unknown) {
   const searchSettings = snapshot({ provider: 'codex', model: 'gpt-search' })
   const imageSettings = snapshot({ provider: 'grok', model: 'grok-imagine-image-quality' })
   const switchSettings = snapshot({ compactOnSwitch: true })
+  const autoReviewSettings = snapshot({})
   return {
     t: (key: string) => key,
     capabilities: {
@@ -54,6 +55,7 @@ function faceProps(loadCapabilities: unknown) {
     },
     useSearchSettings: (selector: (value: unknown) => unknown) => selector(searchSettings),
     useImageSettings: (selector: (value: unknown) => unknown) => selector(imageSettings),
+    useAutoReviewSettings: (selector: (value: unknown) => unknown) => selector(autoReviewSettings),
     useSwitchSettings: (selector: (value: unknown) => unknown) => selector(switchSettings),
     setSubagent: vi.fn(),
     setCapability: vi.fn(),

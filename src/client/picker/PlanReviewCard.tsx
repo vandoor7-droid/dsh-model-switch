@@ -1,16 +1,18 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { PendingQuestion, PlanReview } from '@deepseek-ai/dsh-client-ui-user-questions/client'
 import type { ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { MainSettingsView } from '../../client-contract.ts'
-import { Button, IconEditOutlineRegular, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconEditOutlineRegular, extractMarkdownPlainText } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   PlanApprovalResponseError, approvePlanReview, planActionView, planReviewOf, settlePlanAction,
 } from '../../picker/plan-review.ts'
 import { PlanDismissalUnsupportedError, dismissPendingQuestion } from '../../picker/pending-dismissal.ts'
 import { setPlanAsGoal, type GoalRemote } from '../../picker/plan-goal.ts'
+import type { PlanCompactOutcome } from '../../picker/plan-compact.ts'
 import { ComposerPicker } from './ComposerPicker.tsx'
+import type { PlanPreviewBinding } from './plan-preview.ts'
 import { pickerDirectoryViewOrdered, type PickerDirectoryFace, type PickerDirectoryView } from './PickerDirectory.ts'
 import type { PickerInteractionOperations } from './popup-dismissal.ts'
 import { RetryBoundary } from './RetryBoundary.tsx'
@@ -53,6 +55,10 @@ export interface PlanReviewFace extends PickerDirectoryFace {
   getMainDefaultsSnapshot: () => ConfigFormSnapshot<MainSettingsView>
   /** Released goal remote; absent when this deployment mounts no goal service. */
   goalRemote: () => GoalRemote | undefined
+  /** Full-plan sidebar navigation (ui-plan's registered opener). */
+  planPreview: PlanPreviewBinding
+  /** Host-backed pre-execution compaction; absent seams degrade to no compaction. */
+  planCompact?: (sessionId: string, provider: string, model: string) => Promise<PlanCompactOutcome>
   /** Live catalog-group-id → card-key map from ProviderDirectory. */
   catalogRoutes?: () => Readonly<Record<string, string>>
 }
@@ -120,6 +126,8 @@ interface PlanReviewStateProps {
   directory: PickerDirectoryView
   t: PlanReviewCardProps['t']
   goalRemote: () => GoalRemote | undefined
+  planPreview: PlanPreviewBinding
+  planCompact?: (sessionId: string, provider: string, model: string) => Promise<PlanCompactOutcome>
   resolveInteractionOperations?: () => PickerInteractionOperations | undefined
   /** Resolve a provider key to its ProviderDirectory role for runtime icons. */
   roleOf?: (providerKey: string) => string | undefined
@@ -183,13 +191,15 @@ export function PlanReviewCard(props: PlanReviewCardProps) {
     directory={pickerDirectoryViewOrdered(snapshot, props, order, props.catalogRoutes?.() ?? {})}
     t={props.t}
     goalRemote={props.goalRemote}
+    planPreview={props.planPreview}
+    {...(props.planCompact === undefined ? {} : { planCompact: props.planCompact })}
     {...props.resolveInteractionOperations === undefined ? {} : { resolveInteractionOperations: props.resolveInteractionOperations }}
     {...props.roleOf === undefined ? {} : { roleOf: props.roleOf }}
   />
 }
 
 function PlanReviewState({
-  matched, review, available, providerLock, agentLocked, lockFailed, settingsUnavailableReason, directory, t, goalRemote, resolveInteractionOperations, roleOf,
+  matched, review, available, providerLock, agentLocked, lockFailed, settingsUnavailableReason, directory, t, goalRemote, planPreview, planCompact, resolveInteractionOperations, roleOf,
 }: PlanReviewStateProps) {
   const { snapshot, getDirectorySnapshot, load, select } = directory
   const [execution, setExecution] = useState<ModelSelection | undefined>(snapshot.current ?? undefined)
@@ -204,6 +214,22 @@ function PlanReviewState({
   useEffect(() => {
     if (execution === undefined && snapshot.current !== null) setExecution(snapshot.current)
   }, [execution, snapshot.current])
+
+  /**
+   * The takeover hides the official panel, so this card drives ui-plan's
+   * registered opener: the full plan opens in the right sidebar as soon as a
+   * Session is on screen (identity-deduped inside the binding).
+   */
+  useEffect(
+    () => planPreview.autoOpen(matched.sessionId, review, matched.key),
+    [planPreview, matched.sessionId, matched.key, review],
+  )
+  /** Official two-part summary: first line as title, first paragraph as body. */
+  const summary = useMemo(() => {
+    const title = extractMarkdownPlainText(review.plan, { mode: 'first-line' })
+    const description = extractMarkdownPlainText(review.plan, { mode: 'first-paragraph' })
+    return { title, description: description === title ? '' : description }
+  }, [review.plan])
 
   /**
    * Run one takeover action. `force` reaches past a terminal answer state: the
@@ -267,9 +293,45 @@ function PlanReviewState({
     }
   }
 
+  /**
+   * Compact the history before a switched approval commits anything.
+   *
+   * Only an approval that changes provider/model triggers the Host check —
+   * effort-only changes and same-model approvals execute untouched. A failed
+   * compaction keeps the Plan pending and retryable; `empty` announces that
+   * nothing safe could be reduced and execution proceeds.
+   */
+  const compactBeforeRun = async (): Promise<void> => {
+    if (execution === undefined) return
+    const current = snapshot.current
+    const switched = current === null || current === undefined
+      || current.provider !== execution.provider || current.model !== execution.model
+    if (!switched) return
+    if (planCompact === undefined) {
+      console.warn('dsh-model-switch: plan compaction seam absent; executing the switched Plan without it')
+      return
+    }
+    setNotice(t('plan.compacting', { model: execution.model }))
+    let outcome: PlanCompactOutcome
+    try {
+      outcome = await planCompact(matched.sessionId, execution.provider, execution.model)
+    } catch (cause) {
+      throw new Error(t('plan.compactFailed', { message: cause instanceof Error ? cause.message : String(cause) }))
+    }
+    if (outcome.status === 'error') {
+      throw new Error(t('plan.compactFailed', { message: outcome.message ?? 'unknown failure' }))
+    }
+    setNotice(outcome.status === 'empty' ? t('plan.compactEmpty')
+      : outcome.status === 'compacted' ? t('plan.compacted')
+        : null)
+  }
+
   const onApprove = (): void => {
     if (execution === undefined || !executionAllowed || !available || busy || blocked) return
-    settle(() => approveWith(execution))
+    settle(async () => {
+      await compactBeforeRun()
+      await approveWith(execution)
+    })
   }
 
   // Resolved per render so a deployment without the goal service reports an
@@ -286,6 +348,7 @@ function PlanReviewState({
   const onRunAsGoal = (): void => {
     if (execution === undefined || !executionAllowed || !available || busy || blocked || goal === undefined) return
     settle(async () => {
+      await compactBeforeRun()
       const handoff = await setPlanAsGoal(goal, matched.sessionId, review.plan)
       if (handoff.kind === 'unsupported') throw new Error(t('plan.goalUnsupported'))
       if (handoff.kind === 'failed') {
@@ -306,6 +369,16 @@ function PlanReviewState({
         <div className={css.strip}>
           <span className={css.dot} />
           <span className={css.stripTitle}>{t('plan.header')}</span>
+          {planPreview.available() && (
+            <button
+              type="button"
+              className={css.previewLink}
+              data-plan-preview-open
+              onClick={() => { planPreview.open(matched.sessionId, review, matched.key) }}
+            >
+              {t('plan.openFull')}
+            </button>
+          )}
           <div
             className={css.headerPicker}
             aria-label={t('plan.execution')}
@@ -334,7 +407,10 @@ function PlanReviewState({
           </div>
         </div>
         <div className={css.body} data-plan-review-scroll>
-          <MarkdownText text={review.plan} labels={{ code: { copyLabel: t('markdown.copy'), copiedLabel: t('markdown.copied') }, footnotes: t('markdown.footnotes') }} />
+          <div className={css.summary}>
+            <h3 className={css.summaryTitle} data-plan-review-summary>{summary.title}</h3>
+            {summary.description !== '' && <p className={css.summaryText}>{summary.description}</p>}
+          </div>
         </div>
         <div className={css.footer}>
           <div className={css.feedback} role="status">{action.error ?? notice ?? (settingsBlock ? settingsUnavailableReason : null)}</div>

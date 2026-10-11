@@ -8,6 +8,7 @@ it('preserves existing global search and custom fetch pins through real patch co
   const entries = [
     { id: 'web', name: '@deepseek-ai/dsh-web', config: { searchProvider: 'previous-search', fetchProvider: 'custom-fetch' } },
     { id: 'subagent', name: '@deepseek-ai/dsh-subagent' },
+    { id: 'auto-review', name: '@deepseek-ai/dsh-experimental-auto-review' },
   ]
   const composed = applyEntryPatches(entries, patch, message => { throw new Error(message) })
   expect(composed.find(entry => entry.id === 'web')?.config).toEqual({ searchProvider: 'previous-search', fetchProvider: 'custom-fetch' })

@@ -3,6 +3,8 @@ import type { ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/cli
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import type { MainSettingsView } from '../../client-contract.ts';
 import { type GoalRemote } from '../../picker/plan-goal.ts';
+import type { PlanCompactOutcome } from '../../picker/plan-compact.ts';
+import type { PlanPreviewBinding } from './plan-preview.ts';
 import { type PickerDirectoryFace } from './PickerDirectory.ts';
 import type { PickerInteractionOperations } from './popup-dismissal.ts';
 import { type RuntimeProviderLock } from '../runtime-lock.ts';
@@ -25,6 +27,10 @@ export interface PlanReviewFace extends PickerDirectoryFace {
     getMainDefaultsSnapshot: () => ConfigFormSnapshot<MainSettingsView>;
     /** Released goal remote; absent when this deployment mounts no goal service. */
     goalRemote: () => GoalRemote | undefined;
+    /** Full-plan sidebar navigation (ui-plan's registered opener). */
+    planPreview: PlanPreviewBinding;
+    /** Host-backed pre-execution compaction; absent seams degrade to no compaction. */
+    planCompact?: (sessionId: string, provider: string, model: string) => Promise<PlanCompactOutcome>;
     /** Live catalog-group-id → card-key map from ProviderDirectory. */
     catalogRoutes?: () => Readonly<Record<string, string>>;
 }

@@ -22,6 +22,9 @@ export function planReviewOf(questions: readonly QuestionItem[]): PlanReview | u
     id: question.id,
     question: question.question,
     plan: question.detail,
+    // Mirrors the official narrow so the sidebar opener can resolve a logged
+    // plan (callId) instead of the temporary review document.
+    ...(intent.callId === undefined ? {} : { callId: intent.callId }),
     approve,
     ...(decline === undefined ? {} : { decline }),
   }

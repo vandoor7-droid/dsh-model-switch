@@ -84,3 +84,44 @@ it('uses the authenticated Fetch path and accepts an omitted JSON payload field'
   await dispose?.()
   expect(unregister).toHaveBeenCalledOnce()
 })
+
+it('dispatches plan-compact payloads to the injected runner and back', async () => {
+  const registry = new ModelSwitchAdapterRegistry()
+  const lifetime = new AbortController()
+  const runner = vi.fn(async (request: { sessionId: string; provider: string; model: string }) => ({
+    status: 'compacted' as const,
+    threshold: 200_000,
+    estimate: 260_000 + request.sessionId.length,
+  }))
+  const rpc = capabilitiesRpc(registry, () => RUNTIME_CAPABILITIES, lifetime.signal, runner)
+
+  const ok = await rpc('plan-compact', { sessionId: 's1', provider: 'p2', model: 'm2' }, new AbortController().signal)
+  expect(ok).toMatchObject({ ok: true, value: { status: 'compacted', threshold: 200_000, estimate: 260_002 } })
+  expect(runner).toHaveBeenCalledExactlyOnceWith(
+    { sessionId: 's1', provider: 'p2', model: 'm2' },
+    expect.any(AbortSignal),
+  )
+
+  expect(await rpc('plan-compact', { sessionId: '', provider: 'p', model: 'm' }, new AbortController().signal))
+    .toMatchObject({ ok: false, error: { code: 'invalid-request' } })
+  expect(await rpc('plan-compact', { sessionId: 's' }, new AbortController().signal))
+    .toMatchObject({ ok: false, error: { code: 'invalid-request' } })
+  expect(await rpc('plan-compact', 'not-an-object', new AbortController().signal))
+    .toMatchObject({ ok: false, error: { code: 'invalid-request' } })
+  lifetime.abort()
+})
+
+it('reports a missing runner and folds thrown failures into an error verdict', async () => {
+  const registry = new ModelSwitchAdapterRegistry()
+  const lifetime = new AbortController()
+  const unmounted = capabilitiesRpc(registry, () => RUNTIME_CAPABILITIES, lifetime.signal)
+  expect(await unmounted('plan-compact', { sessionId: 's', provider: 'p', model: 'm' }, new AbortController().signal))
+    .toMatchObject({ ok: false, error: { code: 'unavailable' } })
+
+  const throwing = capabilitiesRpc(registry, () => RUNTIME_CAPABILITIES, lifetime.signal, async () => {
+    throw new Error('engine exploded')
+  })
+  expect(await throwing('plan-compact', { sessionId: 's', provider: 'p', model: 'm' }, new AbortController().signal))
+    .toMatchObject({ ok: true, value: { status: 'error', message: 'engine exploded' } })
+  lifetime.abort()
+})

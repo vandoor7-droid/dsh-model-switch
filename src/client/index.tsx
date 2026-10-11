@@ -6,7 +6,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { deriveImageSettings, deriveSearchSettings, deriveSubagentSettings, IMAGE_SETTINGS_FIELDS, MAIN_DEFAULT_CONFIG_ID, MODEL_SWITCH_CONFIG_ID, MainSettingsConflictError, PROVIDERS_CONFIG_ID, SEARCH_SETTINGS_FIELDS, SUBAGENT_SETTINGS_FIELDS, type MainSettingsView } from '../client-contract.js'
+import { AUTO_REVIEW_SETTINGS_FIELDS, deriveAutoReviewSettings, deriveImageSettings, deriveSearchSettings, deriveSubagentSettings, IMAGE_SETTINGS_FIELDS, MAIN_DEFAULT_CONFIG_ID, MODEL_SWITCH_CONFIG_ID, MainSettingsConflictError, PROVIDERS_CONFIG_ID, SEARCH_SETTINGS_FIELDS, SUBAGENT_SETTINGS_FIELDS, type MainSettingsView } from '../client-contract.js'
 import { deriveConfigForm } from './derived-config-form.js'
 import { RUNTIME_CAPABILITIES } from '../runtime-capabilities.js'
 import { decodeCapabilitiesSnapshot, type CapabilitiesSnapshot } from './search-capabilities.js'
@@ -43,6 +43,7 @@ export function apply(ctx: ClientContext): void {
   const subagent = deriveConfigForm(owned, deriveSubagentSettings, SUBAGENT_SETTINGS_FIELDS)
   const search = deriveConfigForm(owned, deriveSearchSettings, SEARCH_SETTINGS_FIELDS)
   const image = deriveConfigForm(owned, deriveImageSettings, IMAGE_SETTINGS_FIELDS)
+  const autoReview = deriveConfigForm(owned, deriveAutoReviewSettings, AUTO_REVIEW_SETTINGS_FIELDS)
   const saveMain = async (next: MainSettingsView, expectedRevision: number): Promise<number> => {
     const accepted = await mainForm.mutate([
       { op: 'set', path: ['provider'], value: next.provider },
@@ -85,7 +86,7 @@ export function apply(ctx: ClientContext): void {
   const subscribeProviderOrder = orderStore.subscribe
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'model-switch', order: 9, label: () => t('nav'), locale: localeNamespace,
-    inject: (): ModelSwitchSettingsFace => ({ t, hooks: { mainSettings: main, subagentSettings: subagent, searchSettings: search, imageSettings: image, switchSettings: owned }, capabilities: RUNTIME_CAPABILITIES, saveMain, setSubagent: (field, value) => value === undefined ? subagent.unset(field) : subagent.set(field, value), setCapability: (route, field, value) => { const scope = route === 'search' ? search : image; return value === undefined ? scope.unset(field) : scope.set(field, value) }, setCompactOnSwitch: async value => { if (!await owned.set('compactOnSwitch', value)) throw new Error('settings-rejected') }, providerRoleOf, loadCatalog: async () => {
+    inject: (): ModelSwitchSettingsFace => ({ t, hooks: { mainSettings: main, subagentSettings: subagent, searchSettings: search, imageSettings: image, autoReviewSettings: autoReview, switchSettings: owned }, capabilities: RUNTIME_CAPABILITIES, saveMain, setSubagent: (field, value) => value === undefined ? subagent.unset(field) : subagent.set(field, value), setCapability: (route, field, value) => { const scope = route === 'search' ? search : route === 'image' ? image : autoReview; return value === undefined ? scope.unset(field) : scope.set(field, value) }, setCompactOnSwitch: async value => { if (!await owned.set('compactOnSwitch', value)) throw new Error('settings-rejected') }, setPlanCompactThreshold: async value => { if (!Number.isInteger(value) || value < 0) throw new Error('settings-rejected'); if (!await owned.set('planCompactThreshold', value)) throw new Error('settings-rejected') }, providerRoleOf, loadCatalog: async () => {
       const response = await remote.session.modelCatalog()
       if (!response.ok || response.value === undefined) throw new Error(t('catalogFailed'))
       const enabled = await fetchAntigravityCatalogGroups(connectionRpc)

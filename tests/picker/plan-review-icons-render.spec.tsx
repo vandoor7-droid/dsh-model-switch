@@ -9,6 +9,13 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
   ),
   Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
   MarkdownText: ({ text }: { text: string }) => <span>{text}</span>,
+  extractMarkdownPlainText: (markdown: string, options?: { mode?: string }): string => {
+    const blocks = markdown.split(/\r?\n\r?\n/u).map(block => block.trim()).filter(block => block !== '')
+    const firstLine = (blocks[0] ?? '').split(/\r?\n/u)[0]!.replace(/^#{1,6}\s+/u, '').trim()
+    if (options?.mode === 'first-line') return firstLine
+    const paragraph = blocks.find(block => !/^#{1,6}\s/u.test(block))
+    return (paragraph ?? firstLine).replace(/^#{1,6}\s+/u, '').replace(/\s+/gu, ' ').trim()
+  },
   IconCheckOutlineRegular: () => <svg data-stub-icon="check" />,
   IconChevronDownOutlineRegular: () => <svg data-stub-icon="chevron-down" />,
   IconChevronLeftOutlineRegular: () => <svg data-stub-icon="chevron-left" />,
@@ -70,6 +77,8 @@ function propsFor(provider: string, roleOf?: (key: string) => string | undefined
     select: vi.fn(async () => true),
     // These cases only assert runtime icons; the goal service stays absent here.
     goalRemote: () => undefined,
+    // No ui-plan opener in this bench: the preview button stays hidden.
+    planPreview: { available: () => false, open: () => false, autoOpen: () => () => undefined },
     t: (key: string) => key,
     ...(roleOf === undefined ? {} : { roleOf }),
   }

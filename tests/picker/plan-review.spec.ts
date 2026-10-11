@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { PlanReview } from '../../src/picker/plan-review.ts'
 import { PlanApprovalResponseError, approvePlanReview, planActionView, planErrorText, planReviewOf, selectPlanReview, settlePlanAction } from '../../src/picker/plan-review.ts'
 
 const reviewQuestion = {
@@ -21,6 +22,16 @@ describe('plugin-owned Plan Review', () => {
     const generic = { ...pending, kind: 'question', questions: [{ id: 'q', question: 'Hi?' }] }
     expect(selectPlanReview({ pendingInteraction: generic } as never)).toBeNull()
     expect(selectPlanReview({ pendingInteraction: undefined } as never)).toBeNull()
+  })
+
+  it('passes the Host callId through so the sidebar can resolve the logged plan', () => {
+    const without = planReviewOf([reviewQuestion])
+    expect(without?.callId).toBeUndefined()
+    const withCall = planReviewOf([{
+      ...reviewQuestion,
+      intent: { ...reviewQuestion.intent, callId: 'tool-call-7' as PlanReview['callId'] },
+    }])
+    expect(withCall?.callId).toBe('tool-call-7')
   })
 
   it.each([

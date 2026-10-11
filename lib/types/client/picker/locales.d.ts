@@ -34,6 +34,7 @@ export declare const zh: {
     'choice.unavailable': string;
     'plan.kicker': string;
     'plan.header': string;
+    'plan.openFull': string;
     'plan.execution': string;
     'plan.approve': string;
     'plan.keep': string;
@@ -50,6 +51,10 @@ export declare const zh: {
     'plan.goalUnsupported': string;
     'plan.responseRejected': string;
     'plan.cancelRejected': string;
+    'plan.compacting': string;
+    'plan.compacted': string;
+    'plan.compactEmpty': string;
+    'plan.compactFailed': string;
     'markdown.copy': string;
     'markdown.copied': string;
     'markdown.footnotes': string;
@@ -90,6 +95,7 @@ export declare const en: {
     'choice.unavailable': string;
     'plan.kicker': string;
     'plan.header': string;
+    'plan.openFull': string;
     'plan.execution': string;
     'plan.approve': string;
     'plan.keep': string;
@@ -106,6 +112,10 @@ export declare const en: {
     'plan.goalUnsupported': string;
     'plan.responseRejected': string;
     'plan.cancelRejected': string;
+    'plan.compacting': string;
+    'plan.compacted': string;
+    'plan.compactEmpty': string;
+    'plan.compactFailed': string;
     'markdown.copy': string;
     'markdown.copied': string;
     'markdown.footnotes': string;

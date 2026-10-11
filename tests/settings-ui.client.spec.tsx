@@ -39,17 +39,25 @@ function face(options?: {
   compactOnSwitch?: boolean
   omitCompactOnSwitch?: true
   memoryOnly?: true
+  autoReview?: { provider?: string; model?: string }
+  planCompactThreshold?: number
   setSubagent?: ReturnType<typeof vi.fn>
+  setCapability?: ReturnType<typeof vi.fn>
   setCompactOnSwitch?: ReturnType<typeof vi.fn>
+  setPlanCompactThreshold?: ReturnType<typeof vi.fn>
 }) {
   const subagent = options?.subagent ?? { mode: 'fixed', provider: 'codex', model: 'gpt-subagent' }
   const controllerState = controller(subagent)
   vi.mocked(useModelSwitchSettingsController).mockImplementation(() => controllerState as never)
   const switchSettings = options?.memoryOnly
     ? { status: 'unavailable' as const, value: undefined, base: undefined, user: {}, revision: undefined, writable: false, mode: 'memory' as const }
-    : snapshot(options?.omitCompactOnSwitch === true ? {} : { compactOnSwitch: options?.compactOnSwitch !== false })
+    : snapshot(options?.omitCompactOnSwitch === true
+      ? (options?.planCompactThreshold === undefined ? {} : { planCompactThreshold: options.planCompactThreshold })
+      : { compactOnSwitch: options?.compactOnSwitch !== false, ...(options?.planCompactThreshold === undefined ? {} : { planCompactThreshold: options.planCompactThreshold }) })
   const searchSettings = snapshot({ provider: 'codex', model: 'gpt-search' })
   const imageSettings = snapshot({ provider: 'grok', model: 'grok-imagine-image-quality' })
+  // Unset reviewer fields = the shipped default: reviews follow the session model.
+  const autoReviewSettings = snapshot(options?.autoReview ?? {})
   return {
     t: (key: string) => key,
     capabilities: {
@@ -59,10 +67,12 @@ function face(options?: {
     },
     useSearchSettings: () => searchSettings,
     useImageSettings: () => imageSettings,
+    useAutoReviewSettings: () => autoReviewSettings,
     useSwitchSettings: () => switchSettings,
     setSubagent: options?.setSubagent ?? vi.fn(async () => undefined),
-    setCapability: vi.fn(),
+    setCapability: options?.setCapability ?? vi.fn(),
     setCompactOnSwitch: options?.setCompactOnSwitch ?? vi.fn(async () => undefined),
+    setPlanCompactThreshold: options?.setPlanCompactThreshold ?? vi.fn(async () => undefined),
     saveMain: vi.fn(),
   } as never
 }
@@ -77,13 +87,15 @@ function instanceText(node: { children?: readonly unknown[] }): string {
 
 function mountSettings(options?: Parameters<typeof face>[0]) {
   const setSubagent = options?.setSubagent ?? vi.fn(async () => undefined)
+  const setCapability = options?.setCapability ?? vi.fn()
   const setCompactOnSwitch = options?.setCompactOnSwitch ?? vi.fn(async () => undefined)
-  const props = face({ ...options, setSubagent, setCompactOnSwitch })
+  const setPlanCompactThreshold = options?.setPlanCompactThreshold ?? vi.fn(async () => undefined)
+  const props = face({ ...options, setSubagent, setCapability, setCompactOnSwitch, setPlanCompactThreshold })
   let renderer!: ReactTestRenderer
   act(() => {
     renderer = create(<ModelSwitchSettings {...props} />)
   })
-  return { renderer, setSubagent, setCompactOnSwitch }
+  return { renderer, setSubagent, setCapability, setCompactOnSwitch, setPlanCompactThreshold }
 }
 
 describe('Model Switch settings menu', () => {
@@ -205,5 +217,121 @@ describe('Model Switch settings menu', () => {
     expect(labels).toContain('effort')
     expect(renderer.root.findAllByType('select').length).toBeGreaterThanOrEqual(3)
     expect(JSON.stringify(renderer.toJSON())).not.toContain('follow-main')
+  })
+
+  it('shows the Auto review card collapsed and following the session model by default', () => {
+    const markup = renderSettings()
+    expect(markup).toContain('>autoReview<')
+    expect(markup).toContain('>autoReviewFollow<')
+    expect(markup).toContain('>autoReviewHelp<')
+    const toggle = markup.match(/<button[^>]*aria-label="autoReview"[^>]*>/)?.[0]
+    expect(toggle).toContain('aria-checked="false"')
+    // No route fields while following the session model.
+    expect(markup).not.toContain('aria-expanded="true"')
+  })
+
+  it('expands the pinned reviewer route when the Auto review route is set', () => {
+    const { renderer } = mountSettings({ autoReview: { provider: 'codex', model: 'gpt-main' } })
+    const toggle = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'autoReview')
+    expect(toggle?.props['aria-checked']).toBe(true)
+    const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('autoReview'))
+    act(() => {
+      header?.props.onClick()
+    })
+    const labels = renderer.root.findAllByType('span').map(node => instanceText(node))
+    expect(labels).toContain('provider')
+    expect(labels).toContain('model')
+    const selects = renderer.root.findAllByType('select')
+    expect(selects.some(select => String(select.props.value) === 'codex')).toBe(true)
+  })
+
+  it('unsets both reviewer fields on Auto review off', async () => {
+    const { renderer, setCapability } = mountSettings({ autoReview: { provider: 'codex', model: 'gpt-main' } })
+    const toggle = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'autoReview')
+    await act(async () => {
+      toggle?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect(setCapability).toHaveBeenCalledWith('autoReview', 'provider', undefined)
+    expect(setCapability).toHaveBeenCalledWith('autoReview', 'model', undefined)
+  })
+
+  it('seeds the reviewer route from Main when Auto review is switched on', async () => {
+    const { renderer, setCapability } = mountSettings()
+    const toggle = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'autoReview')
+    expect(toggle?.props['aria-checked']).toBe(false)
+    await act(async () => {
+      toggle?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect(setCapability).toHaveBeenCalledWith('autoReview', 'provider', 'codex')
+    expect(setCapability).toHaveBeenCalledWith('autoReview', 'model', 'gpt-main')
+    // Both fields are pinned as one decision; partial writes never ship.
+    expect(setCapability).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps zh/en copy for the Auto review card', () => {
+    expect(zh.autoReview).toBe('自动审查模型')
+    expect(en.autoReview).toBe('Auto review model')
+    expect(zh.autoReviewFollow).toContain('跟随会话模型')
+    expect(en.autoReviewFollow).toContain('session model')
+    expect(zh.autoReviewHelp).toContain('auto-review')
+    expect(en.autoReviewHelp).toContain('Auto permission preset')
+  })
+
+  it('shows the Plan-exit threshold row with the shipped 200K default', () => {
+    const markup = renderSettings()
+    expect(markup).toContain('planCompactThreshold')
+    const input = markup.match(/<input[^>]*aria-label="planCompactThreshold"[^>]*>/)?.[0]
+    expect(input).toBeDefined()
+    expect(input).toContain('value="200000"')
+    expect(markup).toContain('type="number"')
+    expect(zh.planCompactThresholdHelp).toContain('切换后的模型')
+    expect(en.planCompactThresholdHelp).toContain('never trigger')
+  })
+
+  it('commits a valid threshold on blur and validates invalid ones', async () => {
+    const { renderer, setPlanCompactThreshold } = mountSettings({ planCompactThreshold: 120_000 })
+    const findThresholdInput = () => renderer.root.findAllByType('input').find(node => node.props['aria-label'] === 'planCompactThreshold')
+    expect(findThresholdInput()?.props.value).toBe('120000')
+
+    // Invalid input: rejected locally, never written. (Re-find after the
+    // onChange re-render: blur must run the closure holding the new draft.)
+    await act(async () => {
+      findThresholdInput()!.props.onChange({ target: { value: '-3' } })
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    await act(async () => {
+      findThresholdInput()!.props.onBlur()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect(setPlanCompactThreshold).not.toHaveBeenCalled()
+    const alertText = renderer.root.findAllByType('p').map(node => instanceText(node)).join('|')
+    expect(alertText).toContain('planCompactThresholdInvalid')
+
+    // Valid input: written once on blur.
+    await act(async () => {
+      findThresholdInput()!.props.onChange({ target: { value: '5000' } })
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    await act(async () => {
+      findThresholdInput()!.props.onBlur()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect(setPlanCompactThreshold).toHaveBeenCalledExactlyOnceWith(5000)
+  })
+
+  it('writes a valid threshold from the Enter key as well', async () => {
+    const { renderer, setPlanCompactThreshold } = mountSettings()
+    const findThresholdInput = () => renderer.root.findAllByType('input').find(node => node.props['aria-label'] === 'planCompactThreshold')
+    await act(async () => {
+      findThresholdInput()!.props.onChange({ target: { value: '0' } })
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    await act(async () => {
+      findThresholdInput()!.props.onKeyDown({ key: 'Enter' })
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect(setPlanCompactThreshold).toHaveBeenCalledExactlyOnceWith(0)
   })
 })
