@@ -44,7 +44,7 @@ const cssModules = {
 }
 
 const host: UserConfig = {
-  name: PACKAGE_ID, entry: { index: 'lib/types/index.js', capabilities: 'lib/types/capabilities.js', 'main-settings': 'lib/types/main-settings.js', 'subagent-route-policy': 'lib/types/subagent-route-policy.js', 'subagent-runtime': 'lib/types/subagent-runtime.js', 'auto-review': 'lib/types/auto-review.js', 'adapter-registry': 'lib/types/adapter-registry.js' }, outDir: 'lib', format: ['esm'], platform: 'node', target: 'es2024', fixedExtension: false, dts: false, clean: false,
+  name: PACKAGE_ID, entry: { index: 'lib/types/index.js', capabilities: 'lib/types/capabilities.js', 'main-settings': 'lib/types/main-settings.js', 'subagent-route-policy': 'lib/types/subagent-route-policy.js', 'subagent-runtime': 'lib/types/subagent-runtime.js', 'auto-review': 'lib/types/auto-review.js', compaction: 'lib/types/compaction.js', 'adapter-registry': 'lib/types/adapter-registry.js' }, outDir: 'lib', format: ['esm'], platform: 'node', target: 'es2024', fixedExtension: false, dts: false, clean: false,
   deps: { neverBundle: ['@deepseek-ai/cordis','@deepseek-ai/schemastery','@deepseek-ai/dsh-agent','@deepseek-ai/dsh-agent-default-model','@deepseek-ai/dsh-llm','@deepseek-ai/dsh-settings','@deepseek-ai/dsh-subagent','@deepseek-ai/dsh-tools','@deepseek-ai/dsh-web','@deepseek-ai/dsh-web-search-deepseek','@deepseek-ai/dsh-credentials','@deepseek-ai/dsh-experimental-auto-review','@deepseek-ai/dsh-launch-environment','@deepseek-ai/dsh-client-connection'] },
 }
 const client: UserConfig = {

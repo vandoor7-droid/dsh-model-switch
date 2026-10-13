@@ -21,8 +21,8 @@ export interface ModelSwitchSettingsView {
     compactOnSwitch?: boolean;
     autoReviewProvider?: string;
     autoReviewModel?: string;
-    /** Plan-exit compaction threshold in tokens; absent = the shipped default. */
-    planCompactThreshold?: number;
+    compactProvider?: string;
+    compactModel?: string;
 }
 export interface SubagentSettingsView {
     mode: 'follow-main' | 'fixed';
@@ -55,9 +55,15 @@ export declare const AUTO_REVIEW_SETTINGS_FIELDS: Readonly<{
     readonly provider: "autoReviewProvider";
     readonly model: "autoReviewModel";
 }>;
+/** Compaction summarization route for `/compact` and automatic compaction; both unset means the official default (the conversation target). */
+export declare const COMPACTION_SETTINGS_FIELDS: Readonly<{
+    readonly provider: "compactProvider";
+    readonly model: "compactModel";
+}>;
 export declare function deriveSubagentSettings(settings: ModelSwitchSettingsView): SubagentSettingsView;
 export declare function deriveSearchSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 export declare function deriveImageSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 export declare function deriveAutoReviewSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
-/** Whether both reviewer fields form a complete route; an incomplete pair still follows the session model. */
-export declare function autoReviewRouteConfigured(route: CapabilityRouteView | undefined): boolean;
+export declare function deriveCompactionSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
+/** Whether both fields of a model route form a complete pair; an incomplete pair stays off. */
+export declare function routePairConfigured(route: CapabilityRouteView | undefined): boolean;

@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-switch",
-  "version": "0.4.20",
+  "version": "0.4.21",
   "description": "Explicit model routing plus composer/Plan picker for DeepSeek Harness",
   "repository": {
     "type": "git",
@@ -41,6 +41,10 @@
     "./auto-review": {
       "types": "./lib/types/auto-review.d.ts",
       "default": "./lib/auto-review.js"
+    },
+    "./compaction": {
+      "types": "./lib/types/compaction.d.ts",
+      "default": "./lib/compaction.js"
     },
     "./subagent-runtime": {
       "types": "./lib/types/subagent-runtime.d.ts",

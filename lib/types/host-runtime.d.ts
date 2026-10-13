@@ -7,6 +7,10 @@ declare module '@deepseek-ai/cordis' {
     interface Context {
         modelSwitch: ModelSwitchRuntime;
     }
+    interface Events {
+        /** Model Switch settings changed; reread via `modelSwitch.currentSettings()`. */
+        'model-switch/settings-update'(): void;
+    }
 }
 /** Host owner for Model Switch settings and the released Main-default adapter. */
 export declare class ModelSwitchRuntime extends Service {
@@ -23,7 +27,8 @@ export declare class ModelSwitchRuntime extends Service {
         compactOnSwitch: import("@deepseek-ai/schemastery").default<boolean, boolean, "volatile-defined">;
         autoReviewProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
         autoReviewModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        planCompactThreshold: import("@deepseek-ai/schemastery").default<number, number, "volatile-defined">;
+        compactProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
+        compactModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
     }>>, Schemastery.ObjectT<NoInfer<{
         subagentMode: import("@deepseek-ai/schemastery").default<"follow-main" | "fixed", "follow-main" | "fixed", "volatile-defined">;
         subagentProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
@@ -36,7 +41,8 @@ export declare class ModelSwitchRuntime extends Service {
         compactOnSwitch: import("@deepseek-ai/schemastery").default<boolean, boolean, "volatile-defined">;
         autoReviewProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
         autoReviewModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        planCompactThreshold: import("@deepseek-ai/schemastery").default<number, number, "volatile-defined">;
+        compactProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
+        compactModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
     }>>, "plain">;
     get capabilities(): {
         searchProviderAdapters: {

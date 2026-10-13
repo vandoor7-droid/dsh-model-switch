@@ -81,8 +81,6 @@ Plan Review 拥有独立于 Main 的执行模型草稿。**确认执行**会先�
 
 卡片正文只显示计划的首行标题与首段摘要，**完整计划**会由官方 ui-plan 自动开到右侧侧边栏（头部的"查看完整计划"可随时再开）。接管的 composer 条目无权渲染官方的 `conversation.plan-review.actions` 槽位（每个子槽只允许一个声明者），因此卡片直接驱动 ui-plan 已注册的 opener——计划文档的地址与参数始终由 ui-plan 自己构造（见 `docs/seam-gap.md`）。
 
-**退出计划时的上下文压缩（0.4.20）**：当这次批准**切换了执行模型**（Provider/模型变化，仅改推理强度不算），且估算的下次请求输入超过阈值（Token 数，默认 200,000，可在设置里调整，0 = 关闭）时，卡片会先调用 Host 的压缩端点——**用切换后的模型**摘要一次历史——再提交模型、再答复；「设置为目标并执行」同样先压缩再设目标。未切换模型的批准完全不触发。压缩无可压缩历史时提示后继续执行；压缩出错时执行中止、审核保持待处理并可重试。
-
 ![带执行模型 Picker 的 Plan Review](docs/screenshots/plan-review.png)
 
 ## 发送时的上下文保护
@@ -92,6 +90,14 @@ Plan Review 拥有独立于 Main 的执行模型草稿。**确认执行**会先�
 ## 自动审查模型（Auto review）
 
 官方 `@deepseek-ai/dsh-experimental-auto-review`（Auto 权限预设的逐调用审查）把审查请求固定在会话自身的路由上。本插件通过 `cordis.patch.yml` 的行替换接管这一行：官方行被禁用，改挂 `dsh-model-switch/auto-review`，它在作用域子上下文里运行**同一份官方 `apply`**，只把 `llm.stream` 的 `provider/model` 改写为设置里固定的审查模型。设置页「自动审查模型」默认关闭 = 审查跟随当前会话模型；打开时从主模型种子化、可再改成任意 Provider/模型，保存后对下一次审查立即生效。审查未配置官方能力包（`@deepseek-ai/dsh-experimental-auto-review` 未随 profile 启动）时本行不挂载，Auto 预设保持官方的关闭状态；官方行若已在别处注册，本行明确报错而不产生第二个 `registerAuto`。
+
+## 压缩模型（Compaction model）
+
+官方压缩——`/compact` 与 DSH 的自动压缩——默认使用会话当前的目标模型做摘要。「压缩模型」卡片（默认关闭）改为固定摘要路由：打开时从主模型种子化、可再改成任意 Provider/模型，保存后对下一次压缩立即生效。两个字段都留空即回到官方默认。保存时若恰有压缩进行中，可能被打断并在下次重试。
+
+路由如何到达压缩引擎取决于部署在哪一层组合 agent。Web 面把压缩放进每个 Agent 预设的隔离 `compaction` 组里，而 profile patch 无法寻址 preset `plugins` 列表内部的行——因此本插件整表替换各预设行（与 Web 预设编辑器保存修改用的是同一套 id 定位机制），把该组的官方 `compaction-basic` 换成 `model-switch-compaction`，由它挂载**同一份官方 `BasicCompactionEngine`**、只覆盖 `summarizationProvider`/`summarizationModel`（只填其一忽略）。进程级组合 agent 的面（如 TUI）则走顶层行替换。两个后果：DSH 发布若改动这些预设，随包副本需要同步（本插件的逐版本核对覆盖这一步）；部署若用 Web 编辑器改预设，会写出自己的整表行、并从那之后自行负责合并。
+
+已知问题（上游侧，见 `docs/seam-gap.md`）：当工作集持续超过官方引擎的压力阈值时，自动压缩可能每步触发，并反复重试摘要过不了官方「摘要必须更小」守卫的小片段——表现为"不停自动压缩"，本插件不控制该行为（已在同一会话做过插件开/关 A/B 对照）。可用的缓解（都在转发行配置上）：`auto: false`（保留 `/compact`）、调高 `thresholdRatio`、减少挂载的工具 schema，或固定一个摘要更精炼的压缩模型。
 
 ## Model Switch 不会改变什么
 

@@ -95,8 +95,6 @@ function props(overrides: Record<string, unknown> = {}) {
     load: () => undefined,
     select: vi.fn(async () => COMMITTED),
     goalRemote: () => acceptingGoalRemote(),
-    // Default bench: the Host compaction check answers "nothing to do".
-    planCompact: vi.fn(async () => ({ status: 'skipped' as const })),
     // Default bench has no ui-plan opener registered; preview cases override.
     planPreview: { available: () => false, open: () => false, autoOpen: () => () => undefined },
     t: (key: string, params?: Record<string, string>) => params?.message === undefined ? key : `${key}: ${params.message}`,
@@ -539,7 +537,10 @@ describe('PlanReviewCard', () => {
     expect(goalButton.props.disabled).toBe(false)
     await actClick(() => goalButton.props.onClick())
 
-    expect(goalCreate).toHaveBeenCalledExactlyOnceWith('session-1', { objective: '# Plan' })
+    // The objective points at the plan document; the raw markdown never rides along.
+    expect(goalCreate).toHaveBeenCalledExactlyOnceWith('session-1', {
+      objective: '持续推进当前plan直到完成（plan 文档：dsh-resource://plan-review/session-1/plan-1）',
+    })
     expect(answer).toHaveBeenCalledOnce()
     // The goal is armed first: an approved Plan with no goal would leave the
     // round driver with nothing to carry.
@@ -648,94 +649,5 @@ describe('PlanReviewCard', () => {
     let card!: ReturnType<typeof create>
     await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
     expect(card.root.findAllByProps({ 'data-plan-preview-open': true })).toHaveLength(0)
-  })
-
-  it('compacts a switched approval before committing the model and answering', async () => {
-    const answer = vi.fn(async () => undefined)
-    const select = vi.fn(async () => COMMITTED)
-    const planCompact = vi.fn(async () => ({ status: 'skipped' as const }))
-    const fixture = props({ matched: wait(answer), planCompact, select, t: locale(en) })
-    let card!: ReturnType<typeof create>
-    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
-    await actClick(() => { chooseExecution(card) })
-    await actClick(() => approve(card, en['plan.approve']).props.onClick())
-
-    expect(planCompact).toHaveBeenCalledExactlyOnceWith('session-1', 'codex', 'gpt-5.6-luna')
-    expect(answer).toHaveBeenCalledOnce()
-    // compact → commit the switched model → answer, in that order.
-    expect(planCompact.mock.invocationCallOrder[0]).toBeLessThan(select.mock.invocationCallOrder[0]!)
-    expect(select.mock.invocationCallOrder[0]).toBeLessThan(answer.mock.invocationCallOrder[0]!)
-    await act(async () => { card.unmount() })
-  })
-
-  it('never asks for compaction when the approval keeps the model', async () => {
-    const answer = vi.fn(async () => undefined)
-    const planCompact = vi.fn(async () => ({ status: 'compacted' as const }))
-    const fixture = props({ matched: wait(answer), planCompact, t: locale(en) })
-    let card!: ReturnType<typeof create>
-    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
-    await actClick(() => approve(card, en['plan.approve']).props.onClick())
-
-    expect(planCompact).not.toHaveBeenCalled()
-    expect(answer).toHaveBeenCalledOnce()
-    await act(async () => { card.unmount() })
-  })
-
-  it('keeps the Plan pending and retryable when compaction fails', async () => {
-    const answer = vi.fn(async () => undefined)
-    const select = vi.fn(async () => COMMITTED)
-    const planCompact = vi.fn(async () => ({ status: 'error' as const, message: 'summary rejected' }))
-    const fixture = props({ matched: wait(answer), planCompact, select, t: locale(en) })
-    let card!: ReturnType<typeof create>
-    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
-    await actClick(() => { chooseExecution(card) })
-    await actClick(() => approve(card, en['plan.approve']).props.onClick())
-
-    expect(planCompact).toHaveBeenCalledOnce()
-    expect(select).not.toHaveBeenCalled()
-    expect(answer).not.toHaveBeenCalled()
-    const status = card.root.findAllByProps({ role: 'status' }).map(node => node.children.join('')).join('|')
-    expect(status).toContain(en['plan.compactFailed'].replace('{message}', 'summary rejected'))
-    // A refusal is a plain failure: the approval stays available for a retry.
-    expect(approve(card, en['plan.approve']).props.disabled).toBe(false)
-    await act(async () => { card.unmount() })
-  })
-
-  it('proceeds when nothing was compactable', async () => {
-    const answer = vi.fn(async () => undefined)
-    const planCompact = vi.fn(async () => ({ status: 'empty' as const }))
-    const fixture = props({ matched: wait(answer), planCompact, t: locale(en) })
-    let card!: ReturnType<typeof create>
-    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
-    await actClick(() => { chooseExecution(card) })
-    await actClick(() => approve(card, en['plan.approve']).props.onClick())
-    expect(answer).toHaveBeenCalledOnce()
-    const status = card.root.findAllByProps({ role: 'status' }).map(node => node.children.join('')).join('|')
-    expect(status).toContain(en['plan.compactEmpty'])
-    await act(async () => { card.unmount() })
-  })
-
-  it('compacts before arming the goal on the goal path', async () => {
-    const answer = vi.fn(async () => undefined)
-    const goalCreate = vi.fn(async () => ({ ok: true, value: { ref: { id: 'goal-1', revision: 1 } } }))
-    const planCompact = vi.fn(async () => ({ status: 'skipped' as const }))
-    const fixture = props({
-      matched: wait(answer),
-      planCompact,
-      goalRemote: () => ({ create: goalCreate, get: acceptingGoalRemote().get, clear: acceptingGoalRemote().clear }),
-      t: locale(zh),
-    })
-    let card!: ReturnType<typeof create>
-    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
-    await actClick(() => { chooseExecution(card) })
-    await actClick(() => card.root.findAllByType('button').find(button => button.children.includes(zh['plan.goalRun']))!.props.onClick())
-
-    expect(planCompact).toHaveBeenCalledExactlyOnceWith('session-1', 'codex', 'gpt-5.6-luna')
-    expect(goalCreate).toHaveBeenCalledOnce()
-    expect(answer).toHaveBeenCalledOnce()
-    // compact → arm the goal → answer.
-    expect(planCompact.mock.invocationCallOrder[0]).toBeLessThan(goalCreate.mock.invocationCallOrder[0]!)
-    expect(goalCreate.mock.invocationCallOrder[0]).toBeLessThan(answer.mock.invocationCallOrder[0]!)
-    await act(async () => { card.unmount() })
   })
 })

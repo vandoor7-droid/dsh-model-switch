@@ -16,8 +16,10 @@ export interface ModelSwitchSettings {
     autoReviewProvider?: string;
     /** Reviewer model for the Auto preset; set together with `autoReviewProvider`. */
     autoReviewModel?: string;
-    /** Plan-exit compaction threshold in tokens; 0 disables the mechanism. */
-    planCompactThreshold: number;
+    /** Summarization provider for `/compact` and automatic compaction; both fields unset = official default (the conversation target). */
+    compactProvider?: string;
+    /** Summarization model for `/compact` and automatic compaction; set together with `compactProvider`. */
+    compactModel?: string;
 }
 /** Loader-owned references; every field is directly editable in the profile form. */
 export interface Config {
@@ -32,7 +34,8 @@ export interface Config {
     compactOnSwitch: Volatile<boolean>;
     autoReviewProvider: Volatile<string | undefined>;
     autoReviewModel: Volatile<string | undefined>;
-    planCompactThreshold: Volatile<number>;
+    compactProvider: Volatile<string | undefined>;
+    compactModel: Volatile<string | undefined>;
 }
 export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     subagentMode: z<"follow-main" | "fixed", "follow-main" | "fixed", "volatile-defined">;
@@ -46,7 +49,8 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     compactOnSwitch: z<boolean, boolean, "volatile-defined">;
     autoReviewProvider: z<string, string, "volatile">;
     autoReviewModel: z<string, string, "volatile">;
-    planCompactThreshold: z<number, number, "volatile-defined">;
+    compactProvider: z<string, string, "volatile">;
+    compactModel: z<string, string, "volatile">;
 }>>, Schemastery.ObjectT<NoInfer<{
     subagentMode: z<"follow-main" | "fixed", "follow-main" | "fixed", "volatile-defined">;
     subagentProvider: z<string, string, "volatile">;
@@ -59,6 +63,7 @@ export declare const Config: z<Schemastery.ObjectS<NoInfer<{
     compactOnSwitch: z<boolean, boolean, "volatile-defined">;
     autoReviewProvider: z<string, string, "volatile">;
     autoReviewModel: z<string, string, "volatile">;
-    planCompactThreshold: z<number, number, "volatile-defined">;
+    compactProvider: z<string, string, "volatile">;
+    compactModel: z<string, string, "volatile">;
 }>>, "plain">;
 export declare function readConfig(config: Config): ModelSwitchSettings;

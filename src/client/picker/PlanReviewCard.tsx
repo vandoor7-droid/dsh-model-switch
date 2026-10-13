@@ -10,7 +10,6 @@ import {
 } from '../../picker/plan-review.ts'
 import { PlanDismissalUnsupportedError, dismissPendingQuestion } from '../../picker/pending-dismissal.ts'
 import { setPlanAsGoal, type GoalRemote } from '../../picker/plan-goal.ts'
-import type { PlanCompactOutcome } from '../../picker/plan-compact.ts'
 import { ComposerPicker } from './ComposerPicker.tsx'
 import type { PlanPreviewBinding } from './plan-preview.ts'
 import { pickerDirectoryViewOrdered, type PickerDirectoryFace, type PickerDirectoryView } from './PickerDirectory.ts'
@@ -57,8 +56,6 @@ export interface PlanReviewFace extends PickerDirectoryFace {
   goalRemote: () => GoalRemote | undefined
   /** Full-plan sidebar navigation (ui-plan's registered opener). */
   planPreview: PlanPreviewBinding
-  /** Host-backed pre-execution compaction; absent seams degrade to no compaction. */
-  planCompact?: (sessionId: string, provider: string, model: string) => Promise<PlanCompactOutcome>
   /** Live catalog-group-id → card-key map from ProviderDirectory. */
   catalogRoutes?: () => Readonly<Record<string, string>>
 }
@@ -127,7 +124,6 @@ interface PlanReviewStateProps {
   t: PlanReviewCardProps['t']
   goalRemote: () => GoalRemote | undefined
   planPreview: PlanPreviewBinding
-  planCompact?: (sessionId: string, provider: string, model: string) => Promise<PlanCompactOutcome>
   resolveInteractionOperations?: () => PickerInteractionOperations | undefined
   /** Resolve a provider key to its ProviderDirectory role for runtime icons. */
   roleOf?: (providerKey: string) => string | undefined
@@ -192,14 +188,13 @@ export function PlanReviewCard(props: PlanReviewCardProps) {
     t={props.t}
     goalRemote={props.goalRemote}
     planPreview={props.planPreview}
-    {...(props.planCompact === undefined ? {} : { planCompact: props.planCompact })}
     {...props.resolveInteractionOperations === undefined ? {} : { resolveInteractionOperations: props.resolveInteractionOperations }}
     {...props.roleOf === undefined ? {} : { roleOf: props.roleOf }}
   />
 }
 
 function PlanReviewState({
-  matched, review, available, providerLock, agentLocked, lockFailed, settingsUnavailableReason, directory, t, goalRemote, planPreview, planCompact, resolveInteractionOperations, roleOf,
+  matched, review, available, providerLock, agentLocked, lockFailed, settingsUnavailableReason, directory, t, goalRemote, planPreview, resolveInteractionOperations, roleOf,
 }: PlanReviewStateProps) {
   const { snapshot, getDirectorySnapshot, load, select } = directory
   const [execution, setExecution] = useState<ModelSelection | undefined>(snapshot.current ?? undefined)
@@ -293,43 +288,9 @@ function PlanReviewState({
     }
   }
 
-  /**
-   * Compact the history before a switched approval commits anything.
-   *
-   * Only an approval that changes provider/model triggers the Host check —
-   * effort-only changes and same-model approvals execute untouched. A failed
-   * compaction keeps the Plan pending and retryable; `empty` announces that
-   * nothing safe could be reduced and execution proceeds.
-   */
-  const compactBeforeRun = async (): Promise<void> => {
-    if (execution === undefined) return
-    const current = snapshot.current
-    const switched = current === null || current === undefined
-      || current.provider !== execution.provider || current.model !== execution.model
-    if (!switched) return
-    if (planCompact === undefined) {
-      console.warn('dsh-model-switch: plan compaction seam absent; executing the switched Plan without it')
-      return
-    }
-    setNotice(t('plan.compacting', { model: execution.model }))
-    let outcome: PlanCompactOutcome
-    try {
-      outcome = await planCompact(matched.sessionId, execution.provider, execution.model)
-    } catch (cause) {
-      throw new Error(t('plan.compactFailed', { message: cause instanceof Error ? cause.message : String(cause) }))
-    }
-    if (outcome.status === 'error') {
-      throw new Error(t('plan.compactFailed', { message: outcome.message ?? 'unknown failure' }))
-    }
-    setNotice(outcome.status === 'empty' ? t('plan.compactEmpty')
-      : outcome.status === 'compacted' ? t('plan.compacted')
-        : null)
-  }
-
   const onApprove = (): void => {
     if (execution === undefined || !executionAllowed || !available || busy || blocked) return
     settle(async () => {
-      await compactBeforeRun()
       await approveWith(execution)
     })
   }
@@ -348,8 +309,10 @@ function PlanReviewState({
   const onRunAsGoal = (): void => {
     if (execution === undefined || !executionAllowed || !available || busy || blocked || goal === undefined) return
     settle(async () => {
-      await compactBeforeRun()
-      const handoff = await setPlanAsGoal(goal, matched.sessionId, review.plan)
+      const handoff = await setPlanAsGoal(goal, matched.sessionId, review.plan, {
+        ...(review.callId === undefined ? {} : { callId: review.callId }),
+        requestKey: matched.key,
+      })
       if (handoff.kind === 'unsupported') throw new Error(t('plan.goalUnsupported'))
       if (handoff.kind === 'failed') {
         const message = handoff.code === undefined ? handoff.message : `${handoff.code}: ${handoff.message}`

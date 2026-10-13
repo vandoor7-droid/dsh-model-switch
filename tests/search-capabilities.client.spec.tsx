@@ -46,6 +46,7 @@ function faceProps(loadCapabilities: unknown) {
   const imageSettings = snapshot({ provider: 'grok', model: 'grok-imagine-image-quality' })
   const switchSettings = snapshot({ compactOnSwitch: true })
   const autoReviewSettings = snapshot({})
+  const compactionSettings = snapshot({})
   return {
     t: (key: string) => key,
     capabilities: {
@@ -56,6 +57,7 @@ function faceProps(loadCapabilities: unknown) {
     useSearchSettings: (selector: (value: unknown) => unknown) => selector(searchSettings),
     useImageSettings: (selector: (value: unknown) => unknown) => selector(imageSettings),
     useAutoReviewSettings: (selector: (value: unknown) => unknown) => selector(autoReviewSettings),
+    useCompactionSettings: (selector: (value: unknown) => unknown) => selector(compactionSettings),
     useSwitchSettings: (selector: (value: unknown) => unknown) => selector(switchSettings),
     setSubagent: vi.fn(),
     setCapability: vi.fn(),

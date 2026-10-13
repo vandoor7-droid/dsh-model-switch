@@ -61,8 +61,33 @@ export type GoalHandoff = {
     readonly code?: string;
     readonly message: string;
 };
+/** Identity of the plan document under review, for its durable address. */
+export interface PlanDocumentRef {
+    /** Logged tool invocation that owns the plan; absent while only the review is pending. */
+    readonly callId?: string;
+    /** Browser-unique pending request identity (the review card's key). */
+    readonly requestKey: string;
+}
 /**
- * Make the plan text this session's armed goal, replacing any unfinished goal.
+ * Address the plan document exactly as the official opener does.
+ *
+ * A logged plan (`callId` present) resolves from `dsh-resource://plan/...`
+ * for as long as the session log holds the call; before that the pending
+ * review's own `dsh-resource://plan-review/...` address is the one that
+ * opens its preview.
+ *
+ * @param sessionId - the session that owns the review.
+ * @param ref - logged call identity plus the pending request key.
+ * @returns The plan resource address.
+ */
+export declare function planDocumentAddress(sessionId: string, ref: PlanDocumentRef): string;
+/**
+ * Make this plan the session's armed goal, replacing any unfinished goal.
+ *
+ * The objective is a short instruction carrying the plan document's address,
+ * not the plan's raw markdown: goal objectives are injected into every round,
+ * and a full plan would be truncated by length limits mid-sentence. The round
+ * driver reads the plan from the address instead.
  *
  * Ordering mirrors the card's own commit-then-answer rule: a refusal here keeps
  * the Plan pending instead of approving work that no goal tracks. The replace
@@ -71,7 +96,8 @@ export type GoalHandoff = {
  *
  * @param remote - the released goal remote, absent when no goal package is mounted.
  * @param sessionId - the session that owns both the review and the goal.
- * @param plan - the plan markdown under review.
+ * @param plan - the plan markdown under review (validated non-empty).
+ * @param ref - the plan document identity used for its address.
  * @returns Whether the goal now tracks this plan, or why it does not.
  */
-export declare function setPlanAsGoal(remote: GoalRemote | undefined, sessionId: string, plan: string): Promise<GoalHandoff>;
+export declare function setPlanAsGoal(remote: GoalRemote | undefined, sessionId: string, plan: string, ref: PlanDocumentRef): Promise<GoalHandoff>;

@@ -15,14 +15,14 @@ export interface ModelSwitchSettingsFace {
         searchSettings: ConfigViewForm<CapabilityRouteView>;
         imageSettings: ConfigViewForm<CapabilityRouteView>;
         autoReviewSettings: ConfigViewForm<CapabilityRouteView>;
+        compactionSettings: ConfigViewForm<CapabilityRouteView>;
         switchSettings: Pick<ConfigForm<ModelSwitchSettingsView>, 'getSnapshot' | 'subscribe'>;
     };
     capabilities: RuntimeCapabilities;
     saveMain: (next: MainSettingsView, expectedRevision: number) => Promise<number>;
     setSubagent: (field: 'mode' | 'provider' | 'model' | 'reasoningEffort', value: string | undefined) => Promise<void>;
-    setCapability: (route: 'search' | 'image' | 'autoReview', field: 'provider' | 'model', value: string | undefined) => Promise<void>;
+    setCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction', field: 'provider' | 'model', value: string | undefined) => Promise<void>;
     setCompactOnSwitch: (value: boolean) => Promise<void>;
-    setPlanCompactThreshold: (value: number) => Promise<void>;
     loadCatalog: () => Promise<readonly ModelProviderGroup[]>;
     /** Host capabilities long-poll; absent in legacy faces, which keep the static-capabilities path. */
     loadCapabilities?: (revision?: number, signal?: AbortSignal) => Promise<CapabilitiesSnapshot>;

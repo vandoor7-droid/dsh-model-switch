@@ -38,9 +38,10 @@ export declare const zh: {
     readonly autoReviewFollow: "跟随会话模型";
     readonly autoReviewHelp: "为官方 auto-review（Auto 权限预设的逐调用审查）指定审查模型；需启用官方 auto-review 能力包。关闭时审查跟随当前会话模型。";
     readonly autoReviewRouteHelp: "审查请求固定使用这里的 Provider/模型，与会话模型无关；保存后对下一次审查立即生效。";
-    readonly planCompactThreshold: "计划执行前压缩阈值";
-    readonly planCompactThresholdHelp: "切换模型执行计划时，若上下文估算超过该 Token 数，先用切换后的模型压缩一次历史再提交执行；未切换模型不触发。0 = 关闭。压缩会产生额外模型用量，摘要可能省略细节。";
-    readonly planCompactThresholdInvalid: "请输入不小于 0 的整数。";
+    readonly compaction: "压缩模型";
+    readonly compactionFollow: "跟随会话模型";
+    readonly compactionHelp: "为官方压缩（/compact 与官方自动压缩）指定摘要模型；关闭（两个字段都留空）时使用官方默认，即当前会话的目标模型。";
+    readonly compactionRouteHelp: "摘要请求固定使用这里的 Provider/模型，与会话目标模型无关；保存后对下一次压缩立即生效。保存时若恰有压缩进行中，可能被打断并在下次重试。";
     readonly 'reason.central-subagent-routing': "Alpha.4 没有全局子代理启动路由接口。";
     readonly 'reason.packaged-preset-roots': "Alpha.4 不支持插件提供额外 preset root。";
     readonly 'reason.tool-owner-suppression': "Alpha.4 没有工具所有者或来源抑制接口。";

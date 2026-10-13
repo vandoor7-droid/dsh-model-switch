@@ -1,6 +1,9 @@
 .scratch/
 .env
 .env.*
+reference/
+_session_debug/
+.workflow-one/
 *.pem
 .DS_Store
 node_modules/
@@ -18,3 +21,4 @@ lib/types/**/*.d.ts.map
 *.tsbuildinfo
 coverage/
 *.log
+.playwright-mcp/

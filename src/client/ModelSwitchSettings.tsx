@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { autoReviewRouteConfigured, subagentModeForEnabled, type CapabilityRouteView, type MainSettingsView, type ModelSwitchSettingsView, type SubagentSettingsView } from '../client-contract.js'
+import { routePairConfigured, subagentModeForEnabled, type CapabilityRouteView, type MainSettingsView, type ModelSwitchSettingsView, type SubagentSettingsView } from '../client-contract.js'
 import type { RuntimeCapabilities } from '../runtime-capabilities.js'
 import { searchGroupsFromCapabilities, type CapabilitiesSnapshot } from './search-capabilities.js'
 import type { ModelSwitchLocaleKey } from './locales.js'
@@ -13,13 +13,12 @@ import type { ConfigViewForm } from './derived-config-form.js'
 
 export interface ModelSwitchSettingsFace {
   t: (key: ModelSwitchLocaleKey) => string
-  hooks: { mainSettings: ConfigViewForm<MainSettingsView>; subagentSettings: ConfigViewForm<SubagentSettingsView>; searchSettings: ConfigViewForm<CapabilityRouteView>; imageSettings: ConfigViewForm<CapabilityRouteView>; autoReviewSettings: ConfigViewForm<CapabilityRouteView>; switchSettings: Pick<ConfigForm<ModelSwitchSettingsView>, 'getSnapshot' | 'subscribe'> }
+  hooks: { mainSettings: ConfigViewForm<MainSettingsView>; subagentSettings: ConfigViewForm<SubagentSettingsView>; searchSettings: ConfigViewForm<CapabilityRouteView>; imageSettings: ConfigViewForm<CapabilityRouteView>; autoReviewSettings: ConfigViewForm<CapabilityRouteView>; compactionSettings: ConfigViewForm<CapabilityRouteView>; switchSettings: Pick<ConfigForm<ModelSwitchSettingsView>, 'getSnapshot' | 'subscribe'> }
   capabilities: RuntimeCapabilities
   saveMain: (next: MainSettingsView, expectedRevision: number) => Promise<number>
   setSubagent: (field: 'mode' | 'provider' | 'model' | 'reasoningEffort', value: string | undefined) => Promise<void>
-  setCapability: (route: 'search' | 'image' | 'autoReview', field: 'provider' | 'model', value: string | undefined) => Promise<void>
+  setCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction', field: 'provider' | 'model', value: string | undefined) => Promise<void>
   setCompactOnSwitch: (value: boolean) => Promise<void>
-  setPlanCompactThreshold: (value: number) => Promise<void>
   loadCatalog: () => Promise<readonly ModelProviderGroup[]>
   /** Host capabilities long-poll; absent in legacy faces, which keep the static-capabilities path. */
   loadCapabilities?: (revision?: number, signal?: AbortSignal) => Promise<CapabilitiesSnapshot>
@@ -29,13 +28,14 @@ export interface ModelSwitchSettingsFace {
 }
 
 export type ModelSwitchSettingsProps = PropsRuntime<'settings.section'> & InjectFace<ModelSwitchSettingsFace>
-type RouteId = 'main' | 'subagent' | 'search' | 'image' | 'autoReview'
+type RouteId = 'main' | 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction'
 type RouteIconKind = RouteId
 
 function cx(...values: Array<string | undefined | false>): string { return values.filter(Boolean).join(' ') }
 function compact(...values: Array<string | undefined>): string { return values.filter((value): value is string => value !== undefined && value !== '').join(' · ') }
 
 function RouteIcon({ kind }: { kind: RouteIconKind }): ReactNode {
+  if (kind === 'compaction') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M5 3.5 9 7.5l4-4M5 14.5 9 10.5l4 4" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" /></svg>
   if (kind === 'main') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4.5h12v8H8l-3.5 2v-2H3v-8Z" stroke="currentColor" strokeLinejoin="round" /></svg>
   if (kind === 'subagent') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="2.5" stroke="currentColor" /><circle cx="12.5" cy="11.5" r="2" stroke="currentColor" /><path d="M3 14c.4-2.5 1.6-4 3-4s2.6 1.5 3 4M10 7.5c.5-.8 1.3-1.2 2.2-1.2 1.5 0 2.6 1 2.8 2.7" stroke="currentColor" strokeLinecap="round" /></svg>
   if (kind === 'search') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="4.5" stroke="currentColor" /><path d="m11.5 11.5 3.5 3.5" stroke="currentColor" strokeLinecap="round" /></svg>
@@ -113,40 +113,18 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const search = props.useSearchSettings(value => value)
   const image = props.useImageSettings(value => value)
   const autoReview = props.useAutoReviewSettings(value => value)
+  const compaction = props.useCompactionSettings(value => value)
   const switchSettings = props.useSwitchSettings(value => value)
   const [open, setOpen] = useState<RouteId | undefined>()
   const [subagentDraft, setSubagentDraft, resetSubagent] = useDraft(subagent)
   const [searchDraft, setSearchDraft, resetSearch] = useDraft(search)
   const [imageDraft, setImageDraft, resetImage] = useDraft(image)
   const [autoReviewDraft, setAutoReviewDraft, resetAutoReview] = useDraft(autoReview)
+  const [compactionDraft, setCompactionDraft, resetCompaction] = useDraft(compaction)
   const [busy, setBusy] = useState<RouteId | undefined>()
   const [message, setMessage] = useState<{ route: RouteId; text: string } | undefined>()
   const [compactBusy, setCompactBusy] = useState(false)
   const [compactError, setCompactError] = useState<string>()
-  const planCompactValue = switchSettings.value?.planCompactThreshold ?? 200_000
-  const [planCompactDraft, setPlanCompactDraft] = useState(() => String(planCompactValue))
-  const [planCompactBusy, setPlanCompactBusy] = useState(false)
-  const [planCompactError, setPlanCompactError] = useState<string>()
-  useEffect(() => { setPlanCompactDraft(String(planCompactValue)); setPlanCompactError(undefined) }, [planCompactValue])
-  /** Commit the threshold on blur/Enter only when it is a non-negative integer. */
-  const commitPlanCompactThreshold = (): void => {
-    const parsed = Number(planCompactDraft)
-    if (!Number.isInteger(parsed) || parsed < 0) {
-      setPlanCompactError(props.t('planCompactThresholdInvalid'))
-      return
-    }
-    if (parsed === planCompactValue) { setPlanCompactError(undefined); return }
-    setPlanCompactBusy(true)
-    setPlanCompactError(undefined)
-    void props.setPlanCompactThreshold(parsed).then(
-      () => { setPlanCompactBusy(false) },
-      error => {
-        setPlanCompactBusy(false)
-        setPlanCompactDraft(String(planCompactValue))
-        setPlanCompactError(error instanceof Error ? error.message : props.t('requestFailed'))
-      },
-    )
-  }
   const loadSearchCapabilities = props.loadCapabilities
   const [searchSnapshot, setSearchSnapshot] = useState<CapabilitiesSnapshot | undefined>(undefined)
   const [searchError, setSearchError] = useState<string | undefined>(undefined)
@@ -207,8 +185,10 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const searchAvailable = searchLive?.searchProviderAdapters.available ?? false
   const imageChoices = capabilityChoices(groups, imageDraft, props.capabilities.imageProviderAdapters.providers ?? [], 'image')
   const autoReviewChoices = deriveRouteChoices(groups, autoReviewDraft)
-  const autoReviewOn = autoReviewRouteConfigured(autoReview.value)
-  const synced = [main, subagent, search, image, autoReview].every(snapshot => snapshot.status === 'ready')
+  const autoReviewOn = routePairConfigured(autoReview.value)
+  const compactionChoices = deriveRouteChoices(groups, compactionDraft)
+  const compactionOn = routePairConfigured(compaction.value)
+  const synced = [main, subagent, search, image, autoReview, compaction].every(snapshot => snapshot.status === 'ready')
   const run = async (route: RouteId, operation: () => Promise<void>): Promise<void> => {
     if (busy !== undefined) return
     setBusy(route); setMessage(undefined)
@@ -249,6 +229,10 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     if (autoReview.value?.provider !== autoReviewDraft.provider) await props.setCapability('autoReview', 'provider', autoReviewDraft.provider)
     if (autoReview.value?.model !== autoReviewDraft.model) await props.setCapability('autoReview', 'model', autoReviewDraft.model)
   }) }
+  const saveCompaction = (): void => { if (compactionDraft === undefined) return; void run('compaction', async () => {
+    if (compaction.value?.provider !== compactionDraft.provider) await props.setCapability('compaction', 'provider', compactionDraft.provider)
+    if (compaction.value?.model !== compactionDraft.model) await props.setCapability('compaction', 'model', compactionDraft.model)
+  }) }
   /**
    * The reviewer switch: Off unsets both stored fields (follow the session
    * model); On seeds the route from Main so the pin takes effect immediately
@@ -283,6 +267,41 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
       },
     )
   }
+  /**
+   * The compaction switch: Off unsets both stored fields (official default =
+   * the conversation target); On seeds the route from Main so the pin takes
+   * effect immediately and stays editable below. A failed write reports,
+   * never flips silently.
+   */
+  const persistCompactionEnabled = (enabled: boolean): void => {
+    if (busy === 'compaction' || !compaction.writable || compaction.value === undefined) return
+    if (!enabled) {
+      setOpen(current => current === 'compaction' ? undefined : current)
+      void run('compaction', async () => {
+        if (compaction.value?.provider !== undefined) await props.setCapability('compaction', 'provider', undefined)
+        if (compaction.value?.model !== undefined) await props.setCapability('compaction', 'model', undefined)
+      })
+      return
+    }
+    const seed = draft
+    if (seed === undefined || seed.provider.trim() === '' || seed.model.trim() === '') return
+    setBusy('compaction')
+    setMessage(undefined)
+    void (async () => {
+      if (compaction.value?.provider !== seed.provider) await props.setCapability('compaction', 'provider', seed.provider)
+      if (compaction.value?.model !== seed.model) await props.setCapability('compaction', 'model', seed.model)
+    })().then(
+      () => {
+        setCompactionDraft({ provider: seed.provider, model: seed.model })
+        setBusy(undefined)
+        setOpen('compaction')
+      },
+      error => {
+        setBusy(undefined)
+        setMessage({ route: 'compaction', text: error instanceof Error ? error.message : props.t('requestFailed') })
+      },
+    )
+  }
   const mainSummary = draft === undefined ? props.t('loading') : compact(routeName(groups, draft), mainEffectiveEffort)
   const subagentRole = subagentDraft?.mode === 'fixed' && subagentDraft.provider !== undefined && subagentDraft.provider !== '' ? props.providerRoleOf?.(subagentDraft.provider) : undefined
   const subagentOn = subagentDraft?.mode === 'fixed'
@@ -292,6 +311,7 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const subagentDisabled = subagent.status !== 'ready' || !subagent.writable || subagentDraft === undefined || busy === 'subagent' || !subagentOn || (subagentDraft.provider ?? '').trim() === '' || (subagentDraft.model ?? '').trim() === ''
   const capabilityDisabled = (route: 'search' | 'image', snapshot: ConfigFormSnapshot<CapabilityRouteView>, next: CapabilityRouteView | undefined): boolean => snapshot.status !== 'ready' || !snapshot.writable || next === undefined || busy === route || (next.provider ?? '').trim() === '' || (next.model ?? '').trim() === ''
   const autoReviewDisabled = autoReview.status !== 'ready' || !autoReview.writable || autoReviewDraft === undefined || busy === 'autoReview' || !autoReviewOn || (autoReviewDraft.provider ?? '').trim() === '' || (autoReviewDraft.model ?? '').trim() === ''
+  const compactionDisabled = compaction.status !== 'ready' || !compaction.writable || compactionDraft === undefined || busy === 'compaction' || !compactionOn || (compactionDraft.provider ?? '').trim() === '' || (compactionDraft.model ?? '').trim() === ''
 
   return <main className={css.section}>
     <h1 className={css.title}>{props.t('title')}</h1>
@@ -317,27 +337,6 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
             },
           )
         }} />
-      </div>
-      <div className={css.rowCard}>
-        <span className={css.routeIcon} aria-hidden="true"><svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M4 5.5h10M4 9h7M4 12.5h5" stroke="currentColor" strokeLinecap="round" /><path d="M13 11.5v3.5l2-1.6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
-        <div className={css.rowCopy}>
-          <span className={css.rowTitle}>{props.t('planCompactThreshold')}</span>
-          <p className={css.hint}>{props.t('planCompactThresholdHelp')}</p>
-          {planCompactError === undefined ? null : <p className={cx(css.hint, css.message)}>{planCompactError}</p>}
-        </div>
-        <input
-          className={css.input}
-          type="number"
-          min={0}
-          step={1000}
-          inputMode="numeric"
-          aria-label={props.t('planCompactThreshold')}
-          value={planCompactDraft}
-          disabled={!switchSettings.writable || planCompactBusy}
-          onChange={event => { setPlanCompactDraft(event.target.value); setPlanCompactError(undefined) }}
-          onBlur={commitPlanCompactThreshold}
-          onKeyDown={event => { if (event.key === 'Enter') commitPlanCompactThreshold() }}
-        />
       </div>
     </section>
 
@@ -377,6 +376,13 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
           <Field label={props.t('provider')} value={autoReviewDraft.provider ?? ''} disabled={busy === 'autoReview' || !autoReview.writable} choices={autoReviewChoices.providers} onChange={provider => { const first = groups.find(group => group.id === provider)?.models[0]; setAutoReviewDraft({ provider, ...(first === undefined ? {} : { model: first.id }) }) }} />
           <Field label={props.t('model')} value={autoReviewDraft.model ?? ''} disabled={busy === 'autoReview' || !autoReview.writable} choices={autoReviewChoices.models} onChange={model => { setAutoReviewDraft({ ...autoReviewDraft, model }) }} />
         </div><Actions t={props.t} busy={busy === 'autoReview'} disabled={autoReviewDisabled} {...(message?.route === 'autoReview' ? { message: message.text } : {})} onCancel={() => { resetAutoReview(); setMessage(undefined) }} onSave={saveAutoReview} /></>}
+      </RouteCard>
+
+      <RouteCard title={props.t('compaction')} summary={compactionDraft === undefined ? props.t('loading') : compactionOn ? routeName(groups, compactionDraft) : props.t('compactionFollow')} hint={props.t('compactionHelp')} icon="compaction" open={open === 'compaction' && compactionOn} onToggle={() => { if (compactionOn) toggle('compaction') }} expandable={compactionOn} trailing={compactionDraft === undefined ? undefined : <InstantSwitch checked={compactionOn} disabled={busy === 'compaction' || !compaction.writable} label={props.t('compaction')} onChange={persistCompactionEnabled} />}>
+        {compactionDraft === undefined ? <p className={css.hint}>{props.t('loading')}</p> : <><p className={css.hint}>{props.t('compactionRouteHelp')}</p><div className={css.formGrid}>
+          <Field label={props.t('provider')} value={compactionDraft.provider ?? ''} disabled={busy === 'compaction' || !compaction.writable} choices={compactionChoices.providers} onChange={provider => { const first = groups.find(group => group.id === provider)?.models[0]; setCompactionDraft({ provider, ...(first === undefined ? {} : { model: first.id }) }) }} />
+          <Field label={props.t('model')} value={compactionDraft.model ?? ''} disabled={busy === 'compaction' || !compaction.writable} choices={compactionChoices.models} onChange={model => { setCompactionDraft({ ...compactionDraft, model }) }} />
+        </div><Actions t={props.t} busy={busy === 'compaction'} disabled={compactionDisabled} {...(message?.route === 'compaction' ? { message: message.text } : {})} onCancel={() => { resetCompaction(); setMessage(undefined) }} onSave={saveCompaction} /></>}
       </RouteCard>
     </section>
 
