@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { PendingQuestion, PlanReview } from '@deepseek-ai/dsh-client-ui-user-questions/client'
-import type { ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { MainSettingsView } from '../../client-contract.ts'
 import { Button, IconEditOutlineRegular, extractMarkdownPlainText } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   PlanApprovalResponseError, approvePlanReview, planActionView, planReviewOf, settlePlanAction,
@@ -50,8 +48,6 @@ export interface PlanReviewFace extends PickerDirectoryFace {
   providerLockStore: { subscribe: (listener: () => void) => () => void; getSnapshot: () => { provider: RuntimeProviderLock; failed: boolean } }
   /** Re-read the native binding now (mount, turn transitions, pre-selection). */
   refreshProviderLock: () => void
-  subscribeMainDefaults: (listener: () => void) => () => void
-  getMainDefaultsSnapshot: () => ConfigFormSnapshot<MainSettingsView>
   /** Released goal remote; absent when this deployment mounts no goal service. */
   goalRemote: () => GoalRemote | undefined
   /** Full-plan sidebar navigation (ui-plan's registered opener). */
@@ -119,7 +115,6 @@ interface PlanReviewStateProps {
   providerLock: RuntimeProviderLock
   agentLocked: boolean
   lockFailed: boolean
-  settingsUnavailableReason?: string
   directory: PickerDirectoryView
   t: PlanReviewCardProps['t']
   goalRemote: () => GoalRemote | undefined
@@ -127,18 +122,6 @@ interface PlanReviewStateProps {
   resolveInteractionOperations?: () => PickerInteractionOperations | undefined
   /** Resolve a provider key to its ProviderDirectory role for runtime icons. */
   roleOf?: (providerKey: string) => string | undefined
-}
-
-/** Match the model seat's admission guard before letting either picker offer a change. */
-export function mainDefaultsUnavailableReason(
-  snapshot: ConfigFormSnapshot<MainSettingsView>,
-  t: PlanReviewCardProps['t'],
-): string | undefined {
-  if (snapshot.mode === 'memory') return t('settings.remoteUnavailable')
-  if (snapshot.status === 'loading') return t('settings.loading')
-  if (snapshot.status !== 'ready' || snapshot.mode !== 'host' || !snapshot.writable
-    || snapshot.value === undefined || snapshot.revision === undefined) return t('settings.unavailable')
-  return undefined
 }
 
 /** Inline failed lock-read status; history and log reading stay unaffected. */
@@ -154,9 +137,6 @@ export function ProviderLockHint(props: { t: PlanReviewCardProps['t'] }) {
 export function PlanReviewCard(props: PlanReviewCardProps) {
   const snapshot = props.useDirectory(value => value)
   const order = props.useProviderOrder(value => value)
-  const settingsUnavailableReason = mainDefaultsUnavailableReason(
-    useSyncExternalStore(props.subscribeMainDefaults, props.getMainDefaultsSnapshot), props.t,
-  )
   const lock = useSyncExternalStore(props.providerLockStore.subscribe, props.providerLockStore.getSnapshot)
   const phase = props.useInput(input => input.phase)
   const blank = props.useSession(session => session.blank)
@@ -183,7 +163,6 @@ export function PlanReviewCard(props: PlanReviewCardProps) {
     providerLock={providerLock}
     agentLocked={agentLocked}
     lockFailed={lock.failed}
-    {...(settingsUnavailableReason === undefined ? {} : { settingsUnavailableReason })}
     directory={pickerDirectoryViewOrdered(snapshot, props, order, props.catalogRoutes?.() ?? {})}
     t={props.t}
     goalRemote={props.goalRemote}
@@ -194,7 +173,7 @@ export function PlanReviewCard(props: PlanReviewCardProps) {
 }
 
 function PlanReviewState({
-  matched, review, available, providerLock, agentLocked, lockFailed, settingsUnavailableReason, directory, t, goalRemote, planPreview, resolveInteractionOperations, roleOf,
+  matched, review, available, providerLock, agentLocked, lockFailed, directory, t, goalRemote, planPreview, resolveInteractionOperations, roleOf,
 }: PlanReviewStateProps) {
   const { snapshot, getDirectorySnapshot, load, select } = directory
   const [execution, setExecution] = useState<ModelSelection | undefined>(snapshot.current ?? undefined)
@@ -256,11 +235,7 @@ function PlanReviewState({
     load()
   }
 
-  const settingsBlock = settingsUnavailableReason !== undefined && execution !== undefined
-    && (snapshot.current === null || execution.provider !== snapshot.current.provider
-      || execution.model !== snapshot.current.model
-      || execution.reasoningEffort !== snapshot.current.reasoningEffort)
-  const executionAllowed = execution !== undefined && !settingsBlock
+  const executionAllowed = execution !== undefined
     && runtimeChoiceAllowed(
       providerLock,
       agentLocked,
@@ -277,10 +252,6 @@ function PlanReviewState({
       selection: model,
       current: snapshot.current,
       answer: () => respondAnswer(matched, review.id, review.approve.label, t('plan.responseRejected'), true),
-      onNotRestored: (switched) => {
-        setNotice(t('plan.notRestored', { model: switched }))
-        console.warn('dsh-model-switch: the Session model changed but the Main default was not restored', switched)
-      },
     })
     if (!committed) {
       const message = getDirectorySnapshot().error
@@ -352,12 +323,11 @@ function PlanReviewState({
               retryLabel={t('retry')}
             >
             <ComposerPicker
-              locked={busy || blocked || settingsUnavailableReason !== undefined}
+              locked={busy || blocked}
               providerLock={providerLock}
               agentLocked={agentLocked}
               {...(roleOf === undefined ? {} : { roleOf })}
               available={available}
-              {...(settingsUnavailableReason === undefined ? {} : { unavailableReason: settingsUnavailableReason })}
               directory={directory}
               t={t}
               {...resolveInteractionOperations === undefined ? {} : { resolveInteractionOperations }}
@@ -376,7 +346,7 @@ function PlanReviewState({
           </div>
         </div>
         <div className={css.footer}>
-          <div className={css.feedback} role="status">{action.error ?? notice ?? (settingsBlock ? settingsUnavailableReason : null)}</div>
+          <div className={css.feedback} role="status">{action.error ?? notice}</div>
           {decline !== undefined && (
             <div className={css.feedbackRow}>
               <input

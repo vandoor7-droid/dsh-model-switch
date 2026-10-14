@@ -2,7 +2,7 @@ import { type ReactNode } from 'react';
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types';
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client';
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
-import { type CapabilityRouteView, type MainSettingsView, type ModelSwitchSettingsView, type SubagentSettingsView } from '../client-contract.js';
+import { type CapabilityRouteView, type ModelSwitchSettingsView, type SubagentSettingsView } from '../client-contract.js';
 import { type ProviderGroupConfig } from '../provider-group.js';
 import type { RuntimeCapabilities } from '../runtime-capabilities.js';
 import { type CapabilitiesSnapshot } from './search-capabilities.js';
@@ -11,7 +11,6 @@ import type { ConfigViewForm } from './derived-config-form.js';
 export interface ModelSwitchSettingsFace {
     t: (key: ModelSwitchLocaleKey) => string;
     hooks: {
-        mainSettings: ConfigViewForm<MainSettingsView>;
         subagentSettings: ConfigViewForm<SubagentSettingsView>;
         searchSettings: ConfigViewForm<CapabilityRouteView>;
         imageSettings: ConfigViewForm<CapabilityRouteView>;
@@ -20,7 +19,6 @@ export interface ModelSwitchSettingsFace {
         switchSettings: Pick<ConfigForm<ModelSwitchSettingsView>, 'getSnapshot' | 'subscribe'>;
     };
     capabilities: RuntimeCapabilities;
-    saveMain: (next: MainSettingsView, expectedRevision: number) => Promise<number>;
     setSubagent: (field: 'mode' | 'provider' | 'model' | 'reasoningEffort', value: string | undefined) => Promise<void>;
     setCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction', field: 'provider' | 'model', value: string | undefined) => Promise<void>;
     setCompactOnSwitch: (value: boolean) => Promise<void>;

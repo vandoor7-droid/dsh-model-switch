@@ -6,8 +6,8 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { AUTO_REVIEW_SETTINGS_FIELDS, deriveAutoReviewSettings, deriveCompactionSettings, deriveImageSettings, deriveSearchSettings, deriveSubagentSettings, COMPACTION_SETTINGS_FIELDS, IMAGE_SETTINGS_FIELDS, MAIN_DEFAULT_CONFIG_ID, MODEL_SWITCH_CONFIG_ID, MainSettingsConflictError, PROVIDERS_CONFIG_ID, SEARCH_SETTINGS_FIELDS, SUBAGENT_SETTINGS_FIELDS, type MainSettingsView } from '../client-contract.js'
-import { applyProviderGroupTo, normalizeProviderGroups, withProviderGroup, type ProviderGroupConfig } from '../provider-group.js'
+import { AUTO_REVIEW_SETTINGS_FIELDS, deriveAutoReviewSettings, deriveCompactionSettings, deriveImageSettings, deriveSearchSettings, deriveSubagentSettings, COMPACTION_SETTINGS_FIELDS, IMAGE_SETTINGS_FIELDS, MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, SEARCH_SETTINGS_FIELDS, SUBAGENT_SETTINGS_FIELDS } from '../client-contract.js'
+import { withProviderGroup, type ProviderGroupConfig } from '../provider-group.js'
 import { deriveConfigForm } from './derived-config-form.js'
 import { RUNTIME_CAPABILITIES } from '../runtime-capabilities.js'
 import { decodeCapabilitiesSnapshot, type CapabilitiesSnapshot } from './search-capabilities.js'
@@ -34,47 +34,12 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(localeNamespace, { zh, en }), 'dsh-model-switch: localized Settings section')
   const t = ctx.locale.bind(localeNamespace) as ModelSwitchSettingsFace['t']
   const remote = ctx.remote
-  const mainForm = ctx.configForms.get<MainSettingsView>(MAIN_DEFAULT_CONFIG_ID)
   const owned = ctx.configForms.get<ModelSwitchSettingsView>(MODEL_SWITCH_CONFIG_ID)
-  const main = deriveConfigForm(mainForm, value => value, {
-    provider: 'provider',
-    model: 'model',
-    reasoningEffort: 'reasoningEffort',
-  })
   const subagent = deriveConfigForm(owned, deriveSubagentSettings, SUBAGENT_SETTINGS_FIELDS)
   const search = deriveConfigForm(owned, deriveSearchSettings, SEARCH_SETTINGS_FIELDS)
   const image = deriveConfigForm(owned, deriveImageSettings, IMAGE_SETTINGS_FIELDS)
   const autoReview = deriveConfigForm(owned, deriveAutoReviewSettings, AUTO_REVIEW_SETTINGS_FIELDS)
   const compaction = deriveConfigForm(owned, deriveCompactionSettings, COMPACTION_SETTINGS_FIELDS)
-  /** Adopt the target provider's saved group; a provider without a group leaves the routes untouched. */
-  const applyProviderGroupFor = async (provider: string): Promise<void> => {
-    await applyProviderGroupTo(owned, normalizeProviderGroups(owned.getSnapshot().value?.providerGroups), provider)
-  }
-  const saveMain = async (next: MainSettingsView, expectedRevision: number): Promise<number> => {
-    const previousProvider = mainForm.getSnapshot().value?.provider
-    const accepted = await mainForm.mutate([
-      { op: 'set', path: ['provider'], value: next.provider },
-      { op: 'set', path: ['model'], value: next.model },
-      next.reasoningEffort === undefined || next.reasoningEffort === ''
-        ? { op: 'unset', path: ['reasoningEffort'] }
-        : { op: 'set', path: ['reasoningEffort'], value: next.reasoningEffort },
-    ], expectedRevision)
-    if (!accepted) {
-      if (mainForm.getSnapshot().revision !== expectedRevision) throw new MainSettingsConflictError(t('conflict'))
-      throw new Error('settings-rejected')
-    }
-    const revision = mainForm.getSnapshot().revision
-    if (revision === undefined) throw new Error('settings unavailable after save')
-    // The Main save itself already landed; a group failure must never look like it did not.
-    if (next.provider.trim() !== '' && next.provider !== previousProvider) {
-      try {
-        await applyProviderGroupFor(next.provider)
-      } catch (error) {
-        throw new Error(t('providerGroupApplyFailed') + (error instanceof Error ? error.message : t('requestFailed')))
-      }
-    }
-    return revision
-  }
   const connectionRpc = ((): PluginRpcClient | undefined => {
     try {
       const connection = ctx.get('connection', false) as ConnectionHandle | undefined
@@ -101,7 +66,7 @@ export function apply(ctx: ClientContext): void {
   const subscribeProviderOrder = orderStore.subscribe
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'model-switch', order: 9, label: () => t('nav'), locale: localeNamespace,
-    inject: (): ModelSwitchSettingsFace => ({ t, hooks: { mainSettings: main, subagentSettings: subagent, searchSettings: search, imageSettings: image, autoReviewSettings: autoReview, compactionSettings: compaction, switchSettings: owned }, capabilities: RUNTIME_CAPABILITIES, saveMain, setSubagent: (field, value) => value === undefined ? subagent.unset(field) : subagent.set(field, value), setCapability: (route, field, value) => { const scope = route === 'search' ? search : route === 'image' ? image : route === 'compaction' ? compaction : autoReview; return value === undefined ? scope.unset(field) : scope.set(field, value) }, setCompactOnSwitch: async value => { if (!await owned.set('compactOnSwitch', value)) throw new Error('settings-rejected') },
+    inject: (): ModelSwitchSettingsFace => ({ t, hooks: { subagentSettings: subagent, searchSettings: search, imageSettings: image, autoReviewSettings: autoReview, compactionSettings: compaction, switchSettings: owned }, capabilities: RUNTIME_CAPABILITIES, setSubagent: (field, value) => value === undefined ? subagent.unset(field) : subagent.set(field, value), setCapability: (route, field, value) => { const scope = route === 'search' ? search : route === 'image' ? image : route === 'compaction' ? compaction : autoReview; return value === undefined ? scope.unset(field) : scope.set(field, value) }, setCompactOnSwitch: async value => { if (!await owned.set('compactOnSwitch', value)) throw new Error('settings-rejected') },
       saveProviderGroup: async (provider: string, group: ProviderGroupConfig | undefined) => {
         const current = owned.getSnapshot().value?.providerGroups
         const next = withProviderGroup(current, provider, group)

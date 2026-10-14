@@ -1,49 +1,30 @@
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types';
-import type { ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client';
-import { type CapabilityRouteView, type MainSettingsView, type SubagentSettingsView } from '../client-contract.js';
+import type { CapabilityRouteView } from '../client-contract.js';
 import type { ModelSwitchLocaleKey } from './locales.js';
-type Share<T> = (selector: (snapshot: ConfigFormSnapshot<T>) => ConfigFormSnapshot<T>) => ConfigFormSnapshot<T>;
-export interface SettingsControllerInputs {
-    useMainSettings: Share<MainSettingsView>;
-    useSubagentSettings: Share<SubagentSettingsView>;
-    saveMain(next: MainSettingsView, expectedRevision: number): Promise<number>;
-    loadCatalog(): Promise<readonly ModelProviderGroup[]>;
-    subscribeProviderOrder?: (listener: () => void) => () => void;
-    t(key: ModelSwitchLocaleKey): string;
-}
 export interface Choice {
     id: string;
     name: string;
     unavailable?: true;
 }
+/** A concrete provider/model/effort triple; route editors copy these fields. */
+export interface RouteModelSelection {
+    provider: string;
+    model: string;
+    reasoningEffort?: string;
+}
 /** Build a settings route for a newly selected model using only that model's default effort. */
-export declare function selectRouteModel(groups: readonly ModelProviderGroup[], provider: string, model: string): MainSettingsView;
+export declare function selectRouteModel(groups: readonly ModelProviderGroup[], provider: string, model: string): RouteModelSelection;
 export declare function deriveRouteChoices(groups: readonly ModelProviderGroup[], route: CapabilityRouteView | undefined, allowedProviders?: readonly string[]): {
     providers: Choice[];
     models: Choice[];
 };
-export declare function expectedMainRevision(mirror: number, accepted?: number): number;
-export declare function acceptedRevisionAfterFailure(accepted: number | undefined, error: unknown): number | undefined;
-export declare function deriveMainChoices(groups: readonly ModelProviderGroup[], draft?: MainSettingsView): {
-    providers: Choice[];
-    models: Choice[];
-    efforts: Choice[];
-};
-export declare function useModelSwitchSettingsController(input: SettingsControllerInputs): {
-    main: ConfigFormSnapshot<MainSettingsView>;
-    subagent: ConfigFormSnapshot<SubagentSettingsView>;
-    draft: MainSettingsView | undefined;
+export interface SettingsCatalogInputs {
+    loadCatalog(): Promise<readonly ModelProviderGroup[]>;
+    subscribeProviderOrder?: (listener: () => void) => () => void;
+    t(key: ModelSwitchLocaleKey): string;
+}
+/** Load the model catalog backing every route editor, reloading on provider-order changes. */
+export declare function useSettingsCatalog(input: SettingsCatalogInputs): {
     groups: readonly ModelProviderGroup[];
-    providers: Choice[];
-    models: Choice[];
-    efforts: Choice[];
-    busy: boolean;
-    message: string | undefined;
-    disabled: boolean;
-    setProvider: (provider: string) => void;
-    setModel: (id: string) => void;
-    setReasoningEffort: (value: string) => void;
-    reset: () => void;
-    save: () => Promise<void>;
+    catalogError: string | undefined;
 };
-export {};

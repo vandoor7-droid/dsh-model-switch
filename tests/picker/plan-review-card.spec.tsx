@@ -30,9 +30,8 @@ import { en, zh, type PickerKey } from '../../src/client/picker/locales.ts'
 const selection = { provider: 'codex', model: 'gpt-5.6-sol' }
 const executionSelection = { provider: 'codex', model: 'gpt-5.6-luna' }
 const baseSnapshot = { current: selection, routable: true, groups: [], failures: [], status: 'ready', error: null as string | null }
-const COMMITTED = { committed: true, mainDefaultRestored: true }
-const NOT_RESTORED = { committed: true, mainDefaultRestored: false }
-const REFUSED = { committed: false, mainDefaultRestored: true }
+const COMMITTED = { committed: true }
+const REFUSED = { committed: false }
 
 /** A goal remote that always accepts; goal tests override it with spies. */
 function acceptingGoalRemote() {
@@ -71,9 +70,6 @@ function wait(
 const unlockedLockSnapshot = { provider: null, failed: false }
 const lockedLockSnapshot = { provider: 'antigravity', failed: false }
 const failedLockSnapshot = { provider: null, failed: true }
-const hostSettings = { status: 'ready', mode: 'host', writable: true, value: selection, revision: 1 }
-const remoteSettings = { status: 'unavailable', mode: 'memory', writable: false, value: undefined, revision: undefined }
-const loadingSettings = { status: 'loading', mode: 'host', writable: false, value: undefined, revision: undefined }
 function props(overrides: Record<string, unknown> = {}) {
   let snapshot = baseSnapshot
   return {
@@ -83,8 +79,6 @@ function props(overrides: Record<string, unknown> = {}) {
     useProviderOrder: (selector: (value: readonly string[]) => unknown) => selector([]),
     useInput: (selector: (value: { phase: string }) => unknown) => selector({ phase: 'plain' }),
     useSession: (selector: (value: { blank: boolean }) => unknown) => selector({ blank: false }),
-    subscribeMainDefaults: () => () => undefined,
-    getMainDefaultsSnapshot: () => hostSettings,
     providerLockStore: {
       subscribe: () => () => undefined,
       getSnapshot: () => unlockedLockSnapshot,
@@ -125,42 +119,14 @@ function locale(dictionary: Record<PickerKey, string>) {
 }
 
 describe('PlanReviewCard', () => {
-  it('keeps same-model remote Plan approval usable while explaining disabled execution switching', async () => {
+  it('answers a same-model approval without any execution-model switch', async () => {
     const answer = vi.fn(async () => undefined)
-    const fixture = props({ matched: wait(answer), getMainDefaultsSnapshot: () => remoteSettings, t: locale(en) })
+    const fixture = props({ matched: wait(answer), t: locale(en) })
     let card!: ReactTestRenderer
     await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
-    const picker = card.root.findByType(ComposerPicker)
-    expect(picker.props.locked).toBe(true)
-    expect(picker.props.unavailableReason).toBe(en['settings.remoteUnavailable'])
     expect(approve(card, en['plan.approve']).props.disabled).toBe(false)
     await act(async () => { approve(card, en['plan.approve']).props.onClick() })
     expect(answer).toHaveBeenCalledOnce()
-    expect(fixture.select).not.toHaveBeenCalled()
-    await act(async () => { card.unmount() })
-  })
-
-  it('explains and blocks a previously drafted Plan model if settings become memory-only', async () => {
-    const fixture = props({ getMainDefaultsSnapshot: () => remoteSettings, t: locale(zh) })
-    let card!: ReactTestRenderer
-    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
-    await act(async () => { chooseExecution(card) })
-    expect(approve(card, zh['plan.approve']).props.disabled).toBe(true)
-    expect(card.root.findByProps({ role: 'status' }).children.join('')).toBe(zh['settings.remoteUnavailable'])
-    expect(fixture.select).not.toHaveBeenCalled()
-    await act(async () => { card.unmount() })
-  })
-
-  it('explains Main settings loading before Plan execution can switch models', async () => {
-    const fixture = props({ getMainDefaultsSnapshot: () => loadingSettings, t: locale(en) })
-    let card!: ReactTestRenderer
-    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
-    const picker = card.root.findByType(ComposerPicker)
-    expect(picker.props.locked).toBe(true)
-    expect(picker.props.unavailableReason).toBe(en['settings.loading'])
-    await act(async () => { chooseExecution(card) })
-    expect(approve(card, en['plan.approve']).props.disabled).toBe(true)
-    expect(card.root.findByProps({ role: 'status' }).children.join('')).toBe(en['settings.loading'])
     expect(fixture.select).not.toHaveBeenCalled()
     await act(async () => { card.unmount() })
   })
@@ -267,7 +233,7 @@ describe('PlanReviewCard', () => {
 
   it('keeps a rejected approval visible, shows a localized error, and retries it', async () => {
     const answer = vi.fn(async () => undefined)
-    const select = vi.fn<() => Promise<{ committed: boolean, mainDefaultRestored: boolean }>>()
+    const select = vi.fn<() => Promise<{ committed: boolean }>>()
       .mockResolvedValueOnce(REFUSED)
       .mockResolvedValueOnce(COMMITTED)
     const fixture = props({ matched: wait(answer), select, t: locale(zh) })
@@ -403,8 +369,8 @@ describe('PlanReviewCard', () => {
   })
 
   it('starts at most one approval operation for same-tick gestures', async () => {
-    let resolveCommit!: (outcome: { committed: boolean, mainDefaultRestored: boolean }) => void
-    const select = vi.fn(() => new Promise<{ committed: boolean, mainDefaultRestored: boolean }>(resolve => { resolveCommit = resolve }))
+    let resolveCommit!: (outcome: { committed: boolean }) => void
+    const select = vi.fn(() => new Promise<{ committed: boolean }>(resolve => { resolveCommit = resolve }))
     const answer = vi.fn(async () => undefined)
     const fixture = props({ matched: wait(answer), select })
     let card!: ReturnType<typeof create>
@@ -422,8 +388,8 @@ describe('PlanReviewCard', () => {
   })
 
   it('cannot answer before the execution-model commit resolves', async () => {
-    let resolveCommit!: (outcome: { committed: boolean, mainDefaultRestored: boolean }) => void
-    const select = vi.fn(() => new Promise<{ committed: boolean, mainDefaultRestored: boolean }>(resolve => { resolveCommit = resolve }))
+    let resolveCommit!: (outcome: { committed: boolean }) => void
+    const select = vi.fn(() => new Promise<{ committed: boolean }>(resolve => { resolveCommit = resolve }))
     const answer = vi.fn(async () => undefined)
     const fixture = props({ matched: wait(answer), select })
     let card!: ReturnType<typeof create>
@@ -503,10 +469,10 @@ describe('PlanReviewCard', () => {
     })
   })
 
-  it('answers a committed switch and reports an unrestored Main default', async () => {
+  it('answers a committed switch without any Main-default compensation notice', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const answer = vi.fn(async () => undefined)
-    const select = vi.fn(async () => NOT_RESTORED)
+    const select = vi.fn(async () => COMMITTED)
     const fixture = props({ matched: wait(answer), select, t: locale(en) })
     let card!: ReturnType<typeof create>
     await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
@@ -514,10 +480,7 @@ describe('PlanReviewCard', () => {
     await act(async () => { approve(card, en['plan.approve']).props.onClick(); await Promise.resolve(); await Promise.resolve() })
 
     expect(answer).toHaveBeenCalledOnce()
-    expect(card.root.findAllByProps({ role: 'status' }).some(node =>
-      node.children.join('').includes(executionSelection.model),
-    )).toBe(true)
-    expect(warn).toHaveBeenCalledOnce()
+    expect(warn).not.toHaveBeenCalled()
     warn.mockRestore()
   })
 

@@ -46,18 +46,12 @@ export class PlanApprovalResponseError extends Error {
 /**
  * Result of committing the draft execution model before answering a review.
  *
- * A commit and the compensation of the Host's own deployment-default write are
- * separate facts: only a failed commit may hold the answer back, because the
- * Host persists a Session selection as the deployment default on several
- * releases and this plugin restores the captured Main default afterwards. A
- * failed restore is announced, never fatal — the Session selection the human
- * asked for is already installed.
+ * Only a failed commit may hold the answer back: once `committed` is true the
+ * Session runs the requested selection, and the answer proceeds under it.
  */
 export interface PlanCommitOutcome {
   /** The Session now runs the requested provider/model/effort. */
   committed: boolean
-  /** The captured Main default is the effective one again. */
-  mainDefaultRestored: boolean
 }
 
 function codeOf(value: unknown): string | undefined {
@@ -85,8 +79,6 @@ export async function approvePlanReview(args: {
   selection: ModelSelection
   current?: ModelSelection | null
   answer: () => Promise<void>
-  /** Announced after a successful answer when the Main default could not be restored. */
-  onNotRestored?: (notice: string) => void
 }): Promise<boolean> {
   const current = args.current
   const same = current !== undefined && current !== null
@@ -94,11 +86,10 @@ export async function approvePlanReview(args: {
     && current.model === args.selection.model
     && current.reasoningEffort === args.selection.reasoningEffort
   const commit: PlanCommitOutcome = same
-    ? { committed: true, mainDefaultRestored: true }
+    ? { committed: true }
     : await args.select(args.selection)
   if (!commit.committed) return false
   await args.answer()
-  if (!commit.mainDefaultRestored) args.onNotRestored?.(args.selection.model)
   return true
 }
 

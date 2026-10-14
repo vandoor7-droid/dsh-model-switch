@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-在 DeepSeek Harness 中为 Main、Subagent、Web Search、图像生成、当前会话和 Plan 执行模型配置明确路由。Model Switch 只使用 DSH 公开服务和 Provider 自有 Adapter；不修改 DSH Core，也不管理 Provider 登录凭证。
+在 DeepSeek Harness 中为当前会话、Subagent、Web Search、图像生成和 Plan 执行模型配置明确路由。Model Switch 只使用 DSH 公开服务和 Provider 自有 Adapter；不修改 DSH Core，也不管理 Provider 登录凭证。
 
 <p align="center"><img src="docs/screenshots/composer-picker.png" alt="包含 Model、Effort、Context 和 Fast 的 Composer Picker" width="314"></p>
 
@@ -12,9 +12,9 @@ Picker 在切换页面或关闭搜索时保留键盘焦点，不覆盖搜索框�
 
 | 路由 | 行为 |
 | --- | --- |
-| Main 模型 | 新建会话的默认 provider、model 和可选 effort；不迁移已有会话。 |
+| 会话模型 | 当前对话的 provider/model/effort，只由 Composer Picker 或 Plan Review 修改。部署默认模型（新建会话）归 DSH 自己管理；选择器从不写它。 |
 | Subagent | 跟随当前父请求，或使用固定 provider/model/effort；Workflow 显式覆盖始终优先。 |
-| Composer Picker | 只修改当前会话，并提交 catalog 中的原始 model id；Main 默认值保持不变。 |
+| Composer Picker | 只修改当前会话，并提交 catalog 中的原始 model id。 |
 | Plan Review | 在发送 Plan 审核确认前，先提交执行模型。 |
 | Web Search | 保留官方 `web_search`；部署显式启用后，通过 Provider 动态声明的独立搜索适配器路由。 |
 | 图像生成 | 提供一个稳定的 `generate_image` 工具，通过选定的 Codex 或 Grok Adapter 路由。 |
@@ -23,16 +23,17 @@ Picker 在切换页面或关闭搜索时保留键盘焦点，不覆盖搜索框�
 
 空闲的空白会话可以选择 External Agent。提交中、等待首个 turn 以及运行期间，从请求开始就锁定所选执行运行时，不等待首 token 或原生绑定：Antigravity 保留其模型和 effort 选择；DSH 保留 LLM provider 选择，但禁用 Agent provider。会话一旦有过用户消息，Composer 和 Plan Review 仍显示 Agent 角色行但将其禁用，除非该会话已经绑定原生运行时。当前会话成功打开 Antigravity 原生会话后，Picker 会在该会话内禁用其他 provider，同时保留 Antigravity 模型与 effort 控件。DSH 全局 Picker 锁仍拥有最高优先级。
 
-## 配置 Main 和 Subagent
+## 配置 Subagent 与能力路由
 
-打开 **设置 → Model Switch**。Main 修改只影响新建会话。Subagent 可以跟随 Main，也可以使用固定 provider、model 和 effort。
-官方 DSH `0.1.7-alpha.2` 在非本机浏览器将 ConfigForms 设为仅内存模式，页面会明确显示不可用；请在 Host 的 127.0.0.1 页面打开设置。此模式下 Picker 也拒绝模型切换：已发布的 `session.selectModel` 会同时写入全局默认模型，但只读 Main 表单无法安全恢复。远端编辑与真正仅会话的切换需要上游提供受鉴权的 ConfigForm 通道及仅会话的选择接口；本插件不会绕过官方策略。
+打开 **设置 → Model Switch**。Subagent 可以跟随父请求，也可以使用固定 provider、model 和 effort。
 
-切换 Main 或固定 Subagent 的 provider/model 时，会用目标模型的默认 effort 替换旧模型的 effort；目标模型不支持推理时不传 effort。
+自 0.4.23 起本插件不再配置、也不再保护部署默认模型（原「主模型」卡片）。默认模型归 DSH 自己：Host 会把最后一次会话切换写成默认值（包括经本插件选择器或 TUI 的切换），与原生切换行为一致——新会话从"上次用过的模型"开始。需要固定默认值时，请使用 DSH 自带的 **设置 → 模型** 页面。官方 DSH 在非本机浏览器将 ConfigForms 设为仅内存模式，设置页会明确显示不可用；请在 Host 的 127.0.0.1 页面打开设置。移除主卡片的附带收益：模型切换从此不再依赖设置可写状态（此前选择器要等 Main 表单可写才允许切换）。
+
+切换固定 Subagent 的 provider/model 时，会用目标模型的默认 effort 替换旧模型的 effort；目标模型不支持推理时不传 effort。
 
 ![Model Switch 设置中的固定 Subagent 路由](docs/screenshots/settings-subagent.png)
 
-Follow Main 先读取当前父请求，再读取配置的 Main 默认值。固定路由会在官方 Subagent descriptor 创建前注入。DSH 0.1.2-alpha.4 会在该 descriptor 中携带 provider、model 和固定 reasoning effort。
+Follow 先读取当前父请求，再读取 Host 自身的会话默认模型。固定路由会在官方 Subagent descriptor 创建前注入。DSH 0.1.2-alpha.4 会在该 descriptor 中携带 provider、model 和固定 reasoning effort。
 
 ## 自定义模型如何出现在 Picker
 
@@ -73,7 +74,7 @@ Model Switch 按 provider，以及剥离以下后缀后的 model id 对 Catalog 
 
 ## Plan Review
 
-Plan Review 拥有独立于 Main 的执行模型草稿。**确认执行**会先把该模型提交到当前会话，再回答待处理的 Plan 审核。提交被拒绝时，审核保持待处理并允许重试；若会话模型已切换但部署默认模型未能还原，提示会在答复之后给出，而不是扣住你的决定。**拒绝**和**去聊天里说**不会执行 Plan。
+Plan Review 拥有独立于会话当前路由的执行模型草稿。**确认执行**会先把该模型提交到当前会话，再回答待处理的 Plan 审核。提交被拒绝时，审核保持待处理并允许重试。**拒绝**和**去聊天里说**不会执行 Plan。
 
 **拒绝**会发送提问方给出的选项，并把卡片反馈框里的文字作为答复自身的 `custom` 文本一并提交 —— plan 模式会把它作为"继续规划"的理由回报给模型，所以打回时可以带上要改什么。**去聊天里说**会撤下这张卡、把输入框还给你，用你自己的话说明；它在 Host 提供 `dismiss()` 时用它，在旧代际用 `cancel()`，两者都没有时明确指出这一点。审核一旦落定，**确认执行**与**拒绝**关闭，而**去聊天里说**与"重新加载"始终可达，卡片不会变成死路。失败会保留线上错误码（如 `session/writer-held: …`），而不是只给一句本地化文案。
 
@@ -89,11 +90,11 @@ Plan Review 拥有独立于 Main 的执行模型草稿。**确认执行**会先�
 
 ## 自动审查模型（Auto review）
 
-官方 `@deepseek-ai/dsh-experimental-auto-review`（Auto 权限预设的逐调用审查）把审查请求固定在会话自身的路由上。本插件通过 `cordis.patch.yml` 的行替换接管这一行：官方行被禁用，改挂 `dsh-model-switch/auto-review`，它在作用域子上下文里运行**同一份官方 `apply`**，只把 `llm.stream` 的 `provider/model` 改写为设置里固定的审查模型。设置页「自动审查模型」默认关闭 = 审查跟随当前会话模型；打开时从主模型种子化、可再改成任意 Provider/模型，保存后对下一次审查立即生效。审查未配置官方能力包（`@deepseek-ai/dsh-experimental-auto-review` 未随 profile 启动）时本行不挂载，Auto 预设保持官方的关闭状态；官方行若已在别处注册，本行明确报错而不产生第二个 `registerAuto`。
+官方 `@deepseek-ai/dsh-experimental-auto-review`（Auto 权限预设的逐调用审查）把审查请求固定在会话自身的路由上。本插件通过 `cordis.patch.yml` 的行替换接管这一行：官方行被禁用，改挂 `dsh-model-switch/auto-review`，它在作用域子上下文里运行**同一份官方 `apply`**，只把 `llm.stream` 的 `provider/model` 改写为设置里固定的审查模型。设置页「自动审查模型」默认关闭 = 审查跟随当前会话模型；打开时以目录首位模型作为可再改的固定起点，保存后对下一次审查立即生效。审查未配置官方能力包（`@deepseek-ai/dsh-experimental-auto-review` 未随 profile 启动）时本行不挂载，Auto 预设保持官方的关闭状态；官方行若已在别处注册，本行明确报错而不产生第二个 `registerAuto`。
 
 ## 压缩模型（Compaction model）
 
-官方压缩——`/compact` 与 DSH 的自动压缩——默认使用会话当前的目标模型做摘要。「压缩模型」卡片（默认关闭）改为固定摘要路由：打开时从主模型种子化、可再改成任意 Provider/模型，保存后对下一次压缩立即生效。两个字段都留空即回到官方默认。保存时若恰有压缩进行中，可能被打断并在下次重试。
+官方压缩——`/compact` 与 DSH 的自动压缩——默认使用会话当前的目标模型做摘要。「压缩模型」卡片（默认关闭）改为固定摘要路由：打开时以目录首位模型作为可再改的固定起点，保存后对下一次压缩立即生效。两个字段都留空即回到官方默认。保存时若恰有压缩进行中，可能被打断并在下次重试。
 
 路由如何到达压缩引擎取决于部署在哪一层组合 agent。Web 面把压缩放进每个 Agent 预设的隔离 `compaction` 组里，而 profile patch 无法寻址 preset `plugins` 列表内部的行——因此本插件整表替换各预设行（与 Web 预设编辑器保存修改用的是同一套 id 定位机制），把该组的官方 `compaction-basic` 换成 `model-switch-compaction`，由它挂载**同一份官方 `BasicCompactionEngine`**、只覆盖 `summarizationProvider`/`summarizationModel`（只填其一忽略）。进程级组合 agent 的面（如 TUI）则走顶层行替换。两个后果：DSH 发布若改动这些预设，随包副本需要同步（本插件的逐版本核对覆盖这一步）；部署若用 Web 编辑器改预设，会写出自己的整表行、并从那之后自行负责合并。
 
@@ -101,7 +102,7 @@ Plan Review 拥有独立于 Main 的执行模型草稿。**确认执行**会先�
 
 ## 供应商配置组（Provider groups）
 
-「供应商配置组」卡片为每个供应商保存一组路由——压缩、子代理、审查三条路由一起存；当**主模型的供应商**发生变化时自动应用，无论变化来自输入框选择器选模型、还是在 Main 卡片上保存成别的供应商。应用是一次完整替换：三条路由一次性写入上方对应卡片，覆盖卡片当前值**（包括手动修改）**；组里没有固定的项回到该能力的默认值（压缩/审查跟随会话模型、子代理跟随主模型）。切换到没有配置组的供应商时现有路由保持不变，同一供应商内部切换不会重写路由。存储是 profile 级的（共享设置命名空间），不按会话生效，且只由这两个切换面触发——TUI 等其他切换不会动路由。编辑器里首次配置某供应商时从当前生效路由种子化；每行能力开关的关闭态表示"用该能力的默认值"并按默认存储；「删除该组」彻底移除该组（删掉最后一组时同时清掉存储字段）。搜索与图片路由不在本功能范围内。应用失败不会让切换或主模型保存失败：选择器侧记录警告并照常完成切换，Main 卡片侧提示"主模型已保存，但供应商组应用失败 …"，路由保持原样。
+「供应商配置组」卡片为每个供应商保存一组路由——压缩、子代理、审查三条路由一起存；当**本会话模型的供应商**发生变化时自动应用，且无论变化来自插件的选择器、TUI 还是其他客户端——插件观察的是该会话的官方模型选择投影，所有切换都会落到同一个 watcher。应用是一次完整替换：三条路由一次性写入上方对应卡片，覆盖卡片当前值**（包括手动修改）**；组里没有固定的项回到该能力的默认值（压缩/审查跟随会话模型、子代理跟随父请求）。切换到没有配置组的供应商时现有路由保持不变，同一供应商内部切换不会重写路由。存储是 profile 级的（共享设置命名空间），不按会话生效；剩余边界是 watcher 只存在于本 Web 打开过的会话——从未在本浏览器打开的会话上的切换不会动路由。编辑器里首次配置某供应商时从当前生效路由种子化；每行能力开关的关闭态表示"用该能力的默认值"并按默认存储；「删除该组」彻底移除该组（删掉最后一组时同时清掉存储字段）。搜索与图片路由不在本功能范围内。应用失败不会让切换失败：watcher 记录一条警告，路由保持原样。
 
 ## Model Switch 不会改变什么
 
@@ -110,7 +111,7 @@ Plan Review 拥有独立于 Main 的执行模型草稿。**确认执行**会先�
 - Provider 登录、凭证或 Provider 设置卡
 - 官方 Agent Presets
 - 已有的 Provider 专属图像工具
-- Main 默认值修改前已经存在的会话
+- 部署默认模型本身（DSH 自己把最后一次会话切换写成默认值，与原生 TUI 切换一致）
 - 全局压缩策略、标题或 DSH Core
 
 ## 安装

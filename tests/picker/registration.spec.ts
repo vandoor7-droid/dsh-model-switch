@@ -1,6 +1,4 @@
-import React from 'react'
 import { readFileSync } from 'node:fs'
-import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => {
@@ -16,22 +14,20 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => {
 import { installComposerPicker, providerOrderStore } from '../../src/client/picker/install.tsx'
 import type { PlanCommitOutcome } from '../../src/picker/plan-review.ts'
 
-const COMMITTED: PlanCommitOutcome = { committed: true, mainDefaultRestored: true }
-const REFUSED: PlanCommitOutcome = { committed: false, mainDefaultRestored: true }
+const COMMITTED: PlanCommitOutcome = { committed: true }
+const REFUSED: PlanCommitOutcome = { committed: false }
 type SelectFace = { select(selection: { provider: string, model: string }): Promise<PlanCommitOutcome> }
 
 function bench(strictOptionalLookup = false) {
   const entries: Array<{ spec: Record<string, unknown>, component: unknown }> = []
   const injections: string[][] = []
   const directory = {
-    store: { subscribe: vi.fn(), getSnapshot: vi.fn() },
+    store: {
+      subscribe: vi.fn(() => () => undefined),
+      getSnapshot: vi.fn(() => ({ current: null as { provider: string, model: string } | null })),
+    },
     load: vi.fn(async () => undefined),
     select: vi.fn(async () => ({ ok: true })),
-  }
-  const mainForm = {
-    getSnapshot: () => ({ status: 'ready', mode: 'host', writable: true, value: { provider: 'deepseek', model: 'deep-chat' }, revision: 1 }),
-    subscribe: () => () => undefined,
-    mutate: vi.fn(async () => true),
   }
   const providerForm = {
     getSnapshot: () => ({ status: 'ready', value: { order: [] } }),
@@ -59,7 +55,7 @@ function bench(strictOptionalLookup = false) {
     uiConversation: { views: { register: vi.fn(() => vi.fn()) }, events: { register: vi.fn(() => vi.fn()) } },
     modelDirectories: { directoryFor: vi.fn(() => directory) },
     sessions: { subagentAddress: vi.fn(() => undefined) },
-    configForms: { get: (id: string) => id === 'agent-default-model' ? mainForm : providerForm },
+    configForms: { get: () => providerForm },
     effect: (register: () => unknown) => register(),
     get: vi.fn(() => undefined),
   }
@@ -82,7 +78,7 @@ function bench(strictOptionalLookup = false) {
       : register(ctx)
   }
   installComposerPicker(ctx as never)
-  return { entries, injections, raw, directory, mainForm, directInteractionReads: () => directInteractionReads }
+  return { entries, injections, raw, directory, directInteractionReads: () => directInteractionReads }
 }
 
 describe('composer picker seat ownership', () => {
@@ -110,52 +106,16 @@ describe('composer picker seat ownership', () => {
     await expect(face.select(choice)).resolves.toEqual(COMMITTED)
   })
 
-  it('refuses remote memory-only model selection rather than persisting a new profile-wide default', async () => {
-    const { entries, raw, directory, mainForm } = bench()
-    mainForm.getSnapshot = () => ({ status: 'ready', mode: 'memory', writable: false, value: { provider: 'deepseek', model: 'deep-chat' }, revision: 1 })
+  it('commits a session switch without any Main-default settings channel', async () => {
+    const { entries, raw, directory } = bench()
     raw.get = (name: string) => name === 'connection'
       ? { rpc: { call: async () => ({ ok: true, value: { provider: null } }) } }
       : undefined
     directory.store.getSnapshot.mockReturnValue({ current: { provider: 'deepseek', model: 'deep-chat' } })
     const model = entries.find(({ spec }) => spec.name === 'conversation.input.model')!
     const face = (model.spec.inject as (id: string) => SelectFace)('session-1')
-    await expect(face.select({ provider: 'codex', model: 'gpt-switched' })).resolves.toEqual(REFUSED)
-    expect(directory.select).not.toHaveBeenCalled()
-    expect(mainForm.mutate).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    ['remote memory-only', { status: 'unavailable', mode: 'memory', writable: false, value: undefined, revision: undefined }, 'settings.remoteUnavailable'],
-    ['loading Main settings', { status: 'loading', mode: 'host', writable: false, value: undefined, revision: undefined }, 'settings.loading'],
-    ['read-only Main settings', { status: 'ready', mode: 'host', writable: false, value: { provider: 'deepseek', model: 'deep-chat' }, revision: 1 }, 'settings.unavailable'],
-  ])('disables the %s composer picker with an actionable reason', async (_status, mainSnapshot, reason) => {
-    const { entries, directory, mainForm } = bench()
-    mainForm.getSnapshot = () => mainSnapshot
-    const snapshot = { current: { provider: 'deepseek', model: 'deep-chat' }, routable: true, groups: [], failures: [], status: 'ready', error: null }
-    directory.store.getSnapshot.mockReturnValue(snapshot)
-    directory.store.subscribe.mockReturnValue(() => undefined)
-    const model = entries.find(({ spec }) => spec.name === 'conversation.input.model')!
-    const face = (model.spec.inject as (sessionId: string) => Record<string, unknown>)('session-1')
-    const props = {
-      ...face,
-      locked: false,
-      t: (key: string) => key,
-      useDirectory: (select: (value: typeof snapshot) => unknown) => select(snapshot),
-      useProviderOrder: (select: (value: string[]) => unknown) => select([]),
-      useInput: (select: (value: { phase: string }) => unknown) => select({ phase: 'idle' }),
-      useSession: (select: (value: { blank: boolean; running: boolean; awaitingFirstTurn: boolean }) => unknown) =>
-        select({ blank: true, running: false, awaitingFirstTurn: false }),
-    }
-    let picker!: ReactTestRenderer
-    await act(async () => { picker = create(React.createElement(model.component as React.ComponentType<typeof props>, props)) })
-    const trigger = picker.root.findByProps({ 'aria-haspopup': 'menu' })
-    expect(trigger.props.disabled).toBe(true)
-    expect(trigger.props.title).toBe(reason)
-    expect(trigger.props['aria-label']).toContain(reason)
-    await act(async () => { trigger.props.onClick() })
-    expect(directory.select).not.toHaveBeenCalled()
-    expect(picker.root.findAllByProps({ role: 'menu' })).toHaveLength(0)
-    await act(async () => { picker.unmount() })
+    await expect(face.select({ provider: 'codex', model: 'gpt-switched' })).resolves.toEqual(COMMITTED)
+    expect(directory.select).toHaveBeenCalledWith({ provider: 'codex', model: 'gpt-switched' })
   })
 
   it('refuses a provider change when one declared native binding cannot be read', async () => {
@@ -211,27 +171,13 @@ describe('composer picker seat ownership', () => {
   })
 
   /**
-   * Face-level bench for one Session switch against a controllable Main
-   * namespace: the test decides when (and whether) the Host's own
-   * deployment-default write becomes visible. An optional provider-group
-   * storage seeds the owned Model Switch form.
+   * Face-level bench for one Session switch: the directory store is driven by
+   * the test exactly like the official model-selection projection, so a
+   * provider change performed on ANY surface reaches the group watcher.
    */
-  function selectBench(initial: { revision: number, value: { provider: string, model: string } }, providerGroups?: readonly Record<string, unknown>[]) {
-    let mainSnapshot = {
-      status: 'ready', value: initial.value, base: {}, user: {}, revision: initial.revision,
-      writable: true, mode: 'host',
-    }
+  function selectBench(initial: { value: { provider: string, model: string } }, providerGroups?: readonly Record<string, unknown>[]) {
+    let current: { provider: string, model: string } | null = initial.value
     const listeners = new Set<() => void>()
-    // The Host refuses a stale revision fence; only the revision it currently
-    // holds lands while the default write is still in flight.
-    const mutate = vi.fn(async (_ops: unknown, expectedRevision?: number) => {
-      return expectedRevision === undefined || expectedRevision === mainSnapshot.revision
-    })
-    const mainDefaults = {
-      getSnapshot: () => mainSnapshot,
-      subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
-      mutate,
-    }
     const groupSet = vi.fn(async (_field: string, _value: unknown) => true)
     const groupUnset = vi.fn(async (_field: string) => true)
     const providerForm = {
@@ -241,11 +187,13 @@ describe('composer picker seat ownership', () => {
       unset: groupUnset,
     }
     const directory = {
-      store: { subscribe: vi.fn(), getSnapshot: vi.fn() },
+      store: {
+        subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+        getSnapshot: () => ({ current }),
+      },
       load: vi.fn(async () => undefined),
       select: vi.fn(async () => ({ ok: true })),
     }
-    directory.store.getSnapshot.mockReturnValue({ current: initial.value })
     const entries: Array<{ spec: Record<string, unknown> }> = []
     const ctx = {
       locale: { register: vi.fn(() => () => undefined) },
@@ -257,7 +205,7 @@ describe('composer picker seat ownership', () => {
       uiConversation: { views: { register: vi.fn(() => vi.fn()) }, events: { register: vi.fn(() => vi.fn()) } },
       modelDirectories: { directoryFor: vi.fn(() => directory) },
       sessions: { subagentAddress: vi.fn(() => undefined) },
-      configForms: { get: (id: string) => id === 'agent-default-model' ? mainDefaults : providerForm },
+      configForms: { get: () => providerForm },
       effect: (register: () => unknown) => register(),
       get: vi.fn(() => undefined),
       inject: (services: string[], register: (scope: unknown) => unknown) => services.includes('providerDirectory') ? undefined : register(ctx),
@@ -265,70 +213,38 @@ describe('composer picker seat ownership', () => {
     installComposerPicker(ctx as never)
     const model = entries.find(({ spec }) => spec.name === 'conversation.input.model')
     const face = (model?.spec.inject as (sessionId: string) => SelectFace)('session-1')
-    /** The Host's own deployment-default write, awaited or fired. */
-    const writeDefault = (value: { provider: string, model: string }, revision: number): void => {
-      mainSnapshot = { ...mainSnapshot, value, revision }
+    /** The official projection landing a model selection from any surface. */
+    const project = (next: { provider: string, model: string }): void => {
+      current = next
       for (const listener of listeners) listener()
     }
-    return { face, mutate, directory, writeDefault, groupSet, groupUnset }
+    /** Flush the watcher's async apply chain. */
+    const settle = async (): Promise<void> => {
+      for (let round = 0; round < 3; round += 1) await new Promise(resolve => setTimeout(resolve, 0))
+    }
+    return { face, directory, project, settle, groupSet, groupUnset }
   }
 
-  it('restores the configured Main default after a session-only model switch', async () => {
-    const { face, mutate, directory, writeDefault } = selectBench({ revision: 7, value: { provider: 'deepseek', model: 'deep-chat' } })
-    // 0.1.x ordering: the default write settled before the switch RPC resolved.
-    directory.select.mockImplementation(async () => {
-      writeDefault({ provider: 'codex', model: 'gpt-switched' }, 8)
-      return { ok: true }
-    })
-
-    await expect(face.select({ provider: 'codex', model: 'gpt-switched' })).resolves.toEqual(COMMITTED)
-    expect(mutate).toHaveBeenCalledWith([
-      { op: 'set', path: ['provider'], value: 'deepseek' },
-      { op: 'set', path: ['model'], value: 'deep-chat' },
-      { op: 'unset', path: ['reasoningEffort'] },
-    ], 8)
-  })
-
-  it('fences the restoration against a Host default write that lands after the switch RPC', async () => {
-    const { face, mutate, directory, writeDefault } = selectBench({ revision: 7, value: { provider: 'deepseek', model: 'deep-chat' } })
-    // 0.2.x ordering: the write is fired, not awaited, and is only observed
-    // through the namespace subscription once it lands.
-    directory.select.mockImplementation(async () => {
-      setTimeout(() => { writeDefault({ provider: 'codex', model: 'gpt-switched' }, 8) }, 0)
-      return { ok: true }
-    })
-
-    await expect(face.select({ provider: 'codex', model: 'gpt-switched' })).resolves.toEqual(COMMITTED)
-    expect(mutate).toHaveBeenCalledExactlyOnceWith([
-      { op: 'set', path: ['provider'], value: 'deepseek' },
-      { op: 'set', path: ['model'], value: 'deep-chat' },
-      { op: 'unset', path: ['reasoningEffort'] },
-    ], 8)
-  })
-
   it('reports a refused Session switch as an uncommitted model change', async () => {
-    const { face, mutate, directory } = selectBench({ revision: 7, value: { provider: 'deepseek', model: 'deep-chat' } })
+    const { face, directory } = selectBench({ value: { provider: 'deepseek', model: 'deep-chat' } })
     directory.select.mockImplementation(async () => ({
       ok: false,
       error: { code: 'session/writer-held', message: 'writer held', details: {} },
     }))
 
-    await expect(face.select({ provider: 'codex', model: 'gpt-switched' }))
-      .resolves.toEqual({ committed: false, mainDefaultRestored: true })
-    expect(mutate).not.toHaveBeenCalled()
+    await expect(face.select({ provider: 'codex', model: 'gpt-switched' })).resolves.toEqual(REFUSED)
+    expect(directory.select).toHaveBeenCalledOnce()
   })
 
-  it('adopts the saved group of the target provider on a provider switch', async () => {
-    const { face, directory, writeDefault, groupSet, groupUnset } = selectBench(
-      { revision: 7, value: { provider: 'deepseek', model: 'deep-chat' } },
+  it('adopts the saved group when the session provider switches on any surface', async () => {
+    const { project, settle, groupSet, groupUnset } = selectBench(
+      { value: { provider: 'deepseek', model: 'deep-chat' } },
       [{ provider: 'codex', compactProvider: 'codex', compactModel: 'gpt-compact' }],
     )
-    directory.select.mockImplementation(async () => {
-      writeDefault({ provider: 'codex', model: 'gpt-switched' }, 8)
-      return { ok: true }
-    })
 
-    await expect(face.select({ provider: 'codex', model: 'gpt-switched' })).resolves.toEqual(COMMITTED)
+    // No plugin call involved: the projection alone (e.g. a TUI switch) drives the apply.
+    project({ provider: 'codex', model: 'gpt-switched' })
+    await settle()
     expect(groupSet).toHaveBeenCalledWith('compactProvider', 'codex')
     expect(groupSet).toHaveBeenCalledWith('compactModel', 'gpt-compact')
     // The group pins nothing else, so every other capability reverts to its default.
@@ -337,46 +253,45 @@ describe('composer picker seat ownership', () => {
     expect(groupSet).toHaveBeenCalledWith('subagentMode', 'follow-main')
   })
 
-  it('keeps the routes untouched when the switch stays on one provider', async () => {
-    const { face, directory, writeDefault, groupSet, groupUnset } = selectBench(
-      { revision: 7, value: { provider: 'codex', model: 'gpt' } },
+  it('stays silent on mount, on the baseline, and when the switch stays on one provider', async () => {
+    const { project, settle, groupSet, groupUnset } = selectBench(
+      { value: { provider: 'codex', model: 'gpt-old' } },
       [{ provider: 'codex', compactProvider: 'codex', compactModel: 'gpt-compact' }],
     )
-    directory.store.getSnapshot.mockReturnValue({ current: { provider: 'codex', model: 'gpt-old' } })
-    directory.select.mockImplementation(async () => {
-      writeDefault({ provider: 'codex', model: 'gpt' }, 8)
-      return { ok: true }
-    })
 
-    await expect(face.select({ provider: 'codex', model: 'gpt-new' })).resolves.toEqual(COMMITTED)
+    await settle()
+    expect(groupSet).not.toHaveBeenCalled()
+    expect(groupUnset).not.toHaveBeenCalled()
+    project({ provider: 'codex', model: 'gpt-new' })
+    await settle()
     expect(groupSet).not.toHaveBeenCalled()
     expect(groupUnset).not.toHaveBeenCalled()
   })
 
   it('leaves the routes untouched when the target provider has no group', async () => {
-    const { face, directory, writeDefault, groupSet, groupUnset } = selectBench({ revision: 7, value: { provider: 'deepseek', model: 'deep-chat' } })
-    directory.select.mockImplementation(async () => {
-      writeDefault({ provider: 'codex', model: 'gpt-switched' }, 8)
-      return { ok: true }
-    })
+    const { project, settle, groupSet, groupUnset } = selectBench({ value: { provider: 'deepseek', model: 'deep-chat' } })
 
-    await expect(face.select({ provider: 'codex', model: 'gpt-switched' })).resolves.toEqual(COMMITTED)
+    project({ provider: 'codex', model: 'gpt-switched' })
+    await settle()
     expect(groupSet).not.toHaveBeenCalled()
     expect(groupUnset).not.toHaveBeenCalled()
   })
 
-  it('never fails the switch when a group write fails', async () => {
-    const { face, directory, writeDefault, groupSet } = selectBench(
-      { revision: 7, value: { provider: 'deepseek', model: 'deep-chat' } },
-      [{ provider: 'codex', compactProvider: 'codex', compactModel: 'gpt-compact' }],
-    )
-    groupSet.mockRejectedValue(new Error('rpc down'))
-    directory.select.mockImplementation(async () => {
-      writeDefault({ provider: 'codex', model: 'gpt-switched' }, 8)
-      return { ok: true }
-    })
+  it('warns instead of throwing when a group write fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const { project, settle, groupSet } = selectBench(
+        { value: { provider: 'deepseek', model: 'deep-chat' } },
+        [{ provider: 'codex', compactProvider: 'codex', compactModel: 'gpt-compact' }],
+      )
+      groupSet.mockRejectedValue(new Error('rpc down'))
 
-    await expect(face.select({ provider: 'codex', model: 'gpt-switched' })).resolves.toEqual(COMMITTED)
+      project({ provider: 'codex', model: 'gpt-switched' })
+      await settle()
+      expect(warn).toHaveBeenCalledWith('dsh-model-switch: provider group apply failed', expect.any(Error))
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('uses non-strict lookup for the optional interaction service', () => {

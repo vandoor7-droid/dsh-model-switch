@@ -4,13 +4,13 @@
 
 import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { useEffect, useSyncExternalStore } from 'react'
-import { MAIN_DEFAULT_CONFIG_ID, MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, type MainSettingsView, type ModelSwitchSettingsView } from '../../client-contract.ts'
+import { MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, type ModelSwitchSettingsView } from '../../client-contract.ts'
 import { applyProviderGroupTo, normalizeProviderGroups } from '../../provider-group.ts'
 import { selectPlanReview, type PlanCommitOutcome } from '../../picker/plan-review.ts'
 import type { GoalRemote } from '../../picker/plan-goal.ts'
@@ -18,9 +18,9 @@ import { ComposerPicker } from './ComposerPicker.tsx'
 import { createPlanPreviewBinding, type PlanPreviewBinding } from './plan-preview.ts'
 import type { ProviderOrderSettings } from 'dsh-llm-providers-ui/order'
 import { pickerDirectoryViewOrdered, type PickerDirectoryFace } from './PickerDirectory.ts'
-import { restoreMainDefault } from './main-default-restore.ts'
+import { createProviderGroupWatch } from './provider-group-watch.ts'
 import type { PickerInteractionOperations } from './popup-dismissal.ts'
-import { mainDefaultsUnavailableReason, PlanReviewCard, ProviderLockHint } from './PlanReviewCard.tsx'
+import { PlanReviewCard, ProviderLockHint } from './PlanReviewCard.tsx'
 import { PickerSeatBoundary } from './PickerSeatBoundary.tsx'
 import {
   agentProviderLocked,
@@ -116,9 +116,6 @@ interface DirectoryFace extends PickerDirectoryFace {
   providerLockStore: ProviderLockStore
   /** Re-read the native binding now (mount, turn transitions, pre-selection). */
   refreshProviderLock: () => void
-  /** Subscribe to official Main ConfigForm availability before offering a model switch. */
-  subscribeMainDefaults: (listener: () => void) => () => void
-  getMainDefaultsSnapshot: () => ConfigFormSnapshot<MainSettingsView>
   /** Released goal remote; absent when this deployment mounts no goal service. */
   goalRemote: () => GoalRemote | undefined
   /** Full-plan sidebar navigation (ui-plan's registered opener). */
@@ -151,8 +148,6 @@ function ModelSeat(
 ) {
   const directory = props.useDirectory(snapshot => snapshot)
   const order = props.useProviderOrder(value => value)
-  const mainDefaults = useSyncExternalStore(props.subscribeMainDefaults, props.getMainDefaultsSnapshot)
-  const settingsUnavailableReason = mainDefaultsUnavailableReason(mainDefaults, props.t)
   const lock = useSyncExternalStore(props.providerLockStore.subscribe, props.providerLockStore.getSnapshot)
   const phase = props.useInput(input => input.phase)
   const blank = props.useSession(session => session.blank)
@@ -163,12 +158,11 @@ function ModelSeat(
     <>
     {lock.failed && <ProviderLockHint t={props.t} />}
     <ComposerPicker
-      locked={props.locked || settingsUnavailableReason !== undefined || (lock.failed && directory.current === null)}
+      locked={props.locked || (lock.failed && directory.current === null)}
       providerLock={providerLock}
       agentLocked={agentProviderLocked(blank, providerLock, active)}
       {...(props.roleOf === undefined ? {} : { roleOf: props.roleOf })}
       available={props.available}
-      {...(settingsUnavailableReason === undefined ? {} : { unavailableReason: settingsUnavailableReason })}
       directory={pickerDirectoryViewOrdered(directory, props, order, props.catalogRoutes?.() ?? {})}
       t={props.t}
       {...props.resolveInteractionOperations === undefined
@@ -197,8 +191,26 @@ export function installComposerPicker(ctx: ClientContext): void {
       subagentAddress?: (id: unknown) => unknown
       get?: (id: unknown) => { getSnapshot?: () => { blank?: boolean } }
     } | undefined
-    const mainDefaults = scope.configForms.get<MainSettingsView>(MAIN_DEFAULT_CONFIG_ID)
     const ownedForm = scope.configForms.get<ModelSwitchSettingsView>(MODEL_SWITCH_CONFIG_ID)
+    // One group watcher per seat session: both slot faces (seat and Plan
+    // Review) observe the same directory, so sharing keeps a provider switch
+    // single-writer no matter which surface performs it.
+    const groupWatches = new Map<string, () => void>()
+    const watchGroupsFor = (sessionId: unknown, source: { subscribe: (listener: () => void) => () => void, getSnapshot: () => { current: ModelSelection | null } }): void => {
+      const key = String(sessionId)
+      if (groupWatches.has(key)) return
+      const watch = createProviderGroupWatch({
+        source,
+        apply: async provider => {
+          await applyProviderGroupTo(ownedForm, normalizeProviderGroups(ownedForm.getSnapshot().value?.providerGroups), provider)
+        },
+      })
+      groupWatches.set(key, watch.dispose)
+    }
+    scope.effect(() => () => {
+      for (const dispose of groupWatches.values()) dispose()
+      groupWatches.clear()
+    })
     let directoryService: ProviderDirectoryFace | undefined
     const orderStore = providerOrderStore(scope.configForms.get<ProviderOrderSettings>(PROVIDERS_CONFIG_ID))
     scope.inject(['providerDirectory'], directoryScope => {
@@ -229,6 +241,10 @@ export function installComposerPicker(ctx: ClientContext): void {
       }
       const roleOf = (key: string): string | undefined => readProviderRole(directoryService, key)
       const providerLockStore = createProviderLockStore(readLock)
+      // Adopt the target provider's group on any switch surface: the watcher
+      // observes the official projection, so TUI and other-client switches of
+      // this Session reach the same apply this plugin used to do inline.
+      if (available) watchGroupsFor(sessionId, directory.store)
       return {
         available,
         roleOf,
@@ -237,8 +253,6 @@ export function installComposerPicker(ctx: ClientContext): void {
         refreshProviderLock: () => {
           void providerLockStore.refresh()
         },
-        subscribeMainDefaults: listener => mainDefaults.subscribe(listener),
-        getMainDefaultsSnapshot: () => mainDefaults.getSnapshot(),
         goalRemote: () => goalRemoteFrom(scope),
         planPreview,
         hooks: { directory: directory.store, providerOrder: orderStore },
@@ -248,42 +262,27 @@ export function installComposerPicker(ctx: ClientContext): void {
           if (available) directory.load().catch(() => { /* surfaced on the store */ })
         },
         select: async (selection: ModelSelection): Promise<PlanCommitOutcome> => {
-          const uncommitted: PlanCommitOutcome = { committed: false, mainDefaultRestored: true }
-          if (!available) return uncommitted
+          if (!available) return { committed: false }
           const state = await providerLockStore.refresh()
           const currentProvider = directory.store.getSnapshot().current?.provider
           if (!isProviderAllowed(state, selection.provider, currentProvider, {
             ...readSessionState(sessions, sessionId),
             agent: isAgentRole(roleOf(selection.provider)),
             currentAgent: currentProvider !== undefined && isAgentRole(roleOf(currentProvider)),
-          })) return uncommitted
-          const defaultBeforeSwitch = mainDefaults.getSnapshot()
-          if (defaultBeforeSwitch.status !== 'ready' || defaultBeforeSwitch.mode !== 'host'
-            || !defaultBeforeSwitch.writable || defaultBeforeSwitch.value === undefined
-            || defaultBeforeSwitch.revision === undefined) return uncommitted
+          })) return { committed: false }
           let result: Awaited<ReturnType<typeof directory.select>>
           try {
             result = await directory.select(selection)
           } catch {
-            return uncommitted
+            return { committed: false }
           }
           // The official directory reports a refused switch as a value, not a
           // throw; treating it as success would answer a Plan under a model the
           // Session never adopted.
-          if (!result.ok) return uncommitted
-          // A provider switch adopts the target provider's saved capability
-          // group when one exists (same provider never rewrites the routes,
-          // and a provider without a group leaves them untouched). A failed
-          // write is reported but never fails the switch itself.
-          if (selection.provider !== currentProvider) {
-            try {
-              await applyProviderGroupTo(ownedForm, normalizeProviderGroups(ownedForm.getSnapshot().value?.providerGroups), selection.provider)
-            } catch (error) {
-              console.warn('dsh-model-switch: provider group apply failed', error)
-            }
-          }
-          const restore = await restoreMainDefault(mainDefaults, defaultBeforeSwitch)
-          return { committed: true, mainDefaultRestored: restore.restored }
+          if (!result.ok) return { committed: false }
+          // Capability-group adoption happens in the directory watcher above,
+          // which also covers switches this plugin did not perform.
+          return { committed: true }
         },
       }
     }

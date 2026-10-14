@@ -1,7 +1,5 @@
 import type { PendingQuestion } from '@deepseek-ai/dsh-client-ui-user-questions/client';
-import type { ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client';
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
-import type { MainSettingsView } from '../../client-contract.ts';
 import { type GoalRemote } from '../../picker/plan-goal.ts';
 import type { PlanPreviewBinding } from './plan-preview.ts';
 import { type PickerDirectoryFace } from './PickerDirectory.ts';
@@ -22,8 +20,6 @@ export interface PlanReviewFace extends PickerDirectoryFace {
     };
     /** Re-read the native binding now (mount, turn transitions, pre-selection). */
     refreshProviderLock: () => void;
-    subscribeMainDefaults: (listener: () => void) => () => void;
-    getMainDefaultsSnapshot: () => ConfigFormSnapshot<MainSettingsView>;
     /** Released goal remote; absent when this deployment mounts no goal service. */
     goalRemote: () => GoalRemote | undefined;
     /** Full-plan sidebar navigation (ui-plan's registered opener). */
@@ -34,8 +30,6 @@ export interface PlanReviewFace extends PickerDirectoryFace {
 export type PlanReviewCardProps = PropsRuntime<'conversation.composer'> & PropsLocale<'composer-picker'> & InjectFace<PlanReviewFace> & {
     matched: PendingQuestion;
 };
-/** Match the model seat's admission guard before letting either picker offer a change. */
-export declare function mainDefaultsUnavailableReason(snapshot: ConfigFormSnapshot<MainSettingsView>, t: PlanReviewCardProps['t']): string | undefined;
 /** Inline failed lock-read status; history and log reading stay unaffected. */
 export declare function ProviderLockHint(props: {
     t: PlanReviewCardProps['t'];

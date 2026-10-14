@@ -12,11 +12,9 @@ Official DSH is a read-only dependency. This plugin degrades on a clean tag when
 
 ## `session.selectModel` default-write ordering
 
-- **Needed for:** compensating the deployment-default write that `session.selectModel` performs alongside a Session-only switch, so the Main default a human configured in Settings survives a picker change.
-- **Where used:** `src/client/picker/main-default-restore.ts`, `src/client/picker/install.tsx`.
-- **What changed:** on `0.1.2-alpha.4` the controller awaited `agentDefaultModel.saveSelection(selected)` before resolving `selectModel` (`packages/api/session-controller`, `lib/index.js`: `try { await this.ctx.agentDefaultModel.saveSelection(selected) } catch …`). On `0.2.0-rc.2` the same step is fired, not awaited: `void this.ctx.agentDefaultModel.saveSelection(selected).catch(…)` (`packages/api/session-controller/src/commands.ts`, `selectModel`). The RPC therefore resolves *before* the namespace revision moves, and no `captured + 1` revision fence can be assumed.
-- **Handling:** wait for the namespace revision to leave the captured one (bounded, resolved by the form's own subscription), then fence on the revision actually observed, retry once against a concurrent edit, and never throw. A restore that cannot be completed is reported after the Plan answer instead of blocking it. No Core patch.
-- **Upstream:** the ordering is not part of the released contract; either awaiting the default write or publishing a Session-only selection entry point would remove the compensation entirely. Until then this module carries the difference.
+- **Observation:** `session.selectModel` persists the Session selection as the deployment default alongside the Session-only switch. On `0.1.2-alpha.4` the controller awaited `agentDefaultModel.saveSelection(selected)` before resolving `selectModel`; on `0.2.0-rc.2` the same step is fired, not awaited (`void this.ctx.agentDefaultModel.saveSelection(selected).catch(…)`, `packages/api/session-controller/src/commands.ts`, `selectModel`), so the RPC resolves *before* the namespace revision moves and no `captured + 1` revision fence can be assumed.
+- **Handling (0.4.23+):** the plugin no longer compensates this write at all. Its Main-default card, the pre-switch capture, the revision-fenced restore (`main-default-restore.ts`, removed), and the picker's gate on a writable Main ConfigForm were deleted in 0.4.23: the deployment default is simply allowed to drift to the last session switch, exactly like a native TUI switch, and a fixed default is configured on DSH's own Models page. The projection itself stayed useful — since 0.4.23 the plugin watches the session's `model/selection` projection (same event, sole emitter `selectModel`) to apply provider capability groups on every switch surface. No Core patch.
+- **Upstream:** the ordering is still not part of the released contract. A published Session-only selection entry point (a switch that does not persist the deployment default) would let a plugin offer true session-local switching again; until then the drift is the documented behavior, not a bug to fence.
 
 ## `session/writer-held` on a resumed Session
 
@@ -26,7 +24,7 @@ Official DSH is a read-only dependency. This plugin degrades on a clean tag when
 
 ## `ctx.settingsScope` on non-loopback browsers
 
-- **Needed for:** durable Main / Model Switch namespaces on the trusted lab HTTPS origin.
+- **Needed for:** the durable Model Switch settings namespace on the trusted lab HTTPS origin (since 0.4.23 this plugin no longer touches the Main-default namespace).
 - **Where used:** `src/client/remote-settings-scope.ts`, `src/client/index.tsx`.
 - **When missing / memory-only:** official `ui-settings` keeps process-local memory mode on non-loopback pages. The plugin then uses the public `remote.settings` describe/mutate RPCs (not a DSH core patch) so the settings page remains writable through `dshlab.noirbright.top`.
 - **Upstream:** a public `settingsScope` persistence flag for trusted remote Hosts. Until that ships, keep the Remote adapter and this note.

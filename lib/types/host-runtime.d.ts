@@ -1,6 +1,4 @@
 import { Context, Service } from '@deepseek-ai/cordis';
-import type { ModelSelection } from '@deepseek-ai/dsh-agent';
-import type { AgentDefaultModelConfig } from '@deepseek-ai/dsh-agent-default-model';
 import { Config, type Config as ModelSwitchSettingsConfig, type ModelSwitchSettings } from './host-settings.js';
 import { ModelSwitchAdapterRegistry } from './adapter-registry.js';
 declare module '@deepseek-ai/cordis' {
@@ -12,9 +10,8 @@ declare module '@deepseek-ai/cordis' {
         'model-switch/settings-update'(): void;
     }
 }
-/** Host owner for Model Switch settings and the released Main-default adapter. */
+/** Host owner for Model Switch settings. */
 export declare class ModelSwitchRuntime extends Service {
-    static inject: string[];
     static Config: import("@deepseek-ai/schemastery").default<any, Config, "plain">;
     get capabilities(): {
         searchProviderAdapters: {
@@ -52,11 +49,4 @@ export declare class ModelSwitchRuntime extends Service {
     private source;
     constructor(ctx: Context, entry: ModelSwitchSettingsConfig);
     currentSettings(): ModelSwitchSettings;
-    currentMainSelection(): ModelSelection;
-    saveMainSelection(selection: ModelSelection): Promise<void>;
 }
-export interface MainDefaultPort {
-    currentSelection(): ModelSelection;
-    saveSelection(selection: ModelSelection): Promise<void>;
-}
-export declare function mainDefaultPort(service: AgentDefaultModelConfig): MainDefaultPort;

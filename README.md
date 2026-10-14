@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Choose one explicit route for Main, Subagents, Web Search, image generation, the active conversation, and Plan execution in DeepSeek Harness. Model Switch uses public DSH services and provider-owned adapters; it does not patch DSH Core or manage provider credentials.
+Choose one explicit route for the active session, Subagents, Web Search, image generation, and Plan execution in DeepSeek Harness. Model Switch uses public DSH services and provider-owned adapters; it does not patch DSH Core or manage provider credentials.
 
 <p align="center"><img src="docs/screenshots/composer-picker.png" alt="Composer Picker with Model, Effort, Context, and Fast controls" width="314"></p>
 
@@ -12,9 +12,9 @@ The picker retains keyboard focus when changing panes or closing search, without
 
 | Route | Behavior |
 | --- | --- |
-| Main model | Default provider, model, and optional effort for newly created sessions. Existing sessions are not migrated. |
+| Session model | The active conversation's provider/model/effort, changed by the Composer Picker or Plan Review only. The deployment default (new sessions) is DSH's own; the picker never writes it. |
 | Subagent | Follow the active parent route, or use a fixed provider/model/effort. Workflow overrides remain authoritative. |
-| Composer Picker | Changes only the active session and submits the exact catalog model id. Main defaults are preserved. |
+| Composer Picker | Changes only the active session and submits the exact catalog model id. |
 | Plan Review | Chooses the execution model before the Plan approval response is sent. |
 | Web Search | Keeps official `web_search`; after deployment opt-in, routes through the selected, dynamically declared provider search adapter. |
 | Image generation | Provides one stable `generate_image` tool routed through a selected Codex or Grok adapter. |
@@ -25,16 +25,17 @@ Idle blank sessions may pick an External Agent. Submission, pending-first-turn, 
 
 The existing 3082 lab replay probe is `node scripts/check-lab-runtime-lock.mjs [native|runtime-absent|plugin-absent]`. It checks the dedicated QA conversation under the already-established condition; it does not disable plugins, select a model, or send a turn. `node scripts/check-lab-native-execution.mjs` verifies the saved guard rejection, restored native continuation, DeepSeek-parent/Antigravity-child completion, and restoration of temporary subagent preferences through public history streams.
 
-## Configure Main and Subagents
+## Configure Subagents and capability routes
 
-Open **Settings → Model Switch**. Main changes affect new sessions only. Subagents may follow Main or use a fixed provider, model, and effort.
-Official DSH `0.1.7-alpha.2` makes ConfigForms memory-only in non-loopback browsers. This page shows an unavailable message there; open Settings on the Host loopback URL instead. The composer picker refuses model changes in that mode because the published `session.selectModel` also persists the deployment default, which cannot be safely restored without a writable Main ConfigForm. Remote editing and session-only selection require an upstream authenticated ConfigForm seam and a session-only selection API; this plugin does not bypass the official policy.
+Open **Settings → Model Switch**. Subagents may follow the parent request or use a fixed provider, model, and effort.
 
-Changing the Main or fixed Subagent provider/model replaces the previous model's effort with the target model's default. Models without reasoning support receive no effort.
+Since 0.4.23 this plugin no longer configures or protects the deployment default ("Main model"). That default is DSH's own: the Host persists the last session switch as the default (including switches made through this plugin's picker or the TUI), exactly like native switching — so a new session starts on whatever was last used. To pin a fixed default, use DSH's own **Settings → Models** page. Official DSH makes ConfigForms memory-only in non-loopback browsers, so the Settings page shows an unavailable message there; open Settings on the Host loopback URL instead. As a side effect of the removal, model switching is never blocked by settings state (previously the picker waited for a writable Main ConfigForm).
+
+Changing the fixed Subagent provider/model replaces the previous model's effort with the target model's default. Models without reasoning support receive no effort.
 
 ![Model Switch settings with a fixed Subagent route](docs/screenshots/settings-subagent.png)
 
-Follow Main resolves the active parent request first, then the configured Main default. A fixed route is injected before the official Subagent descriptor is created. DSH 0.1.2-alpha.4 carries provider, model, and fixed reasoning effort in that descriptor.
+Follow resolves the active parent request first, then the Host's own session default. A fixed route is injected before the official Subagent descriptor is created. DSH 0.1.2-alpha.4 carries provider, model, and fixed reasoning effort in that descriptor.
 
 ## How custom models appear in the Picker
 
@@ -75,7 +76,7 @@ To support a combined selection, the provider must publish the combined row. Pub
 
 ## Plan Review
 
-Plan Review owns an execution-model draft separate from Main. **Confirm** first commits that model to the active session, then answers the pending Plan review. A refused commit leaves the review pending and retryable; a Session switch the Host accepted but whose deployment default could not be restored is announced after the answer instead of withholding it. **Reject** and **Discuss in chat** do not execute the Plan.
+Plan Review owns an execution-model draft separate from the session's current route. **Confirm** first commits that model to the active session, then answers the pending Plan review. A refused commit leaves the review pending and retryable. **Reject** and **Discuss in chat** do not execute the Plan.
 
 **Reject** sends the option the asker offered, and any text typed in the card's feedback field as the answer's own `custom` text — plan mode reports that text back to the model as the reason to keep planning, so a rejection can carry what to change. **Discuss in chat** withdraws the takeover so the composer returns and the human speaks in their own words; it uses the Host's `dismiss()` where published and the older generation's `cancel()` otherwise, and names the Host when neither exists. Answering a settled review closes Confirm and Reject, while Discuss and the reload affordance stay reachable so the card always has a way back. Failures keep their wire code (`session/writer-held: …`) visible instead of a bare localized sentence.
 
@@ -91,11 +92,11 @@ When a sent message will use a different model or context-tier id than the last 
 
 ## Auto review model
 
-The official `@deepseek-ai/dsh-experimental-auto-review` (the per-call reviewer for the Auto permission preset) hardwires its review requests onto the session's own route. This plugin takes that row over through a `cordis.patch.yml` row replacement: the official row is disabled and `dsh-model-switch/auto-review` mounts the **same official `apply`** under a scoped child context whose `llm.stream` `provider/model` are rewritten to the reviewer model pinned in Settings. The "Auto review model" card defaults to off = reviews follow the session model; turning it on seeds from Main and stays editable, and saved changes apply to the very next review. When the optional auto-review bundle never started with the profile the row stays unmounted and the Auto preset keeps its official off state; an official row already active elsewhere is reported explicitly instead of producing a second `registerAuto`.
+The official `@deepseek-ai/dsh-experimental-auto-review` (the per-call reviewer for the Auto permission preset) hardwires its review requests onto the session's own route. This plugin takes that row over through a `cordis.patch.yml` row replacement: the official row is disabled and `dsh-model-switch/auto-review` mounts the **same official `apply`** under a scoped child context whose `llm.stream` `provider/model` are rewritten to the reviewer model pinned in Settings. The "Auto review model" card defaults to off = reviews follow the session model; turning it on pins the catalog head as an editable starting point, and saved changes apply to the very next review. When the optional auto-review bundle never started with the profile the row stays unmounted and the Auto preset keeps its official off state; an official row already active elsewhere is reported explicitly instead of producing a second `registerAuto`.
 
 ## Compaction model
 
-Official compaction — `/compact` and DSH's automatic compaction — summarizes history with the conversation's target model by default. The "Compaction model" card (default off) pins that summarization route instead: turning it on seeds from Main and stays editable, and saved changes apply to the very next compaction. Leaving both fields empty returns to the official default. Saving while a compaction is running may interrupt it; it retries next time.
+Official compaction — `/compact` and DSH's automatic compaction — summarizes history with the conversation's target model by default. The "Compaction model" card (default off) pins that summarization route instead: turning it on pins the catalog head as an editable starting point, and saved changes apply to the very next compaction. Leaving both fields empty returns to the official default. Saving while a compaction is running may interrupt it; it retries next time.
 
 How the route reaches the engine depends on where the deployment runs its agent plane. The Web surface moves compaction into each agent preset's isolated `compaction` group, and profile patches cannot address rows inside a preset's `plugins` list — so this plugin replaces each shipped preset row wholesale (the same id-targeted mechanism the Web preset editor saves with) and swaps that group's official `compaction-basic` for `model-switch-compaction`, which mounts the **same official `BasicCompactionEngine`** with only `summarizationProvider`/`summarizationModel` overlaid (either field alone is ignored). Surfaces that compose the agent process-wide (the TUI) use the top-level row replacement instead. Two consequences: a DSH release that edits those presets needs the copies re-synced (this plugin's per-release verification covers it), and a deployment that edits presets in the Web editor writes its own wholesale row that then owns the merge.
 
@@ -103,7 +104,7 @@ Known issue (upstream; recorded in `docs/seam-gap.md`): while the working set st
 
 ## Provider groups
 
-The "Provider groups" card stores one route group per provider — the compaction, subagent, and review routes saved together — and applies it automatically whenever the main model's **provider** changes, whether through the composer picker or by saving a different provider on the Main card. Applying a group is one full replacement: all three routes are written into the cards above in a single decision, overwriting their current values **including manual edits**, while anything the group does not pin reverts to that capability's default (compaction and review follow the conversation model, subagent follows main). Switching to a provider without a stored group leaves the current routes untouched, and a switch within one provider never rewrites them. The stored effect is profile-wide (the shared settings namespace), not per session, and only these two switch surfaces trigger it — a TUI or other switch leaves the routes alone. In the editor, a provider's draft seeds from the active routes the first time you configure it, each capability row's off state means "use the capability default" and is stored as such, and **Delete group** removes the provider's group entirely (clearing the stored field when the last group goes). Search and image routes are out of scope. A failed apply never fails the switch or the Main save: the picker logs a warning and commits anyway, and the Main card reports "Main model saved, but applying the provider group failed …" while the routes stay as they were.
+The "Provider groups" card stores one route group per provider — the compaction, subagent, and review routes saved together — and applies it automatically whenever **this session's model provider** changes, on any surface: this plugin's composer picker, the TUI, or another client — the plugin observes the official model-selection projection of the session, so every switch lands in the same watcher. Applying a group is one full replacement: all three routes are written into the cards above in a single decision, overwriting their current values **including manual edits**, while anything the group does not pin reverts to that capability's default (compaction and review follow the conversation model, subagent follows the parent). Switching to a provider without a stored group leaves the current routes untouched, and a switch within one provider never rewrites them. The stored effect is profile-wide (the shared settings namespace), not per session; the residual boundary is that the watcher only exists while the session is open in this Web UI — a switch on a session this browser never opened leaves the routes alone. In the editor, a provider's draft seeds from the active routes the first time you configure it, each capability row's off state means "use the capability default" and is stored as such, and **Delete group** removes the provider's group entirely (clearing the stored field when the last group goes). Search and image routes are out of scope. A failed apply never fails the switch: the watcher logs a warning and the routes stay as they were.
 
 ## What Model Switch does not change
 
@@ -112,7 +113,7 @@ The "Provider groups" card stores one route group per provider — the compactio
 - Provider login, credentials, or provider settings cards
 - Official Agent Presets
 - Existing provider-specific image tools
-- Existing sessions when the Main default changes
+- The deployment default model (DSH persists the last session switch itself, same as native TUI switching)
 - Global compaction policy, titles, or DSH Core
 
 ## Installation

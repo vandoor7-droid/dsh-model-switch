@@ -1,11 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
-import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import ModelSwitchRuntime, { Config, readConfig, RUNTIME_CAPABILITIES, mainDefaultPort, name } from '../src/index.js'
+import { describe, expect, it } from 'vitest'
+import ModelSwitchRuntime, { Config, readConfig, RUNTIME_CAPABILITIES, name } from '../src/index.js'
 
 describe('Host runtime surface', () => {
   it('preserves package identity and released injection contract', () => {
     expect(name).toBe('dsh-model-switch')
-    expect(ModelSwitchRuntime.inject).toEqual(['agentDefaultModel'])
+    // The Main-default service port is gone; the runtime must not depend on it.
+    expect(ModelSwitchRuntime.inject ?? []).toEqual([])
   })
   it('defaults Subagent to follow-main and retains unavailable choices in volatile config', () => {
     expect(readConfig(Config({}))).toEqual({ subagentMode: 'follow-main', compactOnSwitch: true })
@@ -24,15 +24,6 @@ describe('Host runtime surface', () => {
     // An entry without a owning provider cannot be keyed and is dropped.
     expect(readConfig(Config({ providerGroups: [{ compactProvider: 'orphan' }] })).providerGroups).toBeUndefined()
     expect(() => Config({ providerGroups: [{ provider: 42 }] } as never)).toThrow()
-  })
-  it('adapts the public Main service without changing picker/global state', async () => {
-    let selection = { provider: 'deepseek', model: 'chat', reasoningEffort: ReasoningEffortId('max') }
-    const service = { currentSelection: vi.fn(() => selection), saveSelection: vi.fn(async (next) => { selection = next }) }
-    const port = mainDefaultPort(service as never)
-    expect(port.currentSelection()).toEqual(selection)
-    await port.saveSelection({ provider: 'codex', model: 'gpt', reasoningEffort: ReasoningEffortId('high') })
-    expect(service.saveSelection).toHaveBeenCalledOnce()
-    expect(port.currentSelection().provider).toBe('codex')
   })
   it('reports available routing and remaining Alpha.4 gaps', () => {
     expect(RUNTIME_CAPABILITIES.mainDefaults.available).toBe(true)

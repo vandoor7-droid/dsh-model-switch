@@ -20,9 +20,6 @@ export declare const zh: {
     'thinking.off': string;
     'effort.providerDefault': string;
     'status.loading': string;
-    'settings.remoteUnavailable': string;
-    'settings.loading': string;
-    'settings.unavailable': string;
     'error.action': string;
     'error.picker': string;
     'action.reload': string;
@@ -43,7 +40,6 @@ export declare const zh: {
     'plan.pickerCrash': string;
     'plan.feedback': string;
     'plan.feedbackPlaceholder': string;
-    'plan.notRestored': string;
     'plan.dismissUnsupported': string;
     'plan.goalRun': string;
     'plan.goalFailed': string;
@@ -77,9 +73,6 @@ export declare const en: {
     'thinking.off': string;
     'effort.providerDefault': string;
     'status.loading': string;
-    'settings.remoteUnavailable': string;
-    'settings.loading': string;
-    'settings.unavailable': string;
     'error.action': string;
     'error.picker': string;
     'action.reload': string;
@@ -100,7 +93,6 @@ export declare const en: {
     'plan.pickerCrash': string;
     'plan.feedback': string;
     'plan.feedbackPlaceholder': string;
-    'plan.notRestored': string;
     'plan.dismissUnsupported': string;
     'plan.goalRun': string;
     'plan.goalFailed': string;

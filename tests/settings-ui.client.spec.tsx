@@ -2,7 +2,6 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { ModelSwitchSettings } from '../src/client/ModelSwitchSettings.js'
-import { useModelSwitchSettingsController } from '../src/client/main-row-controller.js'
 import { en, zh } from '../src/client/locales.js'
 import { entryOf, type ProviderGroupConfig, type ProviderGroupsStorage } from '../src/provider-group.js'
 
@@ -11,32 +10,18 @@ import { entryOf, type ProviderGroupConfig, type ProviderGroupsStorage } from '.
 vi.mock('../src/client/main-row-controller.js', () => ({
   deriveRouteChoices: () => ({ providers: [{ id: 'codex', name: 'Codex' }], models: [{ id: 'gpt-subagent', name: 'GPT Subagent' }] }),
   selectRouteModel: () => ({ provider: 'codex', model: 'gpt-subagent' }),
-  useModelSwitchSettingsController: vi.fn(),
+  useSettingsCatalog: () => ({
+    groups: [{ id: 'codex', name: 'Codex', models: [{ id: 'gpt-subagent', name: 'GPT Subagent' }] }],
+    catalogError: undefined,
+  }),
 }))
 
 function snapshot<T>(value: T) {
   return { status: 'ready' as const, value, base: {}, user: {}, revision: 1, writable: true, mode: 'host' as const }
 }
 
-const controller = (subagent: { mode: 'follow-main' | 'fixed'; provider?: string; model?: string }) => ({
-  main: snapshot({ provider: 'codex', model: 'gpt-main' }),
-  subagent: snapshot(subagent),
-  draft: { provider: 'codex', model: 'gpt-main' },
-  groups: [{ id: 'codex', name: 'Codex', models: [{ id: 'gpt-subagent', name: 'GPT Subagent' }] }],
-  providers: [],
-  models: [],
-  efforts: [],
-  busy: false,
-  disabled: false,
-  setProvider: vi.fn(),
-  setModel: vi.fn(),
-  setReasoningEffort: vi.fn(),
-  reset: vi.fn(),
-  save: vi.fn(),
-})
-
 function face(options?: {
-  subagent?: { mode: 'follow-main' | 'fixed'; provider?: string; model?: string }
+  subagent?: { mode: 'follow-main' | 'fixed'; provider?: string; model?: string; reasoningEffort?: string }
   compactOnSwitch?: boolean
   omitCompactOnSwitch?: true
   memoryOnly?: true
@@ -49,8 +34,8 @@ function face(options?: {
   providerGroups?: ProviderGroupsStorage
 }) {
   const subagent = options?.subagent ?? { mode: 'fixed', provider: 'codex', model: 'gpt-subagent' }
-  const controllerState = controller(subagent)
-  vi.mocked(useModelSwitchSettingsController).mockImplementation(() => controllerState as never)
+  // Render-stable hook snapshot: a fresh object per render would reset drafts forever.
+  const subagentSnapshot = snapshot(subagent)
   const switchSettings = options?.memoryOnly
     ? { status: 'unavailable' as const, value: undefined, base: undefined, user: {}, revision: undefined, writable: false, mode: 'memory' as const }
     : snapshot({
@@ -75,11 +60,11 @@ function face(options?: {
     useAutoReviewSettings: () => autoReviewSettings,
     useCompactionSettings: () => compactionSettings,
     useSwitchSettings: () => switchSettings,
+    useSubagentSettings: () => subagentSnapshot,
     setSubagent: options?.setSubagent ?? vi.fn(async () => undefined),
     setCapability: options?.setCapability ?? vi.fn(),
     setCompactOnSwitch: options?.setCompactOnSwitch ?? vi.fn(async () => undefined),
     saveProviderGroup: options?.saveProviderGroup ?? vi.fn(async () => undefined),
-    saveMain: vi.fn(),
   } as never
 }
 
@@ -108,7 +93,7 @@ describe('Model Switch settings menu', () => {
   it('shows Send protection B-row and Subagent RouteCard without a follow-main select', () => {
     const markup = renderSettings()
 
-    expect(markup).toContain('>main<')
+    expect(markup).not.toContain('>main<')
     expect(markup).toContain('>subagent<')
     expect(markup).toContain('>search<')
     expect(markup).not.toContain('>vision<')
@@ -262,7 +247,7 @@ describe('Model Switch settings menu', () => {
     expect(setCapability).toHaveBeenCalledWith('autoReview', 'model', undefined)
   })
 
-  it('seeds the reviewer route from Main when Auto review is switched on', async () => {
+  it('seeds the reviewer route to the catalog head when Auto review is switched on', async () => {
     const { renderer, setCapability } = mountSettings()
     const toggle = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'autoReview')
     expect(toggle?.props['aria-checked']).toBe(false)
@@ -271,7 +256,7 @@ describe('Model Switch settings menu', () => {
       await new Promise(resolve => setTimeout(resolve, 0))
     })
     expect(setCapability).toHaveBeenCalledWith('autoReview', 'provider', 'codex')
-    expect(setCapability).toHaveBeenCalledWith('autoReview', 'model', 'gpt-main')
+    expect(setCapability).toHaveBeenCalledWith('autoReview', 'model', 'gpt-subagent')
     // Both fields are pinned as one decision; partial writes never ship.
     expect(setCapability).toHaveBeenCalledTimes(2)
   })
@@ -322,7 +307,7 @@ describe('Model Switch settings menu', () => {
     expect(setCapability).toHaveBeenCalledWith('compaction', 'model', undefined)
   })
 
-  it('seeds the compaction route from Main when Compaction is switched on', async () => {
+  it('seeds the compaction route to the catalog head when Compaction is switched on', async () => {
     const { renderer, setCapability } = mountSettings()
     const toggle = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'compaction')
     expect(toggle?.props['aria-checked']).toBe(false)
@@ -331,7 +316,7 @@ describe('Model Switch settings menu', () => {
       await new Promise(resolve => setTimeout(resolve, 0))
     })
     expect(setCapability).toHaveBeenCalledWith('compaction', 'provider', 'codex')
-    expect(setCapability).toHaveBeenCalledWith('compaction', 'model', 'gpt-main')
+    expect(setCapability).toHaveBeenCalledWith('compaction', 'model', 'gpt-subagent')
     // Both fields are pinned as one decision; partial writes never ship.
     expect(setCapability).toHaveBeenCalledTimes(2)
   })
@@ -373,14 +358,14 @@ describe('Model Switch settings menu', () => {
     expect(renderSettings()).not.toContain('>1<')
   })
 
-  it('opens the group editor on the Main provider and saves the draft as one storage write', async () => {
+  it('opens the group editor on the first configured provider and saves the draft as one storage write', async () => {
     const { renderer, saveProviderGroup } = mountSettings()
     const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('providerGroupsCard'))
     expect(header).toBeDefined()
     act(() => {
       header?.props.onClick()
     })
-    // The editor opens on the Main provider, seeded from the active routes.
+    // The editor opens pre-filled: first saved group, else the catalog head.
     const providerSelect = renderer.root.findAllByType('select').find(select => String(select.props.value) === 'codex')
     expect(providerSelect).toBeDefined()
     expect(JSON.stringify(renderer.toJSON())).toContain('providerGroupsBodyHelp')
@@ -397,7 +382,7 @@ describe('Model Switch settings menu', () => {
     expect(group).toEqual<ProviderGroupConfig>({ subagentProvider: 'codex', subagentModel: 'gpt-subagent' })
   })
 
-  it('toggles a capability row off to the default and back on with the Main route', async () => {
+  it('toggles a capability row off to the default and back on with the live route', async () => {
     const { renderer, saveProviderGroup } = mountSettings({ compaction: { provider: 'codex', model: 'gpt-main' } })
     const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('providerGroupsCard'))
     act(() => {
@@ -423,7 +408,7 @@ describe('Model Switch settings menu', () => {
     expect(provider).toBe('codex')
     expect(group).toMatchObject<ProviderGroupConfig>({ compactProvider: '', compactModel: '' })
 
-    // Switch it back on: the row re-seeds from the Main route, like the other switches.
+    // Switch it back on: the row re-seeds from the live compaction route.
     await act(async () => {
       rowToggles()[1]?.props.onClick()
       await new Promise(resolve => setTimeout(resolve, 0))
@@ -464,12 +449,16 @@ describe('Model Switch settings menu', () => {
   it('keeps zh/en copy for the provider groups card', () => {
     expect(zh.providerGroups).toBe('供应商配置组')
     expect(en.providerGroups).toBe('Provider groups')
-    expect(zh.providerGroupsSummary).toContain('切换主模型供应商')
-    expect(en.providerGroupsSummary).toContain('provider switches')
+    expect(zh.providerGroupsSummary).toContain('会话模型切换')
+    expect(en.providerGroupsSummary).toContain('this session switches')
     expect(zh.providerGroupsBodyHelp).toContain('未配置的供应商')
     expect(en.providerGroupsBodyHelp).toContain('without a group')
     expect(zh.providerGroupDelete).toBe('删除该组')
-    expect(zh.providerGroupApplyFailed).toContain('供应商组应用失败')
-    expect(en.providerGroupApplyFailed).toContain('provider group failed')
+  })
+
+  it('labels the subagent effort as pinned only when one is stored', () => {
+    expect(renderSettings({ subagent: { mode: 'fixed', provider: 'codex', model: 'gpt-subagent', reasoningEffort: 'high' } }))
+      .toContain('effortPinned · high')
+    expect(renderSettings()).toContain('providerDefaultShort')
   })
 })

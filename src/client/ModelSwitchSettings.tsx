@@ -2,21 +2,20 @@ import { useEffect, useState, type ReactNode } from 'react'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { routePairConfigured, subagentModeForEnabled, type CapabilityRouteView, type MainSettingsView, type ModelSwitchSettingsView, type SubagentSettingsView } from '../client-contract.js'
+import { routePairConfigured, subagentModeForEnabled, type CapabilityRouteView, type ModelSwitchSettingsView, type SubagentSettingsView } from '../client-contract.js'
 import { groupOf, normalizeProviderGroups, type ProviderGroupConfig } from '../provider-group.js'
 import type { RuntimeCapabilities } from '../runtime-capabilities.js'
 import { searchGroupsFromCapabilities, type CapabilitiesSnapshot } from './search-capabilities.js'
 import type { ModelSwitchLocaleKey } from './locales.js'
 import { isAgentRole, matchCatalogModel } from './antigravity-catalog.ts'
-import { deriveRouteChoices, selectRouteModel, useModelSwitchSettingsController, type Choice } from './main-row-controller.js'
+import { deriveRouteChoices, selectRouteModel, useSettingsCatalog, type Choice, type RouteModelSelection } from './main-row-controller.js'
 import css from './ModelSwitchSettings.module.css'
 import type { ConfigViewForm } from './derived-config-form.js'
 
 export interface ModelSwitchSettingsFace {
   t: (key: ModelSwitchLocaleKey) => string
-  hooks: { mainSettings: ConfigViewForm<MainSettingsView>; subagentSettings: ConfigViewForm<SubagentSettingsView>; searchSettings: ConfigViewForm<CapabilityRouteView>; imageSettings: ConfigViewForm<CapabilityRouteView>; autoReviewSettings: ConfigViewForm<CapabilityRouteView>; compactionSettings: ConfigViewForm<CapabilityRouteView>; switchSettings: Pick<ConfigForm<ModelSwitchSettingsView>, 'getSnapshot' | 'subscribe'> }
+  hooks: { subagentSettings: ConfigViewForm<SubagentSettingsView>; searchSettings: ConfigViewForm<CapabilityRouteView>; imageSettings: ConfigViewForm<CapabilityRouteView>; autoReviewSettings: ConfigViewForm<CapabilityRouteView>; compactionSettings: ConfigViewForm<CapabilityRouteView>; switchSettings: Pick<ConfigForm<ModelSwitchSettingsView>, 'getSnapshot' | 'subscribe'> }
   capabilities: RuntimeCapabilities
-  saveMain: (next: MainSettingsView, expectedRevision: number) => Promise<number>
   setSubagent: (field: 'mode' | 'provider' | 'model' | 'reasoningEffort', value: string | undefined) => Promise<void>
   setCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction', field: 'provider' | 'model', value: string | undefined) => Promise<void>
   setCompactOnSwitch: (value: boolean) => Promise<void>
@@ -31,7 +30,7 @@ export interface ModelSwitchSettingsFace {
 }
 
 export type ModelSwitchSettingsProps = PropsRuntime<'settings.section'> & InjectFace<ModelSwitchSettingsFace>
-type RouteId = 'main' | 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction' | 'providerGroups'
+type RouteId = 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction' | 'providerGroups'
 type RouteIconKind = RouteId
 
 function cx(...values: Array<string | undefined | false>): string { return values.filter(Boolean).join(' ') }
@@ -45,7 +44,6 @@ function draftPair(provider: string | undefined, model: string | undefined): { p
 function RouteIcon({ kind }: { kind: RouteIconKind }): ReactNode {
   if (kind === 'providerGroups') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5.5h12M3 12.5h12" stroke="currentColor" strokeLinecap="round" /><circle cx="6.5" cy="5.5" r="2" stroke="currentColor" /><circle cx="11.5" cy="12.5" r="2" stroke="currentColor" /></svg>
   if (kind === 'compaction') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M5 3.5 9 7.5l4-4M5 14.5 9 10.5l4 4" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" /></svg>
-  if (kind === 'main') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4.5h12v8H8l-3.5 2v-2H3v-8Z" stroke="currentColor" strokeLinejoin="round" /></svg>
   if (kind === 'subagent') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="2.5" stroke="currentColor" /><circle cx="12.5" cy="11.5" r="2" stroke="currentColor" /><path d="M3 14c.4-2.5 1.6-4 3-4s2.6 1.5 3 4M10 7.5c.5-.8 1.3-1.2 2.2-1.2 1.5 0 2.6 1 2.8 2.7" stroke="currentColor" strokeLinecap="round" /></svg>
   if (kind === 'search') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="4.5" stroke="currentColor" /><path d="m11.5 11.5 3.5 3.5" stroke="currentColor" strokeLinecap="round" /></svg>
   if (kind === 'image') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="2.5" y="3" width="13" height="12" rx="2" stroke="currentColor" /><circle cx="6.5" cy="7" r="1.3" stroke="currentColor" /><path d="m4 13 3.5-3 2.2 2 1.8-1.6 2.5 2.6" stroke="currentColor" strokeLinejoin="round" /></svg>
@@ -106,6 +104,29 @@ function routeDefaultEffort(groups: readonly ModelProviderGroup[], route: Capabi
   return matched?.effort ?? matched?.model.reasoning?.defaultEffort
 }
 
+/**
+ * The effort caption for the subagent summary: a stored effort is the pinned
+ * one ("已固定 · High"); an unset effort follows the provider default and says
+ * so ("Provider 默认 · High"), using the same effort-name lookup the picker does.
+ */
+function subagentEffortSegment(
+  t: (key: ModelSwitchLocaleKey) => string,
+  matched: ReturnType<typeof matchCatalogModel>,
+  pinned: string,
+  defaultEffort: string | undefined,
+): string {
+  const effortName = (id: string): string => matched?.model.reasoning?.efforts.find(level => level.id === id)?.name ?? id
+  if (pinned !== '') return compact(t('effortPinned'), effortName(pinned))
+  return defaultEffort === undefined ? t('providerDefaultShort') : compact(t('providerDefaultShort'), effortName(defaultEffort))
+}
+
+/** The catalog head route; capability switches pin here when turned On. */
+function firstCatalogRoute(groups: readonly ModelProviderGroup[]): RouteModelSelection | undefined {
+  const provider = groups[0]
+  const model = provider?.models[0]
+  return provider === undefined || model === undefined ? undefined : selectRouteModel(groups, provider.id, model.id)
+}
+
 function capabilityChoices(groups: readonly ModelProviderGroup[], route: CapabilityRouteView | undefined, providers: readonly string[] | undefined, kind: 'search' | 'image'): { providers: Choice[]; models: Choice[] } {
   const choices = deriveRouteChoices(groups, route, providers)
   if (kind === 'image' && route?.provider === 'grok') {
@@ -117,8 +138,8 @@ function capabilityChoices(groups: readonly ModelProviderGroup[], route: Capabil
 }
 
 export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode {
-  const controller = useModelSwitchSettingsController(props)
-  const { main, subagent, draft, groups } = controller
+  const { groups, catalogError } = useSettingsCatalog(props)
+  const subagent = props.useSubagentSettings(value => value)
   const search = props.useSearchSettings(value => value)
   const image = props.useImageSettings(value => value)
   const autoReview = props.useAutoReviewSettings(value => value)
@@ -172,7 +193,7 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     return () => { live = false; scope.abort(); if (timer !== undefined) clearTimeout(timer) }
   }, [loadSearchCapabilities])
   const providerGroups = normalizeProviderGroups(switchSettings.value?.providerGroups)
-  /** Seed an unsaved group from the live routes, mirroring how the switches seed from Main. */
+  /** Seed an unsaved group from the live routes. */
   const seedGroupFromActive = (): ProviderGroupConfig => {
     const compact = compaction.value !== undefined && routePairConfigured(compaction.value)
       ? { provider: compaction.value.provider ?? '', model: compaction.value.model ?? '' }
@@ -201,14 +222,15 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     }
     setGroupDraft(groupOf(providerGroups, groupProvider) ?? seedGroupFromActive())
   }
-  // Follow the Main provider so a fresh editor opens on the provider in use.
+  /** Open the editor on the provider in use: the first configured group, else the catalog head. */
   useEffect(() => {
     if (groupProvider !== '') return
-    const initial = controller.draft?.provider
+    const configured = Object.keys(providerGroups)[0]
+    const initial = configured ?? groups[0]?.id
     if (initial !== undefined && initial.trim() !== '') setGroupProvider(initial)
-  }, [groupProvider, controller.draft])
+  }, [groupProvider, providerGroups, groups])
   useEffect(() => { resyncGroupDraft() }, [groupProvider, switchSettings.value, subagent.value, autoReview.value, compaction.value])
-  if ([controller.main, controller.subagent, search, image, switchSettings].some(form => form.mode === 'memory')) {
+  if ([subagent, search, image, switchSettings].some(form => form.mode === 'memory')) {
     return <main className={css.section}>
       <h1 className={css.title}>{props.t('title')}</h1>
       <p role="status" className={css.hint}>{props.t('remoteSettingsUnavailable')}</p>
@@ -225,8 +247,7 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     if (subagentDraft?.reasoningEffort !== undefined && !efforts.some(option => option.id === subagentDraft.reasoningEffort)) efforts.push({ id: subagentDraft.reasoningEffort, name: subagentDraft.reasoningEffort })
     return efforts
   })()
-  const defaultEffort = subagentDraft?.reasoningEffort ?? routeDefaultEffort(groups, subagentRoute)
-  const mainEffectiveEffort = draft?.reasoningEffort ?? routeDefaultEffort(groups, draft)
+  const defaultEffort = routeDefaultEffort(groups, subagentRoute)
   const searchLive = searchSnapshot?.capabilities
   const searchGroups = searchGroupsFromCapabilities(searchLive)
   const searchChoices = capabilityChoices(searchGroups, searchDraft, undefined, 'search')
@@ -236,7 +257,7 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const autoReviewOn = routePairConfigured(autoReview.value)
   const compactionChoices = deriveRouteChoices(groups, compactionDraft)
   const compactionOn = routePairConfigured(compaction.value)
-  const synced = [main, subagent, search, image, autoReview, compaction].every(snapshot => snapshot.status === 'ready')
+  const synced = [subagent, search, image, autoReview, compaction].every(snapshot => snapshot.status === 'ready')
   const run = async (route: RouteId, operation: () => Promise<void>): Promise<void> => {
     if (busy !== undefined) return
     setBusy(route); setMessage(undefined)
@@ -283,8 +304,9 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   }) }
   /**
    * The reviewer switch: Off unsets both stored fields (follow the session
-   * model); On seeds the route from Main so the pin takes effect immediately
-   * and stays editable below. A failed write reports, never flips silently.
+   * model); On pins the route to the catalog head so the pin takes effect
+   * immediately and stays editable below. A failed write reports, never
+   * flips silently.
    */
   const persistAutoReviewEnabled = (enabled: boolean): void => {
     if (busy === 'autoReview' || !autoReview.writable || autoReview.value === undefined) return
@@ -296,8 +318,8 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
       })
       return
     }
-    const seed = draft
-    if (seed === undefined || seed.provider.trim() === '' || seed.model.trim() === '') return
+    const seed = firstCatalogRoute(groups)
+    if (seed === undefined) return
     setBusy('autoReview')
     setMessage(undefined)
     void (async () => {
@@ -317,9 +339,9 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   }
   /**
    * The compaction switch: Off unsets both stored fields (official default =
-   * the conversation target); On seeds the route from Main so the pin takes
-   * effect immediately and stays editable below. A failed write reports,
-   * never flips silently.
+   * the conversation target); On pins the route to the catalog head so the
+   * pin takes effect immediately and stays editable below. A failed write
+   * reports, never flips silently.
    */
   const persistCompactionEnabled = (enabled: boolean): void => {
     if (busy === 'compaction' || !compaction.writable || compaction.value === undefined) return
@@ -331,8 +353,8 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
       })
       return
     }
-    const seed = draft
-    if (seed === undefined || seed.provider.trim() === '' || seed.model.trim() === '') return
+    const seed = firstCatalogRoute(groups)
+    if (seed === undefined) return
     setBusy('compaction')
     setMessage(undefined)
     void (async () => {
@@ -350,11 +372,10 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
       },
     )
   }
-  const mainSummary = draft === undefined ? props.t('loading') : compact(routeName(groups, draft), mainEffectiveEffort)
   const subagentRole = subagentDraft?.mode === 'fixed' && subagentDraft.provider !== undefined && subagentDraft.provider !== '' ? props.providerRoleOf?.(subagentDraft.provider) : undefined
   const subagentOn = subagentDraft?.mode === 'fixed'
   const subagentSummary = subagentDraft === undefined ? props.t('loading') : subagentOn
-    ? compact(routeName(groups, subagentRoute), isAgentRole(subagentRole) ? props.t('agentBadge') : undefined, defaultEffort === undefined ? props.t('providerDefaultShort') : compact(props.t('providerDefaultShort'), defaultEffort))
+    ? compact(routeName(groups, subagentRoute), isAgentRole(subagentRole) ? props.t('agentBadge') : undefined, subagentEffortSegment(props.t, subagentCatalogModel, (subagentDraft.reasoningEffort ?? '').trim(), defaultEffort))
     : props.t('subagentOff')
   const subagentDisabled = subagent.status !== 'ready' || !subagent.writable || subagentDraft === undefined || busy === 'subagent' || !subagentOn || (subagentDraft.provider ?? '').trim() === '' || (subagentDraft.model ?? '').trim() === ''
   const capabilityDisabled = (route: 'search' | 'image', snapshot: ConfigFormSnapshot<CapabilityRouteView>, next: CapabilityRouteView | undefined): boolean => snapshot.status !== 'ready' || !snapshot.writable || next === undefined || busy === route || (next.provider ?? '').trim() === '' || (next.model ?? '').trim() === ''
@@ -377,14 +398,33 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     if (current !== undefined && current !== '' && !efforts.some(option => option.id === current)) efforts.push({ id: current, name: current })
     return efforts
   })()
-  /** Enable a capability row by pinning it to the Main route, like the switches above seed from Main. */
+  /**
+   * Enable a capability row by pinning it: to that capability's live route
+   * when one is configured, else to the catalog head (same sources the
+   * editor's first-edit seed uses).
+   */
   const enableGroupCapability = (kind: 'compaction' | 'autoReview' | 'subagent'): void => {
+    const active = seedGroupFromActive()
+    const seed = firstCatalogRoute(groups)
     setGroupDraft(draft => {
-      const main = controller.draft
-      if (draft === undefined || main === undefined) return draft
-      if (kind === 'compaction') return { ...draft, compactProvider: main.provider, compactModel: main.model }
-      if (kind === 'autoReview') return { ...draft, autoReviewProvider: main.provider, autoReviewModel: main.model }
-      return { ...draft, subagentProvider: main.provider, subagentModel: main.model, ...(main.reasoningEffort === undefined ? {} : { subagentReasoningEffort: main.reasoningEffort }) }
+      if (draft === undefined) return draft
+      if (kind === 'compaction') {
+        const provider = active.compactProvider ?? seed?.provider
+        const model = active.compactModel ?? seed?.model
+        if (provider === undefined || model === undefined) return draft
+        return { ...draft, compactProvider: provider, compactModel: model }
+      }
+      if (kind === 'autoReview') {
+        const provider = active.autoReviewProvider ?? seed?.provider
+        const model = active.autoReviewModel ?? seed?.model
+        if (provider === undefined || model === undefined) return draft
+        return { ...draft, autoReviewProvider: provider, autoReviewModel: model }
+      }
+      const provider = active.subagentProvider ?? seed?.provider
+      const model = active.subagentModel ?? seed?.model
+      if (provider === undefined || model === undefined) return draft
+      const effort = active.subagentProvider !== undefined ? active.subagentReasoningEffort : seed?.reasoningEffort
+      return { ...draft, subagentProvider: provider, subagentModel: model, ...(effort === undefined || effort === '' ? {} : { subagentReasoningEffort: effort }) }
     })
   }
   const disableGroupCapability = (kind: 'compaction' | 'autoReview' | 'subagent'): void => {
@@ -408,6 +448,7 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     <h1 className={css.title}>{props.t('title')}</h1>
     <p className={css.intro}>{props.t('subtitle')}</p>
     <p className={css.saved}><i className={css.savedDot} />{synced ? props.t('settingsSynced') : props.t('loading')}</p>
+    {catalogError === undefined ? null : <p className={cx(css.hint, css.message)}>{catalogError}</p>}
 
     <section className={css.group}><h2 className={css.groupLabel}>{props.t('sendProtection')}</h2>
       <div className={css.rowCard}>
@@ -432,14 +473,6 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     </section>
 
     <section className={css.group}><h2 className={css.groupLabel}>{props.t('conversationRoutes')}</h2>
-      <RouteCard title={props.t('main')} summary={mainSummary} icon="main" open={open === 'main'} onToggle={() => { toggle('main') }} badge={props.t('defaultBadge')}>
-        {draft === undefined ? <p className={css.hint}>{props.t('loading')}</p> : <><div className={css.formGrid}>
-          <Field label={props.t('provider')} value={draft.provider} disabled={controller.busy || !main.writable} choices={controller.providers} onChange={controller.setProvider} />
-          <Field label={props.t('model')} value={draft.model} disabled={controller.busy || !main.writable} choices={controller.models} onChange={controller.setModel} />
-          <Field label={props.t('effort')} value={draft.reasoningEffort ?? ''} disabled={controller.busy || !main.writable} choices={controller.efforts} onChange={controller.setReasoningEffort} />
-        </div>{!main.writable && main.status === 'ready' ? <p className={css.hint}>{props.t('readonly')}</p> : null}<Actions t={props.t} busy={controller.busy} disabled={controller.disabled} {...(controller.message === undefined ? {} : { message: controller.message })} onCancel={controller.reset} onSave={() => { void controller.save() }} /></>}
-      </RouteCard>
-
       {props.capabilities.centralSubagentRouting.available ? <RouteCard title={props.t('subagent')} summary={subagentSummary} hint={props.t('subagentHelp')} icon="subagent" open={open === 'subagent' && subagentOn} onToggle={() => { if (subagentOn) toggle('subagent') }} expandable={subagentOn} trailing={subagentDraft === undefined ? undefined : <InstantSwitch checked={subagentOn} disabled={busy === 'subagent' || !subagent.writable} label={props.t('subagent')} onChange={persistSubagentEnabled} />}>
         {subagentDraft === undefined ? <p className={css.hint}>{props.t('loading')}</p> : <><div className={css.formGrid}>
           <Field label={props.t('provider')} value={subagentDraft.provider ?? ''} disabled={busy === 'subagent' || !subagent.writable} choices={subagentChoices.providers} onChange={provider => { const first = groups.find(group => group.id === provider)?.models[0]; setSubagentDraft({ mode: 'fixed', ...selectRouteModel(groups, provider, first?.id ?? subagentDraft.model ?? '') }) }} /><Field label={props.t('model')} value={subagentCatalogModel?.model.id ?? subagentDraft.model ?? ''} disabled={busy === 'subagent' || !subagent.writable} choices={subagentChoices.models} onChange={model => { setSubagentDraft({ mode: 'fixed', ...selectRouteModel(groups, subagentDraft.provider ?? '', model) }) }} /><Field label={props.t('effort')} value={subagentDraft.reasoningEffort || subagentCatalogModel?.effort || ''} disabled={busy === 'subagent' || !subagent.writable} choices={subagentEfforts} onChange={effort => { const matched = subagentCatalogModel; setSubagentDraft({ ...subagentDraft, ...(matched?.model.id === undefined ? {} : { model: matched.model.id }), reasoningEffort: effort }) }} />

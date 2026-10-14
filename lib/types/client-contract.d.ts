@@ -1,15 +1,6 @@
 import type { ProviderGroupsStorage } from './provider-group.js';
 export declare const MODEL_SWITCH_CONFIG_ID = "model-switch";
-export declare const MAIN_DEFAULT_CONFIG_ID = "agent-default-model";
 export declare const PROVIDERS_CONFIG_ID = "llm-providers-ui";
-export interface MainSettingsView {
-    provider: string;
-    model: string;
-    reasoningEffort?: string;
-}
-export declare class MainSettingsConflictError extends Error {
-    readonly name = "MainSettingsConflictError";
-}
 export interface ModelSwitchSettingsView {
     subagentMode: 'follow-main' | 'fixed';
     subagentProvider?: string;

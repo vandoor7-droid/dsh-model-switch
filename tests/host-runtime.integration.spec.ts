@@ -32,7 +32,6 @@ describe('Host runtime integration', () => {
       provider: 'codex', search: { provider: 'codex', supportsModel: model => model === 'gpt-search', search: async () => searchResult },
     })
     await expect(ctx.web.search({ query: 'route me' })).resolves.toBe(searchResult)
-    expect(ctx.modelSwitch.currentMainSelection()).toEqual({ provider: 'deepseek', model: 'chat' })
 
     disposeAdapter()
     await runtimeFiber.dispose()

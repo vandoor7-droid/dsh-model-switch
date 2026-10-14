@@ -10,33 +10,18 @@ function snapshot<T>(value: T) {
   return { status: 'ready' as const, value, base: {}, user: {}, revision: 1, writable: true, mode: 'host' as const }
 }
 
-// Render-stable controller state: fresh objects per render would retrigger draft effects forever.
-let controllerState: ReturnType<typeof buildControllerState> | undefined
-function buildControllerState() {
-  return {
-    main: snapshot({ provider: 'codex', model: 'gpt-main' }),
-    subagent: snapshot({ mode: 'follow-main' }),
-    draft: { provider: 'codex', model: 'gpt-main' },
-    // Conversational decoy: the search card must never render it once the Host loader exists.
-    groups: [{ id: 'codex', name: 'Codex Conversational', models: [{ id: 'chat-only', name: 'Chat Only' }] }],
-    providers: [],
-    models: [],
-    efforts: [],
-    busy: false,
-    disabled: false,
-    setProvider: vi.fn(),
-    setModel: vi.fn(),
-    setReasoningEffort: vi.fn(),
-    reset: vi.fn(),
-    save: vi.fn(),
-  }
+// Render-stable catalog state: fresh objects per render would retrigger draft effects forever.
+const catalogState = {
+  // Conversational decoy: the search card must never render it once the Host loader exists.
+  groups: [{ id: 'codex', name: 'Codex Conversational', models: [{ id: 'chat-only', name: 'Chat Only' }] }],
+  catalogError: undefined as string | undefined,
 }
 
 vi.mock('../src/client/main-row-controller.js', async importOriginal => {
   const actual = await importOriginal<typeof import('../src/client/main-row-controller.js')>()
   return {
     ...actual,
-    useModelSwitchSettingsController: () => (controllerState ??= buildControllerState()),
+    useSettingsCatalog: () => catalogState,
   }
 })
 
@@ -47,6 +32,7 @@ function faceProps(loadCapabilities: unknown) {
   const switchSettings = snapshot({ compactOnSwitch: true })
   const autoReviewSettings = snapshot({})
   const compactionSettings = snapshot({})
+  const subagentSettings = snapshot({ mode: 'follow-main' })
   return {
     t: (key: string) => key,
     capabilities: {
@@ -59,9 +45,9 @@ function faceProps(loadCapabilities: unknown) {
     useAutoReviewSettings: (selector: (value: unknown) => unknown) => selector(autoReviewSettings),
     useCompactionSettings: (selector: (value: unknown) => unknown) => selector(compactionSettings),
     useSwitchSettings: (selector: (value: unknown) => unknown) => selector(switchSettings),
+    useSubagentSettings: (selector: (value: unknown) => unknown) => selector(subagentSettings),
     setSubagent: vi.fn(),
     setCapability: vi.fn(),
-    saveMain: vi.fn(),
     loadCapabilities,
   } as never
 }
