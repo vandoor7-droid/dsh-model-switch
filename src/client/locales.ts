@@ -1,5 +1,5 @@
 export const zh = {
-  nav: '模型切换', title: '模型切换', subtitle: '为主会话、子代理和能力工具设置默认模型。修改只影响新请求。',
+  nav: '模型切换', title: '模型切换', subtitle: '为子代理与能力路由设置固定模型；当前会话模型用输入框旁的选择器直接切换。',
   conversationRoutes: '对话路由', capabilityRoutes: '能力路由', sendProtection: '发送保护', settingsSynced: '设置已同步', remoteSettingsUnavailable: '官方 DSH 在非本机浏览器禁用配置读取与写入；请在 Host 的 127.0.0.1 页面打开设置。', cancel: '取消',
   compactOnSwitch: '切换时压缩', compactOnSwitchHelp: '发送且换了模型时，先按目标窗口检查上下文；超了就用切换前的模型压一次历史，再继续请求。只选模型、不发送，不会压缩。官方自动压缩和 /compact 不受影响。压缩会产生额外模型用量，摘要可能省略细节。',
   provider: '提供商', model: '模型', providerDefault: '使用提供商默认值', providerDefaultShort: 'Provider 默认', effort: '推理强度', effortPinned: '已固定', save: '保存', saving: '保存中…', saved: '已保存',
@@ -13,7 +13,7 @@ export const zh = {
 } as const
 
 export const en: Record<keyof typeof zh, string> = {
-  nav: 'Model Switch', title: 'Model Switch', subtitle: 'Set default models for Main, Subagents, and capability tools. Changes affect new requests only.',
+  nav: 'Model Switch', title: 'Model Switch', subtitle: 'Pin routes for Subagents and capability tools; switch the active session model through the composer picker.',
   conversationRoutes: 'Conversation routes', capabilityRoutes: 'Capability routes', sendProtection: 'Send protection', settingsSynced: 'Settings synced', remoteSettingsUnavailable: 'Official DSH disables settings reads and writes in non-loopback browsers. Open Settings on the Host loopback URL to edit model routes.', cancel: 'Cancel',
   compactOnSwitch: 'Compact on switch', compactOnSwitchHelp: 'When a sent message uses a new model, check the target window first. If needed, compact history with the previous model, then continue. Choosing a model does not compact. Official automatic compaction and /compact are unchanged. Compaction uses extra model quota and may omit details.',
   provider: 'Provider', model: 'Model', providerDefault: 'Provider default', providerDefaultShort: 'Provider default', effort: 'Reasoning effort', effortPinned: 'Pinned', save: 'Save', saving: 'Saving…', saved: 'Saved',

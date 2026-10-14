@@ -1,7 +1,7 @@
 export declare const zh: {
     readonly nav: "模型切换";
     readonly title: "模型切换";
-    readonly subtitle: "为主会话、子代理和能力工具设置默认模型。修改只影响新请求。";
+    readonly subtitle: "为子代理与能力路由设置固定模型；当前会话模型用输入框旁的选择器直接切换。";
     readonly conversationRoutes: "对话路由";
     readonly capabilityRoutes: "能力路由";
     readonly sendProtection: "发送保护";
