@@ -294,6 +294,25 @@ describe('composer picker seat ownership', () => {
     }
   })
 
+  it('applies a group exactly once when the projection lands during the switch RPC', async () => {
+    const { face, directory, project, settle, groupSet } = selectBench(
+      { value: { provider: 'deepseek', model: 'deep-chat' } },
+      [{ provider: 'codex', compactProvider: 'codex', compactModel: 'gpt-compact' }],
+    )
+    // The official projection lands while the switch RPC is still in flight, so
+    // the RPC path and the watcher both observe this one provider change.
+    directory.select.mockImplementation(async () => {
+      project({ provider: 'codex', model: 'gpt-switched' })
+      return { ok: true }
+    })
+
+    await expect(face.select({ provider: 'codex', model: 'gpt-switched' })).resolves.toEqual(COMMITTED)
+    await settle()
+    // One writer only: the applier is the watcher, never a second inline apply.
+    expect(groupSet.mock.calls.filter(([field]) => field === 'compactProvider')).toHaveLength(1)
+    expect(groupSet.mock.calls.filter(([field]) => field === 'compactModel')).toHaveLength(1)
+  })
+
   it('uses non-strict lookup for the optional interaction service', () => {
     const { entries, directInteractionReads } = bench(true)
     const model = entries.find(({ spec }) => spec.name === 'conversation.input.model')
