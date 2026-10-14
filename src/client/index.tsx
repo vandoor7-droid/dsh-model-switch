@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { AUTO_REVIEW_SETTINGS_FIELDS, deriveAutoReviewSettings, deriveCompactionSettings, deriveImageSettings, deriveSearchSettings, deriveSubagentSettings, COMPACTION_SETTINGS_FIELDS, IMAGE_SETTINGS_FIELDS, MAIN_DEFAULT_CONFIG_ID, MODEL_SWITCH_CONFIG_ID, MainSettingsConflictError, PROVIDERS_CONFIG_ID, SEARCH_SETTINGS_FIELDS, SUBAGENT_SETTINGS_FIELDS, type MainSettingsView } from '../client-contract.js'
+import { applyProviderGroupTo, normalizeProviderGroups, withProviderGroup, type ProviderGroupConfig } from '../provider-group.js'
 import { deriveConfigForm } from './derived-config-form.js'
 import { RUNTIME_CAPABILITIES } from '../runtime-capabilities.js'
 import { decodeCapabilitiesSnapshot, type CapabilitiesSnapshot } from './search-capabilities.js'
@@ -45,7 +46,12 @@ export function apply(ctx: ClientContext): void {
   const image = deriveConfigForm(owned, deriveImageSettings, IMAGE_SETTINGS_FIELDS)
   const autoReview = deriveConfigForm(owned, deriveAutoReviewSettings, AUTO_REVIEW_SETTINGS_FIELDS)
   const compaction = deriveConfigForm(owned, deriveCompactionSettings, COMPACTION_SETTINGS_FIELDS)
+  /** Adopt the target provider's saved group; a provider without a group leaves the routes untouched. */
+  const applyProviderGroupFor = async (provider: string): Promise<void> => {
+    await applyProviderGroupTo(owned, normalizeProviderGroups(owned.getSnapshot().value?.providerGroups), provider)
+  }
   const saveMain = async (next: MainSettingsView, expectedRevision: number): Promise<number> => {
+    const previousProvider = mainForm.getSnapshot().value?.provider
     const accepted = await mainForm.mutate([
       { op: 'set', path: ['provider'], value: next.provider },
       { op: 'set', path: ['model'], value: next.model },
@@ -59,6 +65,14 @@ export function apply(ctx: ClientContext): void {
     }
     const revision = mainForm.getSnapshot().revision
     if (revision === undefined) throw new Error('settings unavailable after save')
+    // The Main save itself already landed; a group failure must never look like it did not.
+    if (next.provider.trim() !== '' && next.provider !== previousProvider) {
+      try {
+        await applyProviderGroupFor(next.provider)
+      } catch (error) {
+        throw new Error(t('providerGroupApplyFailed') + (error instanceof Error ? error.message : t('requestFailed')))
+      }
+    }
     return revision
   }
   const connectionRpc = ((): PluginRpcClient | undefined => {
@@ -87,7 +101,17 @@ export function apply(ctx: ClientContext): void {
   const subscribeProviderOrder = orderStore.subscribe
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'model-switch', order: 9, label: () => t('nav'), locale: localeNamespace,
-    inject: (): ModelSwitchSettingsFace => ({ t, hooks: { mainSettings: main, subagentSettings: subagent, searchSettings: search, imageSettings: image, autoReviewSettings: autoReview, compactionSettings: compaction, switchSettings: owned }, capabilities: RUNTIME_CAPABILITIES, saveMain, setSubagent: (field, value) => value === undefined ? subagent.unset(field) : subagent.set(field, value), setCapability: (route, field, value) => { const scope = route === 'search' ? search : route === 'image' ? image : route === 'compaction' ? compaction : autoReview; return value === undefined ? scope.unset(field) : scope.set(field, value) }, setCompactOnSwitch: async value => { if (!await owned.set('compactOnSwitch', value)) throw new Error('settings-rejected') }, providerRoleOf, loadCatalog: async () => {
+    inject: (): ModelSwitchSettingsFace => ({ t, hooks: { mainSettings: main, subagentSettings: subagent, searchSettings: search, imageSettings: image, autoReviewSettings: autoReview, compactionSettings: compaction, switchSettings: owned }, capabilities: RUNTIME_CAPABILITIES, saveMain, setSubagent: (field, value) => value === undefined ? subagent.unset(field) : subagent.set(field, value), setCapability: (route, field, value) => { const scope = route === 'search' ? search : route === 'image' ? image : route === 'compaction' ? compaction : autoReview; return value === undefined ? scope.unset(field) : scope.set(field, value) }, setCompactOnSwitch: async value => { if (!await owned.set('compactOnSwitch', value)) throw new Error('settings-rejected') },
+      saveProviderGroup: async (provider: string, group: ProviderGroupConfig | undefined) => {
+        const current = owned.getSnapshot().value?.providerGroups
+        const next = withProviderGroup(current, provider, group)
+        if (next.length === 0) {
+          if (current === undefined) return
+          if (!await owned.unset('providerGroups')) throw new Error('settings-rejected')
+          return
+        }
+        if (!await owned.set('providerGroups', next)) throw new Error('settings-rejected')
+      }, providerRoleOf, loadCatalog: async () => {
       const response = await remote.session.modelCatalog()
       if (!response.ok || response.value === undefined) throw new Error(t('catalogFailed'))
       const enabled = await fetchAntigravityCatalogGroups(connectionRpc)

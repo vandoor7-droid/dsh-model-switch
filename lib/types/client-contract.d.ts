@@ -1,3 +1,4 @@
+import type { ProviderGroupsStorage } from './provider-group.js';
 export declare const MODEL_SWITCH_CONFIG_ID = "model-switch";
 export declare const MAIN_DEFAULT_CONFIG_ID = "agent-default-model";
 export declare const PROVIDERS_CONFIG_ID = "llm-providers-ui";
@@ -23,6 +24,8 @@ export interface ModelSwitchSettingsView {
     autoReviewModel?: string;
     compactProvider?: string;
     compactModel?: string;
+    /** Raw saved per-provider groups; edited whole through the provider-groups card. */
+    providerGroups?: ProviderGroupsStorage;
 }
 export interface SubagentSettingsView {
     mode: 'follow-main' | 'fixed';

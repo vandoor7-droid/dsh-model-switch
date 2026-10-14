@@ -213,9 +213,10 @@ describe('composer picker seat ownership', () => {
   /**
    * Face-level bench for one Session switch against a controllable Main
    * namespace: the test decides when (and whether) the Host's own
-   * deployment-default write becomes visible.
+   * deployment-default write becomes visible. An optional provider-group
+   * storage seeds the owned Model Switch form.
    */
-  function selectBench(initial: { revision: number, value: { provider: string, model: string } }) {
+  function selectBench(initial: { revision: number, value: { provider: string, model: string } }, providerGroups?: readonly Record<string, unknown>[]) {
     let mainSnapshot = {
       status: 'ready', value: initial.value, base: {}, user: {}, revision: initial.revision,
       writable: true, mode: 'host',
@@ -231,7 +232,14 @@ describe('composer picker seat ownership', () => {
       subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
       mutate,
     }
-    const providerForm = { getSnapshot: () => ({ status: 'ready', value: { order: [] } }), subscribe: () => () => undefined }
+    const groupSet = vi.fn(async (_field: string, _value: unknown) => true)
+    const groupUnset = vi.fn(async (_field: string) => true)
+    const providerForm = {
+      getSnapshot: () => ({ status: 'ready', value: { order: [], ...(providerGroups === undefined ? {} : { providerGroups }) } }),
+      subscribe: () => () => undefined,
+      set: groupSet,
+      unset: groupUnset,
+    }
     const directory = {
       store: { subscribe: vi.fn(), getSnapshot: vi.fn() },
       load: vi.fn(async () => undefined),
@@ -262,7 +270,7 @@ describe('composer picker seat ownership', () => {
       mainSnapshot = { ...mainSnapshot, value, revision }
       for (const listener of listeners) listener()
     }
-    return { face, mutate, directory, writeDefault }
+    return { face, mutate, directory, writeDefault, groupSet, groupUnset }
   }
 
   it('restores the configured Main default after a session-only model switch', async () => {
@@ -308,6 +316,67 @@ describe('composer picker seat ownership', () => {
     await expect(face.select({ provider: 'codex', model: 'gpt-switched' }))
       .resolves.toEqual({ committed: false, mainDefaultRestored: true })
     expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('adopts the saved group of the target provider on a provider switch', async () => {
+    const { face, directory, writeDefault, groupSet, groupUnset } = selectBench(
+      { revision: 7, value: { provider: 'deepseek', model: 'deep-chat' } },
+      [{ provider: 'codex', compactProvider: 'codex', compactModel: 'gpt-compact' }],
+    )
+    directory.select.mockImplementation(async () => {
+      writeDefault({ provider: 'codex', model: 'gpt-switched' }, 8)
+      return { ok: true }
+    })
+
+    await expect(face.select({ provider: 'codex', model: 'gpt-switched' })).resolves.toEqual(COMMITTED)
+    expect(groupSet).toHaveBeenCalledWith('compactProvider', 'codex')
+    expect(groupSet).toHaveBeenCalledWith('compactModel', 'gpt-compact')
+    // The group pins nothing else, so every other capability reverts to its default.
+    expect(groupUnset).toHaveBeenCalledWith('autoReviewProvider')
+    expect(groupUnset).toHaveBeenCalledWith('autoReviewModel')
+    expect(groupSet).toHaveBeenCalledWith('subagentMode', 'follow-main')
+  })
+
+  it('keeps the routes untouched when the switch stays on one provider', async () => {
+    const { face, directory, writeDefault, groupSet, groupUnset } = selectBench(
+      { revision: 7, value: { provider: 'codex', model: 'gpt' } },
+      [{ provider: 'codex', compactProvider: 'codex', compactModel: 'gpt-compact' }],
+    )
+    directory.store.getSnapshot.mockReturnValue({ current: { provider: 'codex', model: 'gpt-old' } })
+    directory.select.mockImplementation(async () => {
+      writeDefault({ provider: 'codex', model: 'gpt' }, 8)
+      return { ok: true }
+    })
+
+    await expect(face.select({ provider: 'codex', model: 'gpt-new' })).resolves.toEqual(COMMITTED)
+    expect(groupSet).not.toHaveBeenCalled()
+    expect(groupUnset).not.toHaveBeenCalled()
+  })
+
+  it('leaves the routes untouched when the target provider has no group', async () => {
+    const { face, directory, writeDefault, groupSet, groupUnset } = selectBench({ revision: 7, value: { provider: 'deepseek', model: 'deep-chat' } })
+    directory.select.mockImplementation(async () => {
+      writeDefault({ provider: 'codex', model: 'gpt-switched' }, 8)
+      return { ok: true }
+    })
+
+    await expect(face.select({ provider: 'codex', model: 'gpt-switched' })).resolves.toEqual(COMMITTED)
+    expect(groupSet).not.toHaveBeenCalled()
+    expect(groupUnset).not.toHaveBeenCalled()
+  })
+
+  it('never fails the switch when a group write fails', async () => {
+    const { face, directory, writeDefault, groupSet } = selectBench(
+      { revision: 7, value: { provider: 'deepseek', model: 'deep-chat' } },
+      [{ provider: 'codex', compactProvider: 'codex', compactModel: 'gpt-compact' }],
+    )
+    groupSet.mockRejectedValue(new Error('rpc down'))
+    directory.select.mockImplementation(async () => {
+      writeDefault({ provider: 'codex', model: 'gpt-switched' }, 8)
+      return { ok: true }
+    })
+
+    await expect(face.select({ provider: 'codex', model: 'gpt-switched' })).resolves.toEqual(COMMITTED)
   })
 
   it('uses non-strict lookup for the optional interaction service', () => {

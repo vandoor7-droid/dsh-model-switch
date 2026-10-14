@@ -42,6 +42,14 @@ export declare const zh: {
     readonly compactionFollow: "跟随会话模型";
     readonly compactionHelp: "为官方压缩（/compact 与官方自动压缩）指定摘要模型；关闭（两个字段都留空）时使用官方默认，即当前会话的目标模型。";
     readonly compactionRouteHelp: "摘要请求固定使用这里的 Provider/模型，与会话目标模型无关；保存后对下一次压缩立即生效。保存时若恰有压缩进行中，可能被打断并在下次重试。";
+    readonly providerGroups: "供应商配置组";
+    readonly providerGroupsCard: "按供应商预设路由";
+    readonly providerGroupsSummary: "切换主模型供应商时自动应用对应组";
+    readonly providerGroupsHelp: "为压缩、子代理、审查按供应商分别保存路由。";
+    readonly providerGroupsBodyHelp: "每个供应商保存一组压缩、子代理、审查路由；主模型切换到该供应商时，这三条路由自动写入上方对应卡片。切换到未配置的供应商时现有路由保持不变；应用会覆盖三张卡片的当前值（含手动修改）。";
+    readonly providerGroupPick: "选择供应商以编辑其配置组。";
+    readonly providerGroupDelete: "删除该组";
+    readonly providerGroupApplyFailed: "主模型已保存，但供应商组应用失败：";
     readonly 'reason.central-subagent-routing': "Alpha.4 没有全局子代理启动路由接口。";
     readonly 'reason.packaged-preset-roots': "Alpha.4 不支持插件提供额外 preset root。";
     readonly 'reason.tool-owner-suppression': "Alpha.4 没有工具所有者或来源抑制接口。";

@@ -3,6 +3,7 @@ import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { routePairConfigured, subagentModeForEnabled, type CapabilityRouteView, type MainSettingsView, type ModelSwitchSettingsView, type SubagentSettingsView } from '../client-contract.js'
+import { groupOf, normalizeProviderGroups, type ProviderGroupConfig } from '../provider-group.js'
 import type { RuntimeCapabilities } from '../runtime-capabilities.js'
 import { searchGroupsFromCapabilities, type CapabilitiesSnapshot } from './search-capabilities.js'
 import type { ModelSwitchLocaleKey } from './locales.js'
@@ -19,6 +20,8 @@ export interface ModelSwitchSettingsFace {
   setSubagent: (field: 'mode' | 'provider' | 'model' | 'reasoningEffort', value: string | undefined) => Promise<void>
   setCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction', field: 'provider' | 'model', value: string | undefined) => Promise<void>
   setCompactOnSwitch: (value: boolean) => Promise<void>
+  /** Replace or remove (undefined) one provider's saved capability group. */
+  saveProviderGroup: (provider: string, group: ProviderGroupConfig | undefined) => Promise<void>
   loadCatalog: () => Promise<readonly ModelProviderGroup[]>
   /** Host capabilities long-poll; absent in legacy faces, which keep the static-capabilities path. */
   loadCapabilities?: (revision?: number, signal?: AbortSignal) => Promise<CapabilitiesSnapshot>
@@ -28,13 +31,19 @@ export interface ModelSwitchSettingsFace {
 }
 
 export type ModelSwitchSettingsProps = PropsRuntime<'settings.section'> & InjectFace<ModelSwitchSettingsFace>
-type RouteId = 'main' | 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction'
+type RouteId = 'main' | 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction' | 'providerGroups'
 type RouteIconKind = RouteId
 
 function cx(...values: Array<string | undefined | false>): string { return values.filter(Boolean).join(' ') }
 function compact(...values: Array<string | undefined>): string { return values.filter((value): value is string => value !== undefined && value !== '').join(' · ') }
 
+/** A complete pinned pair; either half blank leaves the capability at its default. */
+function draftPair(provider: string | undefined, model: string | undefined): { provider: string; model: string } | undefined {
+  return provider !== undefined && provider.trim() !== '' && model !== undefined && model.trim() !== '' ? { provider, model } : undefined
+}
+
 function RouteIcon({ kind }: { kind: RouteIconKind }): ReactNode {
+  if (kind === 'providerGroups') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 5.5h12M3 12.5h12" stroke="currentColor" strokeLinecap="round" /><circle cx="6.5" cy="5.5" r="2" stroke="currentColor" /><circle cx="11.5" cy="12.5" r="2" stroke="currentColor" /></svg>
   if (kind === 'compaction') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M5 3.5 9 7.5l4-4M5 14.5 9 10.5l4 4" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" /></svg>
   if (kind === 'main') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4.5h12v8H8l-3.5 2v-2H3v-8Z" stroke="currentColor" strokeLinejoin="round" /></svg>
   if (kind === 'subagent') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="2.5" stroke="currentColor" /><circle cx="12.5" cy="11.5" r="2" stroke="currentColor" /><path d="M3 14c.4-2.5 1.6-4 3-4s2.6 1.5 3 4M10 7.5c.5-.8 1.3-1.2 2.2-1.2 1.5 0 2.6 1 2.8 2.7" stroke="currentColor" strokeLinecap="round" /></svg>
@@ -74,8 +83,8 @@ function Field({ label, value, disabled, choices, onChange, full = false }: { la
   return <label className={cx(css.field, full && css.fieldFull)}><span className={css.fieldLabel}>{label}</span><select className={css.input} disabled={disabled} value={value ?? ''} onChange={event => { onChange(event.target.value) }}><option value="">—</option>{choices.map(option => <option key={option.id} value={option.id}>{option.name}{option.unavailable === true ? ' ⚠' : ''}</option>)}</select></label>
 }
 
-function Actions({ t, busy, disabled, message, onCancel, onSave }: { t: ModelSwitchSettingsFace['t']; busy: boolean; disabled: boolean; message?: string; onCancel: () => void; onSave: () => void }): ReactNode {
-  return <div className={css.cardFooter}>{message === undefined ? null : <p className={cx(css.hint, css.message)}>{message}</p>}<button type="button" className={cx(css.button, css.secondaryButton)} disabled={busy} onClick={onCancel}>{t('cancel')}</button><button type="button" className={cx(css.button, css.primaryButton)} disabled={disabled} onClick={onSave}>{busy ? t('saving') : t('save')}</button></div>
+function Actions({ t, busy, disabled, message, extra, onCancel, onSave }: { t: ModelSwitchSettingsFace['t']; busy: boolean; disabled: boolean; message?: string; extra?: ReactNode; onCancel: () => void; onSave: () => void }): ReactNode {
+  return <div className={css.cardFooter}>{message === undefined ? null : <p className={cx(css.hint, css.message)}>{message}</p>}{extra}<button type="button" className={cx(css.button, css.secondaryButton)} disabled={busy} onClick={onCancel}>{t('cancel')}</button><button type="button" className={cx(css.button, css.primaryButton)} disabled={disabled} onClick={onSave}>{busy ? t('saving') : t('save')}</button></div>
 }
 
 function useDraft<T>(snapshot: ConfigFormSnapshot<T>): [T | undefined, (value: T | undefined) => void, () => void] {
@@ -125,6 +134,8 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const [message, setMessage] = useState<{ route: RouteId; text: string } | undefined>()
   const [compactBusy, setCompactBusy] = useState(false)
   const [compactError, setCompactError] = useState<string>()
+  const [groupProvider, setGroupProvider] = useState<string>('')
+  const [groupDraft, setGroupDraft] = useState<ProviderGroupConfig | undefined>(undefined)
   const loadSearchCapabilities = props.loadCapabilities
   const [searchSnapshot, setSearchSnapshot] = useState<CapabilitiesSnapshot | undefined>(undefined)
   const [searchError, setSearchError] = useState<string | undefined>(undefined)
@@ -160,6 +171,43 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     void poll(undefined)
     return () => { live = false; scope.abort(); if (timer !== undefined) clearTimeout(timer) }
   }, [loadSearchCapabilities])
+  const providerGroups = normalizeProviderGroups(switchSettings.value?.providerGroups)
+  /** Seed an unsaved group from the live routes, mirroring how the switches seed from Main. */
+  const seedGroupFromActive = (): ProviderGroupConfig => {
+    const compact = compaction.value !== undefined && routePairConfigured(compaction.value)
+      ? { provider: compaction.value.provider ?? '', model: compaction.value.model ?? '' }
+      : undefined
+    const review = autoReview.value !== undefined && routePairConfigured(autoReview.value)
+      ? { provider: autoReview.value.provider ?? '', model: autoReview.value.model ?? '' }
+      : undefined
+    const fixedSubagent = subagent.value !== undefined && subagent.value.mode === 'fixed' && routePairConfigured(subagent.value)
+      ? { provider: subagent.value.provider ?? '', model: subagent.value.model ?? '', reasoningEffort: subagent.value.reasoningEffort }
+      : undefined
+    return {
+      ...(compact === undefined ? {} : { compactProvider: compact.provider, compactModel: compact.model }),
+      ...(review === undefined ? {} : { autoReviewProvider: review.provider, autoReviewModel: review.model }),
+      ...(fixedSubagent === undefined ? {} : {
+        subagentProvider: fixedSubagent.provider,
+        subagentModel: fixedSubagent.model,
+        ...(fixedSubagent.reasoningEffort === undefined ? {} : { subagentReasoningEffort: fixedSubagent.reasoningEffort }),
+      }),
+    }
+  }
+  /** Reload the editor draft: the saved group when one exists, else a seed from the live routes. */
+  const resyncGroupDraft = (): void => {
+    if (groupProvider === '') {
+      setGroupDraft(undefined)
+      return
+    }
+    setGroupDraft(groupOf(providerGroups, groupProvider) ?? seedGroupFromActive())
+  }
+  // Follow the Main provider so a fresh editor opens on the provider in use.
+  useEffect(() => {
+    if (groupProvider !== '') return
+    const initial = controller.draft?.provider
+    if (initial !== undefined && initial.trim() !== '') setGroupProvider(initial)
+  }, [groupProvider, controller.draft])
+  useEffect(() => { resyncGroupDraft() }, [groupProvider, switchSettings.value, subagent.value, autoReview.value, compaction.value])
   if ([controller.main, controller.subagent, search, image, switchSettings].some(form => form.mode === 'memory')) {
     return <main className={css.section}>
       <h1 className={css.title}>{props.t('title')}</h1>
@@ -312,6 +360,49 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const capabilityDisabled = (route: 'search' | 'image', snapshot: ConfigFormSnapshot<CapabilityRouteView>, next: CapabilityRouteView | undefined): boolean => snapshot.status !== 'ready' || !snapshot.writable || next === undefined || busy === route || (next.provider ?? '').trim() === '' || (next.model ?? '').trim() === ''
   const autoReviewDisabled = autoReview.status !== 'ready' || !autoReview.writable || autoReviewDraft === undefined || busy === 'autoReview' || !autoReviewOn || (autoReviewDraft.provider ?? '').trim() === '' || (autoReviewDraft.model ?? '').trim() === ''
   const compactionDisabled = compaction.status !== 'ready' || !compaction.writable || compactionDraft === undefined || busy === 'compaction' || !compactionOn || (compactionDraft.provider ?? '').trim() === '' || (compactionDraft.model ?? '').trim() === ''
+  const configuredGroupCount = Object.keys(providerGroups).length
+  const groupControlsDisabled = busy === 'providerGroups' || switchSettings.status !== 'ready' || !switchSettings.writable
+  const groupProviderChoices = deriveRouteChoices(groups, groupProvider === '' ? undefined : { provider: groupProvider })
+    .providers.map(choice => groupOf(providerGroups, choice.id) === undefined ? choice : { ...choice, name: choice.name + ' ✓' })
+  const groupCompaction = groupDraft === undefined ? undefined : draftPair(groupDraft.compactProvider, groupDraft.compactModel)
+  const groupReview = groupDraft === undefined ? undefined : draftPair(groupDraft.autoReviewProvider, groupDraft.autoReviewModel)
+  const groupSubagent = groupDraft === undefined ? undefined : draftPair(groupDraft.subagentProvider, groupDraft.subagentModel)
+  const groupCompactionChoices = deriveRouteChoices(groups, groupCompaction)
+  const groupReviewChoices = deriveRouteChoices(groups, groupReview)
+  const groupSubagentChoices = deriveRouteChoices(groups, groupSubagent)
+  const groupSubMatched = matchCatalogModel(groups.find(group => group.id === (groupDraft?.subagentProvider ?? ''))?.models ?? [], groupDraft?.subagentModel ?? '')
+  const groupSubEfforts = ((): Choice[] => {
+    const efforts: Choice[] = (groupSubMatched?.model.reasoning?.efforts ?? []).map(effort => ({ id: effort.id, name: effort.name }))
+    const current = groupDraft?.subagentReasoningEffort
+    if (current !== undefined && current !== '' && !efforts.some(option => option.id === current)) efforts.push({ id: current, name: current })
+    return efforts
+  })()
+  /** Enable a capability row by pinning it to the Main route, like the switches above seed from Main. */
+  const enableGroupCapability = (kind: 'compaction' | 'autoReview' | 'subagent'): void => {
+    setGroupDraft(draft => {
+      const main = controller.draft
+      if (draft === undefined || main === undefined) return draft
+      if (kind === 'compaction') return { ...draft, compactProvider: main.provider, compactModel: main.model }
+      if (kind === 'autoReview') return { ...draft, autoReviewProvider: main.provider, autoReviewModel: main.model }
+      return { ...draft, subagentProvider: main.provider, subagentModel: main.model, ...(main.reasoningEffort === undefined ? {} : { subagentReasoningEffort: main.reasoningEffort }) }
+    })
+  }
+  const disableGroupCapability = (kind: 'compaction' | 'autoReview' | 'subagent'): void => {
+    setGroupDraft(draft => {
+      if (draft === undefined) return draft
+      if (kind === 'compaction') return { ...draft, compactProvider: '', compactModel: '' }
+      if (kind === 'autoReview') return { ...draft, autoReviewProvider: '', autoReviewModel: '' }
+      return { ...draft, subagentProvider: '', subagentModel: '', subagentReasoningEffort: '' }
+    })
+  }
+  const saveProviderGroupCard = (): void => {
+    if (groupProvider === '' || groupDraft === undefined) return
+    void run('providerGroups', () => props.saveProviderGroup(groupProvider, groupDraft))
+  }
+  const deleteProviderGroupCard = (): void => {
+    if (groupProvider === '') return
+    void run('providerGroups', () => props.saveProviderGroup(groupProvider, undefined))
+  }
 
   return <main className={css.section}>
     <h1 className={css.title}>{props.t('title')}</h1>
@@ -383,6 +474,59 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
           <Field label={props.t('provider')} value={compactionDraft.provider ?? ''} disabled={busy === 'compaction' || !compaction.writable} choices={compactionChoices.providers} onChange={provider => { const first = groups.find(group => group.id === provider)?.models[0]; setCompactionDraft({ provider, ...(first === undefined ? {} : { model: first.id }) }) }} />
           <Field label={props.t('model')} value={compactionDraft.model ?? ''} disabled={busy === 'compaction' || !compaction.writable} choices={compactionChoices.models} onChange={model => { setCompactionDraft({ ...compactionDraft, model }) }} />
         </div><Actions t={props.t} busy={busy === 'compaction'} disabled={compactionDisabled} {...(message?.route === 'compaction' ? { message: message.text } : {})} onCancel={() => { resetCompaction(); setMessage(undefined) }} onSave={saveCompaction} /></>}
+      </RouteCard>
+    </section>
+
+    <section className={css.group}><h2 className={css.groupLabel}>{props.t('providerGroups')}</h2>
+      <RouteCard title={props.t('providerGroupsCard')} summary={props.t('providerGroupsSummary')} hint={props.t('providerGroupsHelp')} icon="providerGroups" open={open === 'providerGroups'} onToggle={() => { toggle('providerGroups') }} {...(configuredGroupCount > 0 ? { badge: String(configuredGroupCount) } : {})}>
+        <p className={css.hint}>{props.t('providerGroupsBodyHelp')}</p>
+        <div className={css.formGrid}>
+          <Field label={props.t('provider')} value={groupProvider} disabled={groupControlsDisabled} choices={groupProviderChoices} onChange={setGroupProvider} />
+        </div>
+        {groupProvider === '' || groupDraft === undefined ? <p className={css.hint}>{props.t('providerGroupPick')}</p> : <>
+          <div className={css.rowCard}>
+            <div className={css.rowCopy}>
+              <span className={css.rowTitle}>{props.t('compaction')}</span>
+              <p className={css.hint}>{groupCompaction === undefined ? props.t('compactionFollow') : routeName(groups, groupCompaction)}</p>
+            </div>
+            <InstantSwitch checked={groupCompaction !== undefined} disabled={groupControlsDisabled} label={props.t('compaction')} onChange={value => { if (value) enableGroupCapability('compaction'); else disableGroupCapability('compaction') }} />
+          </div>
+          {groupCompaction === undefined ? null : <div className={css.formGrid}>
+            <Field label={props.t('provider')} value={groupCompaction.provider} disabled={groupControlsDisabled} choices={groupCompactionChoices.providers} onChange={provider => { const first = groups.find(item => item.id === provider)?.models[0]; setGroupDraft(draft => draft === undefined ? draft : { ...draft, compactProvider: provider, compactModel: first?.id ?? '' }) }} />
+            <Field label={props.t('model')} value={groupCompaction.model} disabled={groupControlsDisabled} choices={groupCompactionChoices.models} onChange={model => { setGroupDraft(draft => draft === undefined ? draft : { ...draft, compactModel: model }) }} />
+          </div>}
+
+          <div className={css.rowCard}>
+            <div className={css.rowCopy}>
+              <span className={css.rowTitle}>{props.t('autoReview')}</span>
+              <p className={css.hint}>{groupReview === undefined ? props.t('autoReviewFollow') : routeName(groups, groupReview)}</p>
+            </div>
+            <InstantSwitch checked={groupReview !== undefined} disabled={groupControlsDisabled} label={props.t('autoReview')} onChange={value => { if (value) enableGroupCapability('autoReview'); else disableGroupCapability('autoReview') }} />
+          </div>
+          {groupReview === undefined ? null : <div className={css.formGrid}>
+            <Field label={props.t('provider')} value={groupReview.provider} disabled={groupControlsDisabled} choices={groupReviewChoices.providers} onChange={provider => { const first = groups.find(item => item.id === provider)?.models[0]; setGroupDraft(draft => draft === undefined ? draft : { ...draft, autoReviewProvider: provider, autoReviewModel: first?.id ?? '' }) }} />
+            <Field label={props.t('model')} value={groupReview.model} disabled={groupControlsDisabled} choices={groupReviewChoices.models} onChange={model => { setGroupDraft(draft => draft === undefined ? draft : { ...draft, autoReviewModel: model }) }} />
+          </div>}
+
+          <div className={css.rowCard}>
+            <div className={css.rowCopy}>
+              <span className={css.rowTitle}>{props.t('subagent')}</span>
+              <p className={css.hint}>{groupSubagent === undefined ? props.t('subagentOff') : routeName(groups, groupSubagent)}</p>
+            </div>
+            <InstantSwitch checked={groupSubagent !== undefined} disabled={groupControlsDisabled} label={props.t('subagent')} onChange={value => { if (value) enableGroupCapability('subagent'); else disableGroupCapability('subagent') }} />
+          </div>
+          {groupSubagent === undefined ? null : <div className={css.formGrid}>
+            <Field label={props.t('provider')} value={groupSubagent.provider} disabled={groupControlsDisabled} choices={groupSubagentChoices.providers} onChange={provider => { const first = groups.find(item => item.id === provider)?.models[0]; const routed = selectRouteModel(groups, provider, first?.id ?? groupSubagent.model); setGroupDraft(draft => draft === undefined ? draft : { ...draft, subagentProvider: routed.provider, subagentModel: routed.model, subagentReasoningEffort: routed.reasoningEffort ?? '' }) }} />
+            <Field label={props.t('model')} value={groupSubagent.model} disabled={groupControlsDisabled} choices={groupSubagentChoices.models} onChange={model => { const routed = selectRouteModel(groups, groupSubagent.provider, model); setGroupDraft(draft => draft === undefined ? draft : { ...draft, subagentProvider: routed.provider, subagentModel: routed.model, subagentReasoningEffort: routed.reasoningEffort ?? '' }) }} />
+            <Field label={props.t('effort')} value={groupDraft.subagentReasoningEffort ?? ''} disabled={groupControlsDisabled} choices={groupSubEfforts} onChange={effort => { setGroupDraft(draft => draft === undefined ? draft : { ...draft, subagentReasoningEffort: effort }) }} />
+          </div>}
+
+          <Actions t={props.t} busy={busy === 'providerGroups'} disabled={groupControlsDisabled || groupProvider === ''}
+            {...(message?.route === 'providerGroups' ? { message: message.text } : {})}
+            extra={<button type="button" className={cx(css.button, css.secondaryButton)} disabled={groupControlsDisabled || groupOf(providerGroups, groupProvider) === undefined} onClick={deleteProviderGroupCard}>{props.t('providerGroupDelete')}</button>}
+            onCancel={() => { resyncGroupDraft(); setMessage(undefined) }}
+            onSave={saveProviderGroupCard} />
+        </>}
       </RouteCard>
     </section>
 

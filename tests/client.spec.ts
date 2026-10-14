@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { MAIN_DEFAULT_CONFIG_ID, MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, MainSettingsConflictError, subagentModeForEnabled, type MainSettingsView, type ModelSwitchSettingsView } from '../src/client-contract.js'
+import { entryOf, type ProviderGroupConfig } from '../src/provider-group.js'
 
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => {
   const Stub = () => null
@@ -48,11 +49,11 @@ function form<T>(value: T, revision = 7) {
   }
 }
 
-function ctxWith(mainMutation: ConfigForm<MainSettingsView>['mutate'] = async () => true) {
+function ctxWith(mainMutation: ConfigForm<MainSettingsView>['mutate'] = async () => true, ownedValue: ModelSwitchSettingsView = { subagentMode: 'follow-main', compactOnSwitch: true }) {
   let registration: Record<string, unknown> | undefined
   const directoryMounts: Array<(scope: unknown) => unknown> = []
   const main = form<MainSettingsView>({ provider: 'deepseek', model: 'deep-chat' })
-  const owned = form<ModelSwitchSettingsView>({ subagentMode: 'follow-main', compactOnSwitch: true })
+  const owned = form<ModelSwitchSettingsView>(ownedValue)
   const providers = form<{ order: string[] }>({ order: ['native-card', 'llm-codex'] })
   const rpc = { call: vi.fn(async () => ({ ok: true as const, value: { revision: 0, capabilities: { searchProviderAdapters: { available: true, providers: [], catalog: [] } } } })) }
   const ctx = {
@@ -162,5 +163,94 @@ describe('Client ConfigForms surface', () => {
     await expect(face.setCompactOnSwitch(true)).rejects.toThrow('settings-rejected')
     expect(subagentModeForEnabled(true)).toBe('fixed')
     expect(subagentModeForEnabled(false)).toBe('follow-main')
+  })
+
+  it('adopts the saved provider group when the Main provider changes', async () => {
+    const { registration, owned } = ctxWith(undefined, {
+      subagentMode: 'follow-main', compactOnSwitch: true,
+      providerGroups: [entryOf('codex', {
+        compactProvider: 'codex', compactModel: 'gpt-compact',
+        autoReviewProvider: 'codex', autoReviewModel: 'gpt-review',
+        subagentProvider: 'codex', subagentModel: 'gpt-sub',
+      })],
+    })
+    const face = (registration?.inject as () => {
+      saveMain(next: MainSettingsView, expectedRevision: number): Promise<number>
+    })()
+    await expect(face.saveMain({ provider: 'codex', model: 'gpt' }, 7)).resolves.toBe(8)
+    expect(owned.set).toHaveBeenCalledWith('compactProvider', 'codex')
+    expect(owned.set).toHaveBeenCalledWith('compactModel', 'gpt-compact')
+    expect(owned.set).toHaveBeenCalledWith('autoReviewModel', 'gpt-review')
+    expect(owned.unset).toHaveBeenCalledWith('subagentReasoningEffort')
+    expect(owned.set).toHaveBeenCalledWith('subagentMode', 'fixed')
+  })
+
+  it('leaves the routes untouched when the Main provider does not change', async () => {
+    const { registration, owned } = ctxWith(undefined, {
+      subagentMode: 'follow-main', compactOnSwitch: true,
+      providerGroups: [entryOf('codex', { compactProvider: 'codex', compactModel: 'gpt' })],
+    })
+    const face = (registration?.inject as () => {
+      saveMain(next: MainSettingsView, expectedRevision: number): Promise<number>
+    })()
+    // deepseek is the stored Main provider; same provider never rewrites routes.
+    await expect(face.saveMain({ provider: 'deepseek', model: 'deep-chat' }, 7)).resolves.toBe(8)
+    expect(owned.set).not.toHaveBeenCalled()
+    expect(owned.unset).not.toHaveBeenCalled()
+  })
+
+  it('leaves the routes untouched when the target provider has no group', async () => {
+    const { registration, owned } = ctxWith()
+    const face = (registration?.inject as () => {
+      saveMain(next: MainSettingsView, expectedRevision: number): Promise<number>
+    })()
+    await expect(face.saveMain({ provider: 'codex', model: 'gpt' }, 7)).resolves.toBe(8)
+    expect(owned.set).not.toHaveBeenCalled()
+    expect(owned.unset).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a provider-group failure without hiding the Main save', async () => {
+    const { registration, owned, main } = ctxWith(undefined, {
+      subagentMode: 'follow-main', compactOnSwitch: true,
+      providerGroups: [entryOf('codex', { compactProvider: 'codex', compactModel: 'gpt' })],
+    })
+    const face = (registration?.inject as () => {
+      saveMain(next: MainSettingsView, expectedRevision: number): Promise<number>
+    })()
+    owned.set.mockRejectedValueOnce(new Error('rpc down'))
+    await expect(face.saveMain({ provider: 'codex', model: 'gpt' }, 7)).rejects.toThrow('providerGroupApplyFailed')
+    expect(main.mutate).toHaveBeenCalled()
+  })
+
+  it('writes a provider group through the owned ConfigForm and maps refusal', async () => {
+    const { registration, owned } = ctxWith()
+    const face = (registration?.inject as () => {
+      saveProviderGroup(provider: string, group: ProviderGroupConfig | undefined): Promise<void>
+    })()
+    const group: ProviderGroupConfig = { compactProvider: 'codex', compactModel: 'gpt' }
+    await expect(face.saveProviderGroup('codex', group)).resolves.toBeUndefined()
+    expect(owned.set).toHaveBeenCalledWith('providerGroups', [entryOf('codex', group)])
+    owned.set.mockResolvedValue(false)
+    await expect(face.saveProviderGroup('codex', group)).rejects.toThrow('settings-rejected')
+  })
+
+  it('unsets the storage when the last group is removed and no-ops without stored groups', async () => {
+    const { registration, owned } = ctxWith(undefined, {
+      subagentMode: 'follow-main', compactOnSwitch: true,
+      providerGroups: [entryOf('codex', { compactProvider: 'codex', compactModel: 'gpt' })],
+    })
+    const face = (registration?.inject as () => {
+      saveProviderGroup(provider: string, group: ProviderGroupConfig | undefined): Promise<void>
+    })()
+    await expect(face.saveProviderGroup('codex', undefined)).resolves.toBeUndefined()
+    expect(owned.unset).toHaveBeenCalledWith('providerGroups')
+
+    const pristine = ctxWith()
+    const pristineFace = (pristine.registration?.inject as () => {
+      saveProviderGroup(provider: string, group: ProviderGroupConfig | undefined): Promise<void>
+    })()
+    await expect(pristineFace.saveProviderGroup('codex', undefined)).resolves.toBeUndefined()
+    expect(pristine.owned.set).not.toHaveBeenCalled()
+    expect(pristine.owned.unset).not.toHaveBeenCalled()
   })
 })

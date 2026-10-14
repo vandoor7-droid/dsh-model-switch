@@ -1,7 +1,7 @@
 import { Context, Service } from '@deepseek-ai/cordis';
 import type { ModelSelection } from '@deepseek-ai/dsh-agent';
 import type { AgentDefaultModelConfig } from '@deepseek-ai/dsh-agent-default-model';
-import { type Config as ModelSwitchSettingsConfig, type ModelSwitchSettings } from './host-settings.js';
+import { Config, type Config as ModelSwitchSettingsConfig, type ModelSwitchSettings } from './host-settings.js';
 import { ModelSwitchAdapterRegistry } from './adapter-registry.js';
 declare module '@deepseek-ai/cordis' {
     interface Context {
@@ -15,35 +15,7 @@ declare module '@deepseek-ai/cordis' {
 /** Host owner for Model Switch settings and the released Main-default adapter. */
 export declare class ModelSwitchRuntime extends Service {
     static inject: string[];
-    static Config: import("@deepseek-ai/schemastery").default<Schemastery.ObjectS<NoInfer<{
-        subagentMode: import("@deepseek-ai/schemastery").default<"follow-main" | "fixed", "follow-main" | "fixed", "volatile-defined">;
-        subagentProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        subagentModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        subagentReasoningEffort: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        searchProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        searchModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        imageProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        imageModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        compactOnSwitch: import("@deepseek-ai/schemastery").default<boolean, boolean, "volatile-defined">;
-        autoReviewProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        autoReviewModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        compactProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        compactModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-    }>>, Schemastery.ObjectT<NoInfer<{
-        subagentMode: import("@deepseek-ai/schemastery").default<"follow-main" | "fixed", "follow-main" | "fixed", "volatile-defined">;
-        subagentProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        subagentModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        subagentReasoningEffort: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        searchProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        searchModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        imageProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        imageModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        compactOnSwitch: import("@deepseek-ai/schemastery").default<boolean, boolean, "volatile-defined">;
-        autoReviewProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        autoReviewModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        compactProvider: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-        compactModel: import("@deepseek-ai/schemastery").default<string, string, "volatile">;
-    }>>, "plain">;
+    static Config: import("@deepseek-ai/schemastery").default<any, Config, "plain">;
     get capabilities(): {
         searchProviderAdapters: {
             available: boolean;

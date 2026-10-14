@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ModelSwitchSettings } from '../src/client/ModelSwitchSettings.js'
 import { useModelSwitchSettingsController } from '../src/client/main-row-controller.js'
 import { en, zh } from '../src/client/locales.js'
+import { entryOf, type ProviderGroupConfig, type ProviderGroupsStorage } from '../src/provider-group.js'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -44,13 +45,18 @@ function face(options?: {
   setSubagent?: ReturnType<typeof vi.fn>
   setCapability?: ReturnType<typeof vi.fn>
   setCompactOnSwitch?: ReturnType<typeof vi.fn>
+  saveProviderGroup?: ReturnType<typeof vi.fn>
+  providerGroups?: ProviderGroupsStorage
 }) {
   const subagent = options?.subagent ?? { mode: 'fixed', provider: 'codex', model: 'gpt-subagent' }
   const controllerState = controller(subagent)
   vi.mocked(useModelSwitchSettingsController).mockImplementation(() => controllerState as never)
   const switchSettings = options?.memoryOnly
     ? { status: 'unavailable' as const, value: undefined, base: undefined, user: {}, revision: undefined, writable: false, mode: 'memory' as const }
-    : snapshot(options?.omitCompactOnSwitch === true ? {} : { compactOnSwitch: options?.compactOnSwitch !== false })
+    : snapshot({
+        ...(options?.omitCompactOnSwitch === true ? {} : { compactOnSwitch: options?.compactOnSwitch !== false }),
+        ...(options?.providerGroups === undefined ? {} : { providerGroups: options.providerGroups }),
+      })
   const searchSettings = snapshot({ provider: 'codex', model: 'gpt-search' })
   const imageSettings = snapshot({ provider: 'grok', model: 'grok-imagine-image-quality' })
   // Unset reviewer fields = the shipped default: reviews follow the session model.
@@ -72,6 +78,7 @@ function face(options?: {
     setSubagent: options?.setSubagent ?? vi.fn(async () => undefined),
     setCapability: options?.setCapability ?? vi.fn(),
     setCompactOnSwitch: options?.setCompactOnSwitch ?? vi.fn(async () => undefined),
+    saveProviderGroup: options?.saveProviderGroup ?? vi.fn(async () => undefined),
     saveMain: vi.fn(),
   } as never
 }
@@ -88,12 +95,13 @@ function mountSettings(options?: Parameters<typeof face>[0]) {
   const setSubagent = options?.setSubagent ?? vi.fn(async () => undefined)
   const setCapability = options?.setCapability ?? vi.fn()
   const setCompactOnSwitch = options?.setCompactOnSwitch ?? vi.fn(async () => undefined)
-  const props = face({ ...options, setSubagent, setCapability, setCompactOnSwitch })
+  const saveProviderGroup = options?.saveProviderGroup ?? vi.fn(async () => undefined)
+  const props = face({ ...options, setSubagent, setCapability, setCompactOnSwitch, saveProviderGroup })
   let renderer!: ReactTestRenderer
   act(() => {
     renderer = create(<ModelSwitchSettings {...props} />)
   })
-  return { renderer, setSubagent, setCapability, setCompactOnSwitch }
+  return { renderer, setSubagent, setCapability, setCompactOnSwitch, saveProviderGroup }
 }
 
 describe('Model Switch settings menu', () => {
@@ -352,5 +360,116 @@ describe('Model Switch settings menu', () => {
     expect(zh.compactionHelp).toContain('/compact')
     expect(en.compactionHelp).toContain('/compact')
     expect(zh.compactionRouteHelp).toContain('Provider')
+  })
+
+  it('renders the provider groups section with a configured-count badge', () => {
+    const markup = renderSettings({ providerGroups: [entryOf('codex', { compactProvider: 'codex', compactModel: 'gpt' })] })
+    expect(markup).toContain('>providerGroups<')
+    expect(markup).toContain('>providerGroupsCard<')
+    expect(markup).toContain('>providerGroupsSummary<')
+    expect(markup).toContain('>providerGroupsHelp<')
+    expect(markup).toContain('>1<')
+    // A badge appears only once a provider actually has a saved group.
+    expect(renderSettings()).not.toContain('>1<')
+  })
+
+  it('opens the group editor on the Main provider and saves the draft as one storage write', async () => {
+    const { renderer, saveProviderGroup } = mountSettings()
+    const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('providerGroupsCard'))
+    expect(header).toBeDefined()
+    act(() => {
+      header?.props.onClick()
+    })
+    // The editor opens on the Main provider, seeded from the active routes.
+    const providerSelect = renderer.root.findAllByType('select').find(select => String(select.props.value) === 'codex')
+    expect(providerSelect).toBeDefined()
+    expect(JSON.stringify(renderer.toJSON())).toContain('providerGroupsBodyHelp')
+    const save = () => renderer.root.findAllByType('button').find(button => instanceText(button) === 'save')
+    expect(save()?.props.disabled).toBe(false)
+    await act(async () => {
+      save?.()?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect(saveProviderGroup).toHaveBeenCalledTimes(1)
+    const [provider, group] = (saveProviderGroup as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(provider).toBe('codex')
+    // Seed: the active Subagent route only; compaction and review stay at their defaults.
+    expect(group).toEqual<ProviderGroupConfig>({ subagentProvider: 'codex', subagentModel: 'gpt-subagent' })
+  })
+
+  it('toggles a capability row off to the default and back on with the Main route', async () => {
+    const { renderer, saveProviderGroup } = mountSettings({ compaction: { provider: 'codex', model: 'gpt-main' } })
+    const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('providerGroupsCard'))
+    act(() => {
+      header?.props.onClick()
+    })
+    const rowToggles = () => renderer.root.findAllByType('button').filter(button => button.props['aria-label'] === 'compaction')
+    // First is the Compaction card switch, second is the group row switch.
+    // The row opens seeded from the active compaction route.
+    expect(rowToggles()).toHaveLength(2)
+    expect(rowToggles()[1]?.props['aria-checked']).toBe(true)
+    const save = () => renderer.root.findAllByType('button').find(button => instanceText(button) === 'save')
+
+    // Switch the row off: both halves clear to the capability default.
+    await act(async () => {
+      rowToggles()[1]?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    await act(async () => {
+      save?.()?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    let [provider, group] = (saveProviderGroup as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(provider).toBe('codex')
+    expect(group).toMatchObject<ProviderGroupConfig>({ compactProvider: '', compactModel: '' })
+
+    // Switch it back on: the row re-seeds from the Main route, like the other switches.
+    await act(async () => {
+      rowToggles()[1]?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    await act(async () => {
+      save?.()?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    ;[, group] = (saveProviderGroup as ReturnType<typeof vi.fn>).mock.calls[1]
+    expect(group).toMatchObject<ProviderGroupConfig>({ compactProvider: 'codex', compactModel: 'gpt-main' })
+  })
+
+  it('gates the delete button on a saved group and removes it on click', async () => {
+    const { renderer, saveProviderGroup } = mountSettings({ providerGroups: [entryOf('codex', { compactProvider: 'codex', compactModel: 'gpt' })] })
+    const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('providerGroupsCard'))
+    act(() => {
+      header?.props.onClick()
+    })
+    const remove = () => renderer.root.findAllByType('button').find(button => instanceText(button) === 'providerGroupDelete')
+    expect(remove()?.props.disabled).toBe(false)
+    await act(async () => {
+      remove?.()?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect(saveProviderGroup).toHaveBeenCalledWith('codex', undefined)
+  })
+
+  it('disables the delete button when the selected provider has no group', () => {
+    const { renderer } = mountSettings()
+    const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('providerGroupsCard'))
+    act(() => {
+      header?.props.onClick()
+    })
+    const remove = renderer.root.findAllByType('button').find(button => instanceText(button) === 'providerGroupDelete')
+    expect(remove?.props.disabled).toBe(true)
+  })
+
+  it('keeps zh/en copy for the provider groups card', () => {
+    expect(zh.providerGroups).toBe('供应商配置组')
+    expect(en.providerGroups).toBe('Provider groups')
+    expect(zh.providerGroupsSummary).toContain('切换主模型供应商')
+    expect(en.providerGroupsSummary).toContain('provider switches')
+    expect(zh.providerGroupsBodyHelp).toContain('未配置的供应商')
+    expect(en.providerGroupsBodyHelp).toContain('without a group')
+    expect(zh.providerGroupDelete).toBe('删除该组')
+    expect(zh.providerGroupApplyFailed).toContain('供应商组应用失败')
+    expect(en.providerGroupApplyFailed).toContain('provider group failed')
   })
 })

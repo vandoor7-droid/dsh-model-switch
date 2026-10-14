@@ -1,5 +1,6 @@
 import type { Volatile } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
+import { type ProviderGroupEntry, type ProviderGroups } from './provider-group.js';
 export type SubagentMode = 'follow-main' | 'fixed';
 /** Resolved live values consumed by Model Switch. */
 export interface ModelSwitchSettings {
@@ -20,6 +21,8 @@ export interface ModelSwitchSettings {
     compactProvider?: string;
     /** Summarization model for `/compact` and automatic compaction; set together with `compactProvider`. */
     compactModel?: string;
+    /** Per-provider compaction/subagent/review presets, keyed by provider id; absent when no group is saved. */
+    providerGroups?: ProviderGroups;
 }
 /** Loader-owned references; every field is directly editable in the profile form. */
 export interface Config {
@@ -36,34 +39,13 @@ export interface Config {
     autoReviewModel: Volatile<string | undefined>;
     compactProvider: Volatile<string | undefined>;
     compactModel: Volatile<string | undefined>;
+    /** Saved per-provider capability groups as one entry per provider; entry route fields are '' when the capability stays at its default. */
+    providerGroups: Volatile<readonly ProviderGroupEntry[]>;
 }
-export declare const Config: z<Schemastery.ObjectS<NoInfer<{
-    subagentMode: z<"follow-main" | "fixed", "follow-main" | "fixed", "volatile-defined">;
-    subagentProvider: z<string, string, "volatile">;
-    subagentModel: z<string, string, "volatile">;
-    subagentReasoningEffort: z<string, string, "volatile">;
-    searchProvider: z<string, string, "volatile">;
-    searchModel: z<string, string, "volatile">;
-    imageProvider: z<string, string, "volatile">;
-    imageModel: z<string, string, "volatile">;
-    compactOnSwitch: z<boolean, boolean, "volatile-defined">;
-    autoReviewProvider: z<string, string, "volatile">;
-    autoReviewModel: z<string, string, "volatile">;
-    compactProvider: z<string, string, "volatile">;
-    compactModel: z<string, string, "volatile">;
-}>>, Schemastery.ObjectT<NoInfer<{
-    subagentMode: z<"follow-main" | "fixed", "follow-main" | "fixed", "volatile-defined">;
-    subagentProvider: z<string, string, "volatile">;
-    subagentModel: z<string, string, "volatile">;
-    subagentReasoningEffort: z<string, string, "volatile">;
-    searchProvider: z<string, string, "volatile">;
-    searchModel: z<string, string, "volatile">;
-    imageProvider: z<string, string, "volatile">;
-    imageModel: z<string, string, "volatile">;
-    compactOnSwitch: z<boolean, boolean, "volatile-defined">;
-    autoReviewProvider: z<string, string, "volatile">;
-    autoReviewModel: z<string, string, "volatile">;
-    compactProvider: z<string, string, "volatile">;
-    compactModel: z<string, string, "volatile">;
-}>>, "plain">;
+/**
+ * Annotated rather than inferred: the nested entry schema's inferred type
+ * expands to cosmokit internals (`Dict`) that cannot be named in the emitted
+ * declaration, and the annotation pins the output shape to this interface.
+ */
+export declare const Config: z<any, Config, 'plain'>;
 export declare function readConfig(config: Config): ModelSwitchSettings;

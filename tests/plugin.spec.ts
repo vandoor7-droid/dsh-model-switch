@@ -14,6 +14,17 @@ describe('Host runtime surface', () => {
     })
     expect(() => Config({ subagentMode: 'other' } as never)).toThrow()
   })
+  it('exposes saved provider groups and omits them when none exist', () => {
+    expect(readConfig(Config({})).providerGroups).toBeUndefined()
+    expect(readConfig(Config({ providerGroups: [{ provider: 'codex', compactProvider: 'codex', compactModel: 'gpt' }] })).providerGroups).toEqual({
+      codex: { compactProvider: 'codex', compactModel: 'gpt' },
+    })
+    // A stored entry arrives with blank defaults; normalization drops them but keeps the group.
+    expect(readConfig(Config({ providerGroups: [{ provider: 'codex', compactProvider: '' }] })).providerGroups).toEqual({ codex: {} })
+    // An entry without a owning provider cannot be keyed and is dropped.
+    expect(readConfig(Config({ providerGroups: [{ compactProvider: 'orphan' }] })).providerGroups).toBeUndefined()
+    expect(() => Config({ providerGroups: [{ provider: 42 }] } as never)).toThrow()
+  })
   it('adapts the public Main service without changing picker/global state', async () => {
     let selection = { provider: 'deepseek', model: 'chat', reasoningEffort: ReasoningEffortId('max') }
     const service = { currentSelection: vi.fn(() => selection), saveSelection: vi.fn(async (next) => { selection = next }) }

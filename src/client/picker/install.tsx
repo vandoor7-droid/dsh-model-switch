@@ -10,7 +10,8 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { useEffect, useSyncExternalStore } from 'react'
-import { MAIN_DEFAULT_CONFIG_ID, PROVIDERS_CONFIG_ID, type MainSettingsView } from '../../client-contract.ts'
+import { MAIN_DEFAULT_CONFIG_ID, MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, type MainSettingsView, type ModelSwitchSettingsView } from '../../client-contract.ts'
+import { applyProviderGroupTo, normalizeProviderGroups } from '../../provider-group.ts'
 import { selectPlanReview, type PlanCommitOutcome } from '../../picker/plan-review.ts'
 import type { GoalRemote } from '../../picker/plan-goal.ts'
 import { ComposerPicker } from './ComposerPicker.tsx'
@@ -197,6 +198,7 @@ export function installComposerPicker(ctx: ClientContext): void {
       get?: (id: unknown) => { getSnapshot?: () => { blank?: boolean } }
     } | undefined
     const mainDefaults = scope.configForms.get<MainSettingsView>(MAIN_DEFAULT_CONFIG_ID)
+    const ownedForm = scope.configForms.get<ModelSwitchSettingsView>(MODEL_SWITCH_CONFIG_ID)
     let directoryService: ProviderDirectoryFace | undefined
     const orderStore = providerOrderStore(scope.configForms.get<ProviderOrderSettings>(PROVIDERS_CONFIG_ID))
     scope.inject(['providerDirectory'], directoryScope => {
@@ -269,6 +271,17 @@ export function installComposerPicker(ctx: ClientContext): void {
           // throw; treating it as success would answer a Plan under a model the
           // Session never adopted.
           if (!result.ok) return uncommitted
+          // A provider switch adopts the target provider's saved capability
+          // group when one exists (same provider never rewrites the routes,
+          // and a provider without a group leaves them untouched). A failed
+          // write is reported but never fails the switch itself.
+          if (selection.provider !== currentProvider) {
+            try {
+              await applyProviderGroupTo(ownedForm, normalizeProviderGroups(ownedForm.getSnapshot().value?.providerGroups), selection.provider)
+            } catch (error) {
+              console.warn('dsh-model-switch: provider group apply failed', error)
+            }
+          }
           const restore = await restoreMainDefault(mainDefaults, defaultBeforeSwitch)
           return { committed: true, mainDefaultRestored: restore.restored }
         },
