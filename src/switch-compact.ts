@@ -122,13 +122,25 @@ export function installSwitchCompaction(
     if (context.agent !== undefined) {
       assemblies.set(context.agent, assembled)
       // Wrap per-session guards too: their admitted notices/context count toward the budget.
-      stopGate?.()
-      installGate()
+      // Install the replacement BEFORE retiring the live one: if registration
+      // fails, the session must keep the guard it already had rather than lose
+      // send-time switch protection for every later step.
+      const previous = stopGate
+      let replacement: (() => void) | undefined
+      try {
+        replacement = installGate()
+      } catch (cause) {
+        ctx.logger.warn('model-switch: could not refresh the switch-time compaction guard; the existing guard stays in place')
+        ctx.logger.warn(cause)
+        return assembled
+      }
+      stopGate = replacement
+      previous?.()
     }
     return assembled
   })
-  function installGate(): void {
-    stopGate = ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
+  function installGate(): () => void {
+    return ctx.on('agent/pre-step', async ({ agent, messages, signal }, next) => {
       const decision = await next()
       if (decision.kind !== 'enter' || signal.aborted) return decision
       const enabled = settings().compactOnSwitch !== false

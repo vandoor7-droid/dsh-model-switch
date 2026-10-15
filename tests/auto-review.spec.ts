@@ -5,6 +5,11 @@ import { apply, autoReviewRouteOf, inject, name, reviewLlm, reviewScope, type Re
 
 const BUNDLE = '@deepseek-ai/dsh-experimental-auto-review'
 
+// The official bundle is a real dynamic import (not mocked), so a loaded
+// full-suite run can spend seconds in module resolution before the first
+// assertion; the default 5s per-test timeout is too tight for that.
+vi.setConfig({ testTimeout: 30_000 })
+
 function routeOptions(provider: string, model: string): GenerateOptions {
   return { provider, model, system: 'policy', messages: [{ role: 'user', content: 'x' }] } as unknown as GenerateOptions
 }

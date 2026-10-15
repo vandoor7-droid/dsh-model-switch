@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { overSwitchBudget, sameSwitchRoute, shouldProtectSwitch, switchInputBudget } from '../src/switch-compact.ts'
+import { describe, expect, it, vi } from 'vitest'
+import { installSwitchCompaction, overSwitchBudget, sameSwitchRoute, shouldProtectSwitch, switchInputBudget } from '../src/switch-compact.ts'
 
 describe('send-time switch protection', () => {
   it('ignores picker-only sameness and the off switch, without a vendor whitelist', () => {
@@ -21,5 +21,59 @@ describe('send-time switch protection', () => {
     expect(overSwitchBudget(100, 160)).toBe(false)
     expect(overSwitchBudget(161, 160)).toBe(true)
     expect(overSwitchBudget(1, 0)).toBe(true)
+  })
+})
+
+/** A context stub that records listener registrations and can refuse one install. */
+function benchContext() {
+  let refusePreStep = false
+  const listeners: { name: string; handler: (...args: never[]) => unknown }[] = []
+  const ctx = {
+    logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
+    on: (name: string, handler: (...args: never[]) => unknown) => {
+      if (name === 'agent/pre-step' && refusePreStep) throw new Error('registration refused')
+      const record = { name, handler }
+      listeners.push(record)
+      return () => {
+        const index = listeners.indexOf(record)
+        if (index >= 0) listeners.splice(index, 1)
+      }
+    },
+  }
+  return {
+    ctx: ctx as never,
+    gates: () => listeners.filter(listener => listener.name === 'agent/pre-step'),
+    /** Run the assemble hook once for one agent, the way the Host does per step. */
+    assemble: async (agent: object) => {
+      const handler = listeners.find(listener => listener.name === 'system-prompt/assemble')
+      await handler?.handler({}, { agent }, async () => ({ variables: {} }))
+    },
+    refuseNextInstall: () => { refusePreStep = true },
+  }
+}
+
+describe('switch-time compaction guard lifecycle', () => {
+  it('keeps exactly one live pre-step guard across repeated assemblies', async () => {
+    const { ctx, gates, assemble } = benchContext()
+    installSwitchCompaction(ctx, () => ({ compactOnSwitch: true }))
+    expect(gates()).toHaveLength(0)
+    const agent = {}
+    await assemble(agent)
+    expect(gates()).toHaveLength(1)
+    await assemble(agent)
+    expect(gates()).toHaveLength(1)
+  })
+
+  it('keeps the existing guard when a replacement cannot be installed', async () => {
+    const { ctx, gates, assemble, refuseNextInstall } = benchContext()
+    installSwitchCompaction(ctx, () => ({ compactOnSwitch: true }))
+    const agent = {}
+    await assemble(agent)
+    const installed = gates()[0]
+    refuseNextInstall()
+    await assemble(agent)
+    // A refused replacement must not retire the guard that is still working.
+    expect(gates()).toHaveLength(1)
+    expect(gates()[0]).toBe(installed)
   })
 })
