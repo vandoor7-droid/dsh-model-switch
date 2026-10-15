@@ -15,6 +15,8 @@ export interface ModelSwitchSettingsView {
     autoReviewModel?: string;
     compactProvider?: string;
     compactModel?: string;
+    titleProvider?: string;
+    titleModel?: string;
     /** Raw saved per-provider groups; edited whole through the provider-groups card. */
     providerGroups?: ProviderGroupsStorage;
 }
@@ -54,10 +56,16 @@ export declare const COMPACTION_SETTINGS_FIELDS: Readonly<{
     readonly provider: "compactProvider";
     readonly model: "compactModel";
 }>;
+/** Automatic session-title naming route; both unset means the official default (the session's own logged route). */
+export declare const TITLE_SETTINGS_FIELDS: Readonly<{
+    readonly provider: "titleProvider";
+    readonly model: "titleModel";
+}>;
 export declare function deriveSubagentSettings(settings: ModelSwitchSettingsView): SubagentSettingsView;
 export declare function deriveSearchSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 export declare function deriveImageSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 export declare function deriveAutoReviewSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 export declare function deriveCompactionSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
+export declare function deriveTitleSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 /** Whether both fields of a model route form a complete pair; an incomplete pair stays off. */
 export declare function routePairConfigured(route: CapabilityRouteView | undefined): boolean;

@@ -23,7 +23,12 @@ vi.mock('@deepseek-ai/dsh-compaction-basic', async () => {
       super(ctx, 'compaction')
       mounts.push({ ...config })
       if (config.summarizationProvider === 'poison') throw new Error('route rejected')
+      // `auto: 'unactivated'` mirrors a fiber whose injections were never
+      // satisfied: the service exists but exposes none of the engine's public
+      // entry points, so the row must not record it as the live engine.
+      if (config.auto === 'unactivated') Object.defineProperty(this, 'compactIfNeeded', { value: undefined })
     }
+    compactIfNeeded() { return Promise.resolve(null) }
   }
   return { default: FakeCompactionEngine }
 })
@@ -181,20 +186,49 @@ describe('apply', () => {
     expect(ctx.get('compaction', false)).toBeTruthy()
   })
 
-  it('falls back to the official defaults when the configured route is rejected, then retries', async () => {
+  it('leaves the engine unmounted when the configured route is rejected, then retries', async () => {
     const { ctx, settings } = bench({ settings: { compactProvider: 'poison', compactModel: 'bad' } })
     await apply(ctx)
-    expect(mounts).toHaveLength(2)
-    expect(mounts.at(0)).toEqual({ auto: false, summarizationProvider: 'poison', summarizationModel: 'bad' })
-    expect(mounts.at(1)).toEqual({})
-    expect(ctx.get('compaction', false)).toBeTruthy()
+    // Exactly one attempt: an invalid route is reported instead of being
+    // silently downgraded to a config the profile never configured.
+    expect(mounts).toEqual([{ auto: false, summarizationProvider: 'poison', summarizationModel: 'bad' }])
+    expect(ctx.get('compaction', false)).toBeUndefined()
     settings.compactProvider = 'good'
     settings.compactModel = 'ok'
     await ctx.emit('model-switch/settings-update')
     await vi.waitFor(() => {
-      expect(mounts.length).toBeGreaterThanOrEqual(3)
+      expect(mounts).toHaveLength(2)
     })
-    expect(mounts.at(2)).toEqual({ auto: false, summarizationProvider: 'good', summarizationModel: 'ok' })
+    expect(mounts.at(1)).toEqual({ auto: false, summarizationProvider: 'good', summarizationModel: 'ok' })
     expect(ctx.get('compaction', false)).toBeTruthy()
+  })
+
+  it('collapses a burst of settings updates into one reconcile pass', async () => {
+    const { ctx, settings } = bench({ settings: { compactProvider: 'p1', compactModel: 'm1' } })
+    await apply(ctx)
+    expect(mounts).toHaveLength(1)
+    settings.compactProvider = 'p2'
+    settings.compactModel = 'm2'
+    ctx.emit('model-switch/settings-update')
+    ctx.emit('model-switch/settings-update')
+    ctx.emit('model-switch/settings-update')
+    await vi.waitFor(() => {
+      expect(mounts).toHaveLength(2)
+    })
+    await new Promise(resolve => setTimeout(resolve, 20))
+    expect(mounts).toHaveLength(2)
+    expect(mounts.at(1)).toEqual({ auto: false, summarizationProvider: 'p2', summarizationModel: 'm2' })
+    expect(ctx.get('compaction', false)).toBeTruthy()
+  })
+
+  it('unloads a mount that never activated and keeps the row retryable', async () => {
+    const { ctx } = bench({ entries: [officialRow({ auto: 'unactivated' })] })
+    await apply(ctx)
+    expect(mounts).toHaveLength(1)
+    expect(ctx.get('compaction', false)).toBeUndefined()
+    await ctx.emit('model-switch/settings-update')
+    await vi.waitFor(() => {
+      expect(mounts.length).toBeGreaterThanOrEqual(2)
+    })
   })
 })

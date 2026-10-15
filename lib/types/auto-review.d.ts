@@ -9,6 +9,14 @@
  * route configured the wrapper passes options through by identity, so the
  * reviewer follows the session model exactly.
  *
+ * The reviewer route is deliberately DEPLOYMENT-WIDE. The official gate builds
+ * its request with no session id and no purpose and closes over the single
+ * context it was applied with, so this plugin has no public way to tell which
+ * session a review serves; guessing one would attribute a review to the wrong
+ * session and make the recorded reviewer route false. The unsupported
+ * per-session reviewer route is recorded in `docs/seam-gap.md` with the public
+ * seam it would need.
+ *
  * The official gate stays an opt-in capability: the row mounts it only when
  * the profile actually started with the experimental-auto-review bundle.
  * `cordis.patch.yml` disables the official row (one `registerAuto` per

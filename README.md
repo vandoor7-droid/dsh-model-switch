@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Choose one explicit route for the active session, Subagents, Web Search, image generation, and Plan execution in DeepSeek Harness. Model Switch uses public DSH services and provider-owned adapters; it does not patch DSH Core or manage provider credentials.
+Choose one explicit route for the active session, Subagents, Web Search, image generation, Plan execution, and automatic session naming in DeepSeek Harness. Model Switch uses public DSH services and provider-owned adapters; it does not patch DSH Core or manage provider credentials.
 
 <p align="center"><img src="docs/screenshots/composer-picker.png" alt="Composer Picker with Model, Effort, Context, and Fast controls" width="314"></p>
 
@@ -13,7 +13,7 @@ The picker retains keyboard focus when changing panes or closing search, without
 | Route | Behavior |
 | --- | --- |
 | Session model | The active conversation's provider/model/effort, changed by the Composer Picker or Plan Review only. The deployment default (new sessions) is DSH's own; the picker never writes it. |
-| Subagent | Follow the active parent route, or use a fixed provider/model/effort. Workflow overrides remain authoritative. |
+| Subagent | When a spawn names no provider, model, or effort: the delegating session's derived route — its provider group's subagent pair, else the fixed card's pair; with neither, official inherit (parent live request, then creation snapshot). A spawn that names a route is never overridden; workflow overrides remain authoritative. |
 | Composer Picker | Changes only the active session and submits the exact catalog model id. |
 | Plan Review | Chooses the execution model before the Plan approval response is sent. |
 | Web Search | Keeps official `web_search`; after deployment opt-in, routes through the selected, dynamically declared provider search adapter. |
@@ -27,7 +27,7 @@ The existing 3082 lab replay probe is `node scripts/check-lab-runtime-lock.mjs [
 
 ## Configure Subagents and capability routes
 
-Open **Settings → Model Switch**. Subagents may follow the parent request or use a fixed provider, model, and effort.
+Open **Settings → Model Switch**. The page hosts six route cards — Subagent, Web search, Image generation, Auto review, Compaction, and Session naming — plus the Provider groups card. Subagents may follow the delegating session's derived route or a fixed provider, model, and effort.
 
 Since 0.4.23 this plugin no longer configures or protects the deployment default ("Main model"). That default is DSH's own: the Host persists the last session switch as the default (including switches made through this plugin's picker or the TUI), exactly like native switching — so a new session starts on whatever was last used. To pin a fixed default, use DSH's own **Settings → Models** page. Official DSH makes ConfigForms memory-only in non-loopback browsers, so the Settings page shows an unavailable message there; open Settings on the Host loopback URL instead. As a side effect of the removal, model switching is never blocked by settings state (previously the picker waited for a writable Main ConfigForm).
 
@@ -35,7 +35,11 @@ Changing the fixed Subagent provider/model replaces the previous model's effort 
 
 ![Model Switch settings with a fixed Subagent route](docs/screenshots/settings-subagent.png)
 
-Follow resolves the active parent request first, then the Host's own session default. A fixed route is injected before the official Subagent descriptor is created. DSH 0.1.2-alpha.4 carries provider, model, and fixed reasoning effort in that descriptor.
+Official inherit resolves the active parent request first, then the Host's own session default. A derived or fixed route is injected before the official Subagent descriptor is created, and only when the spawn names no provider, model, or effort — a caller that names a route is never overridden, and a provider whose capability is not `agentOptions` (for example a one-shot process adapter) is never reinterpreted as an Agent-capable route. DSH 0.1.2-alpha.4 carries provider, model, and fixed reasoning effort in that descriptor.
+
+### Saving settings
+
+Every row save is one atomic, revision-fenced mutation through the official ConfigForm `mutate`: a refused write either commits the whole row or nothing, so it can no longer leave a half-written provider/model pair. A draft you edited survives external snapshot updates (another tab's save, the capability poll); a revision conflict is reported with a reload path instead of silently losing either side; and a write that never settles is reported after 30 seconds rather than freezing the page on "Saving…". The ⚠ marker next to a value means exactly one thing: this value is not in the current provider catalog.
 
 ## How custom models appear in the Picker
 
@@ -92,19 +96,42 @@ When a sent message will use a different model or context-tier id than the last 
 
 ## Auto review model
 
-The official `@deepseek-ai/dsh-experimental-auto-review` (the per-call reviewer for the Auto permission preset) hardwires its review requests onto the session's own route. This plugin takes that row over through a `cordis.patch.yml` row replacement: the official row is disabled and `dsh-model-switch/auto-review` mounts the **same official `apply`** under a scoped child context whose `llm.stream` `provider/model` are rewritten to the reviewer model pinned in Settings. The "Auto review model" card defaults to off = reviews follow the session model; turning it on pins the catalog head as an editable starting point, and saved changes apply to the very next review. When the optional auto-review bundle never started with the profile the row stays unmounted and the Auto preset keeps its official off state; an official row already active elsewhere is reported explicitly instead of producing a second `registerAuto`.
+The official `@deepseek-ai/dsh-experimental-auto-review` (the per-call reviewer for the Auto permission preset) hardwires its review requests onto the session's own route. This plugin takes that row over through a `cordis.patch.yml` row replacement: the official row is disabled and `dsh-model-switch/auto-review` mounts the **same official `apply`** under a scoped child context whose `llm.stream` `provider/model` are rewritten to the reviewer model pinned in Settings. The "Auto review model" card defaults to off = reviews follow the session model; turning it on pins the catalog head as an editable starting point, and saved changes apply to the very next review. When the optional auto-review bundle never started with the profile the row stays unmounted and the Auto preset keeps its official off state; an official row already active elsewhere is reported explicitly instead of producing a second `registerAuto`. The reviewer route is deliberately deployment-wide: the official gate builds its review request with no session identity and closes over the one context it was applied with, so no public seam can attribute a review to a session — the per-session route it would need is recorded in `docs/seam-gap.md`.
 
 ## Compaction model
 
 Official compaction — `/compact` and DSH's automatic compaction — summarizes history with the conversation's target model by default. The "Compaction model" card (default off) pins that summarization route instead: turning it on pins the catalog head as an editable starting point, and saved changes apply to the very next compaction. Leaving both fields empty returns to the official default. Saving while a compaction is running may interrupt it; it retries next time.
 
+The pair stays deployment-wide by design: the official compaction transaction durably records the provider/model that wrote the summary, so rewriting the summarization call per session would make that record false. For route-scoped summarization the supported alternative is the official exact-target `modelPolicies` array on the profile's `compaction-basic` row config: each entry matches one exact routed conversation target and overrides its compaction policy — including the summarization pair — for that target, and this plugin forwards the row's own config verbatim (the card's pair is overlaid only when both fields are set):
+
+```yaml
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+  config:
+    modelPolicies:
+      - provider: deepseek
+        model: deepseek-chat
+        summarizationProvider: deepseek
+        summarizationModel: deepseek-reasoner
+```
+
 How the route reaches the engine depends on where the deployment runs its agent plane. The Web surface moves compaction into each agent preset's isolated `compaction` group, and profile patches cannot address rows inside a preset's `plugins` list — so this plugin replaces each shipped preset row wholesale (the same id-targeted mechanism the Web preset editor saves with) and swaps that group's official `compaction-basic` for `model-switch-compaction`, which mounts the **same official `BasicCompactionEngine`** with only `summarizationProvider`/`summarizationModel` overlaid (either field alone is ignored). Surfaces that compose the agent process-wide (the TUI) use the top-level row replacement instead. Two consequences: a DSH release that edits those presets needs the copies re-synced (this plugin's per-release verification covers it), and a deployment that edits presets in the Web editor writes its own wholesale row that then owns the merge.
 
 Known issue (upstream; recorded in `docs/seam-gap.md`): while the working set stays above the official engine's pressure threshold, automatic compaction can fire on every step and keep re-attempting ranges whose summaries fail the engine's own "summary must be smaller" guard — a visible loop of automatic compactions that this plugin does not control (verified in a session A/B with the plugin enabled and disabled). Mitigations on the forwarded row config: `auto: false` (keeps `/compact`), a higher `thresholdRatio`, a smaller mounted tool schema, or a pinned compaction model whose summaries are leaner.
 
+## Session naming model
+
+DSH names new sessions automatically; the profile's official naming row decides the cadence (right after the first prompt, or on every prompt). The "Session naming model" card picks the model those naming requests use. **Off — both fields empty — is the official behavior: naming follows the session's own model.** On pins a provider/model as an editable starting point.
+
+The route is read through on every naming request: a saved change applies to the very next title with no restart, and a naming request already in flight is never interrupted by a save. Each request resolves its route in order — the session's provider group's naming pair, then the card's flat pair, then the session's own model. The request runs through the official naming implementation, which records the exact provider/model in the session's own `session/title-llm-request` event, so the durable record and the real request always agree. The plugin replaces the official `session-title-llm` row instead of forking the naming logic (the seam allows one registered naming provider per context) and mirrors the cadence that row declared; a profile with no official naming row keeps DSH's deterministic fallback title.
+
 ## Provider groups
 
-The "Provider groups" card stores one route group per provider — the compaction, subagent, and review routes saved together — and applies it automatically whenever **this session's model provider** changes, on any surface: this plugin's composer picker, the TUI, or another client — the plugin observes the official model-selection projection of the session, so every switch lands in the same watcher. Applying a group is one full replacement: all three routes are written into the cards above in a single decision, overwriting their current values **including manual edits**, while anything the group does not pin reverts to that capability's default (compaction and review follow the conversation model, subagent follows the parent). Switching to a provider without a stored group leaves the current routes untouched, and a switch within one provider never rewrites them. The stored effect is profile-wide (the shared settings namespace), not per session; the residual boundary is that the watcher only exists while the session is open in this Web UI — a switch on a session this browser never opened leaves the routes alone. In the editor, a provider's draft seeds from the active routes the first time you configure it, each capability row's off state means "use the capability default" and is stored as such, and **Delete group** removes the provider's group entirely (clearing the stored field when the last group goes). Search and image routes are out of scope. A failed apply never fails the switch: the watcher logs a warning and the routes stay as they were.
+The "Provider groups" card stores one route group per provider — the session-naming and subagent routes saved together — and a group saved for provider X applies to the sessions whose own provider is X. Groups are **derived, not written**: switching a session's provider writes nothing, so two sessions on different providers can no longer overwrite or redirect each other's auxiliary routes (before 0.4.24 a switch *wrote* the group into the shared fields, and one session's switch could steer another session's naming and subagent requests).
+
+Every request derives its own route from durable state: the session's provider (its model selection — a just-made pending selection counts — else its latest logged request route), then the group pair for that provider, then the flat deployment-wide pair, then the official default (the session's own model for naming; official inherit for subagents, where the fixed card applies only in `fixed` mode). Because nothing is written, this works for sessions this browser never opened and for switches made from the TUI or another client, with no watcher and no residual boundary; a session with no observable provider simply resolves to the deployment default. A switch to a provider without a group changes nothing, and a switch within one provider re-resolves to the same routes.
+
+The group editor therefore covers exactly these two routes: auto review and compaction stay deployment-wide cards (see the two sections above for why), and search and image routes are out of scope. The stored configuration format is unchanged — an older group entry that still carries compaction or auto-review fields is accepted as-is and those fields are ignored, so no migration runs. In the editor, a provider's draft seeds from the currently derived routes the first time you configure it, each row's off state means "no pin — fall through to the card, then the official default", and **Delete group** removes the provider's entry entirely (clearing the stored field when the last group goes).
 
 ## What Model Switch does not change
 
@@ -114,7 +141,7 @@ The "Provider groups" card stores one route group per provider — the compactio
 - Official Agent Presets
 - Existing provider-specific image tools
 - The deployment default model (DSH persists the last session switch itself, same as native TUI switching)
-- Global compaction policy, titles, or DSH Core
+- Global compaction policy, naming cadence (only the naming model is configurable), or DSH Core
 
 ## Installation
 

@@ -1,15 +1,24 @@
 /**
- * Provider configuration groups: per-provider presets for the compaction,
- * subagent, and auto-review routes.
+ * Provider configuration groups: per-provider presets for the session-naming
+ * and subagent routes.
  *
- * A group stores the exact flat settings fields it will write, so applying a
- * group is a plain settings-layer write: every capability consumer keeps
- * reading the live values unchanged. All functions here are pure and never
- * throw on malformed storage.
+ * A group is a DERIVED policy, not a write: `src/session-route.ts` resolves the
+ * routes one session should use from its own provider plus this stored table, so
+ * switching a session's provider never rewrites deployment-wide settings and two
+ * sessions on different providers cannot overwrite each other. The field names
+ * below are the flat settings field names a group pins, which keeps the stored
+ * shape identical to the earlier write-through design.
+ *
+ * Legacy entries may still carry `compactProvider`/`compactModel`/
+ * `autoReviewProvider`/`autoReviewModel`: normalization preserves them so an
+ * older stored document is never silently rewritten into a different meaning,
+ * while the consumption side ignores them (a group save from the current UI
+ * writes '' for every unsupported field, which normalization drops).
+ *
+ * All functions here are pure and never throw on malformed storage.
  */
-import type { SubagentMode } from './host-settings.js';
-/** Flat settings fields a provider group can pin — exactly what an application writes. */
-export type ProviderGroupRouteField = 'compactProvider' | 'compactModel' | 'autoReviewProvider' | 'autoReviewModel' | 'subagentProvider' | 'subagentModel' | 'subagentReasoningEffort';
+/** Flat settings fields a provider group carries; the first four are legacy-only. */
+export type ProviderGroupRouteField = 'compactProvider' | 'compactModel' | 'autoReviewProvider' | 'autoReviewModel' | 'subagentProvider' | 'subagentModel' | 'subagentReasoningEffort' | 'titleProvider' | 'titleModel';
 /** Stored entry: the owning provider plus every route field; '' means the capability stays at its default. */
 export interface ProviderGroupEntry {
     provider: string;
@@ -20,6 +29,8 @@ export interface ProviderGroupEntry {
     subagentProvider: string;
     subagentModel: string;
     subagentReasoningEffort: string;
+    titleProvider: string;
+    titleModel: string;
 }
 /** Normalized view of one provider's group; absent fields follow their default state. */
 export type ProviderGroupConfig = Partial<Record<ProviderGroupRouteField, string>>;
@@ -40,22 +51,6 @@ export declare function normalizeProviderGroups(raw: unknown): ProviderGroups;
  * which is what leaves the live routes untouched during a switch.
  */
 export declare function groupOf(groups: ProviderGroups | undefined, provider: string): ProviderGroupConfig | undefined;
-/** One application write; `value` undefined means "unset this field". */
-export type ProviderGroupWrite = {
-    readonly field: 'subagentMode';
-    readonly mode: SubagentMode;
-} | {
-    readonly field: ProviderGroupRouteField;
-    readonly value: string | undefined;
-};
-/**
- * Ordered writes applying one group with full-replacement semantics: pinned
- * capabilities land as pairs, everything else reverts to its default state
- * (compaction/review follow the session model; Subagent follows official
- * inherit). The mode write comes last so a fixed route never publishes with
- * the previous provider's fields still half-written.
- */
-export declare function providerGroupWrites(group: ProviderGroupConfig): ProviderGroupWrite[];
 /** Storage entry for one provider's group; absent or blank route fields become ''. */
 export declare function entryOf(provider: string, group: ProviderGroupConfig): ProviderGroupEntry;
 /**
@@ -65,14 +60,3 @@ export declare function entryOf(provider: string, group: ProviderGroupConfig): P
  * provider only normalizes.
  */
 export declare function withProviderGroup(storage: unknown, provider: string, group: ProviderGroupConfig | undefined): ProviderGroupsStorage;
-/** Minimal writable settings surface an application needs; satisfied by the owned ConfigForm. */
-export interface ProviderGroupSink {
-    set(field: 'subagentMode' | ProviderGroupRouteField, value: string): Promise<unknown>;
-    unset(field: ProviderGroupRouteField): Promise<unknown>;
-}
-/**
- * Apply a saved group's routes to the live flat settings.
- * @returns true when a group existed and every write settled; false when the
- * provider has no group (nothing was written). A rejected write propagates.
- */
-export declare function applyProviderGroupTo(sink: ProviderGroupSink, groups: ProviderGroups | undefined, provider: string): Promise<boolean>;

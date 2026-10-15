@@ -21,6 +21,10 @@ export interface ModelSwitchSettings {
     compactProvider?: string;
     /** Summarization model for `/compact` and automatic compaction; set together with `compactProvider`. */
     compactModel?: string;
+    /** Naming provider for automatic session titles; both fields unset = official default (the session's own logged route). */
+    titleProvider?: string;
+    /** Naming model for automatic session titles; set together with `titleProvider`. */
+    titleModel?: string;
     /** Per-provider compaction/subagent/review presets, keyed by provider id; absent when no group is saved. */
     providerGroups?: ProviderGroups;
 }
@@ -39,6 +43,8 @@ export interface Config {
     autoReviewModel: Volatile<string | undefined>;
     compactProvider: Volatile<string | undefined>;
     compactModel: Volatile<string | undefined>;
+    titleProvider: Volatile<string | undefined>;
+    titleModel: Volatile<string | undefined>;
     /** Saved per-provider capability groups as one entry per provider; entry route fields are '' when the capability stays at its default. */
     providerGroups: Volatile<readonly ProviderGroupEntry[]>;
 }

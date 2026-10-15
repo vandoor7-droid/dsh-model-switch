@@ -1,4 +1,4 @@
-﻿# Replace independently packaged host modules only through public profile patches.
+# Replace independently packaged host modules only through public profile patches.
 # Existing rows are disabled with their original name; replacements use unique ids.
 # Do not replace agent-presets: a nested AgentPresets instance loads a second
 # @deepseek-ai/dsh-scope identity, and session.create then fails as unscoped.
@@ -22,6 +22,16 @@
 # summarization model stays configurable (one compaction service per context).
 - id: compaction-basic
   name: '@deepseek-ai/dsh-compaction-basic'
+  disabled: true
+
+# The official naming provider derives the session-title route from the
+# session's own logged route; Model Switch replaces it with its own row so the
+# naming model stays configurable (one registered title provider per context).
+# The row id is stable across both cadence packages, and the replacement row
+# mounts whatever package the row declared, so a profile that restated this
+# row as all-prompts keeps its cadence.
+- id: session-title-llm
+  name: '@deepseek-ai/dsh-session-title-first-prompt-llm'
   disabled: true
 
 # The Web surface moves the agent plane (tools, compaction, delegation) into
@@ -513,3 +523,7 @@
     # The official compaction engine under the configurable summarization route.
     - id: model-switch-compaction
       name: 'dsh-model-switch/compaction'
+
+    # The official naming provider under the configurable naming route.
+    - id: model-switch-session-title
+      name: 'dsh-model-switch/session-title'

@@ -1,6 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Entry, Loader } from '@deepseek-ai/cordis-plugin-loader'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
+import type {} from '@deepseek-ai/dsh-compaction'
 import type { ModelSwitchSettings } from './host-settings.js'
 
 /** Official compaction row this module supersedes. */
@@ -20,7 +21,16 @@ type EngineClass = EngineModule['default']
 /** The awaited form: awaiting the plugin wrapper collapses the PromiseLike intersection to plain Fiber. */
 type MountedEngine = Awaited<ReturnType<Context['plugin']>>
 
-/** Both identifiers trimmed and non-empty; undefined means "official default". */
+/**
+ * Both identifiers trimmed and non-empty; undefined means "official default".
+ *
+ * The summarization route stays deployment-wide on purpose. The official
+ * compaction transaction durably records the provider/model that wrote the
+ * summary, so a per-session rewrite of the summarization call would make that
+ * record false; a deployment that needs provider-scoped summarization uses the
+ * official exact-target `modelPolicies` table, which this row forwards
+ * verbatim from the profile's `compaction-basic` row config.
+ */
 export interface CompactionRoute {
   readonly provider: string
   readonly model: string
@@ -30,6 +40,8 @@ export interface CompactionRoute {
 interface CompactionRowState {
   /** Serializes remounts so overlapping triggers never double-mount the service. */
   chain: Promise<void>
+  /** Set while a reconcile is queued but not started, so a burst of settings updates collapses into one pass. */
+  queued: boolean
   /** Signature of the composed config already attempted while an engine state exists. */
   signature: string | null
   /** Live engine fiber; undefined while the compaction service is unmounted. */
@@ -117,6 +129,25 @@ function currentCompactionRoute(ctx: Context): CompactionRoute | undefined {
 }
 
 /**
+ * Whether the compaction capability is actually served from this context.
+ *
+ * Awaiting a plugin fiber settles even when the plugin's injections were never
+ * satisfied, so the mount is confirmed through the public service instead of by
+ * the absence of an error: an unactivated engine must never be recorded as the
+ * live engine, or the row would stop retrying while `/compact` had no service.
+ * @param ctx - this row's context.
+ * @returns true when `ctx.compaction` exposes the engine's public entry points.
+ */
+export function engineActive(ctx: Context): boolean {
+  try {
+    const service = ctx.get('compaction', false)
+    return service !== undefined && typeof service.compactIfNeeded === 'function'
+  } catch {
+    return false
+  }
+}
+
+/**
  * Load and mount the official basic compaction engine under `config`.
  * @param ctx - this row's context; the engine mounts unisolated so `/compact` sees it.
  * @param config - composed engine config.
@@ -140,7 +171,6 @@ async function mountEngine(
   try {
     fiber = ctx.plugin(loaded.default as EngineClass, config)
     await fiber
-    return fiber
   } catch (cause) {
     if (fiber) {
       try {
@@ -153,6 +183,15 @@ async function mountEngine(
     ctx.logger.error(cause)
     return undefined
   }
+  if (engineActive(ctx)) return fiber
+  ctx.logger.error(`model-switch: the compaction engine mounted with ${label} but never activated; unloading it so the next settings change retries`)
+  try {
+    await fiber.dispose()
+  } catch (cause) {
+    ctx.logger.error('model-switch: failed to unload the unactivated compaction engine')
+    ctx.logger.error(cause)
+  }
+  return undefined
 }
 
 /**
@@ -175,8 +214,11 @@ async function disposeEngine(ctx: Context, state: CompactionRowState): Promise<v
 /**
  * Reconcile one compaction mount: remount only when the composed config changed.
  *
- * Failure ladder: configured config → official defaults (`{}`) → unmounted with
- * explicit errors, so the next settings event retries the whole ladder.
+ * A settings change that leaves the composed config identical — every session
+ * naming, subagent, or provider-group save — returns after the signature check,
+ * so the engine is never unloaded for settings it does not read. A mount that
+ * fails to activate stays unmounted with an explicit error and the next settings
+ * change retries with a fresh read.
  * @param ctx - this row's context.
  * @param state - the row's reconcile ledger.
  */
@@ -200,23 +242,26 @@ async function runReconcile(ctx: Context, state: CompactionRowState): Promise<vo
     state.engine = fiber
     return
   }
-  ctx.logger.error('model-switch: retrying the compaction engine on the official defaults')
-  const fallback = await mountEngine(ctx, {}, 'the official defaults')
-  if (fallback) {
-    state.engine = fallback
-    return
-  }
   ctx.logger.error('model-switch: compaction engine is unmounted; /compact and automatic compaction are unavailable until settings change')
 }
 
 /**
- * Queue a reconcile behind the row's serialized chain, absorbing failures.
+ * Queue one reconcile behind the row's serialized chain, absorbing failures.
  * @param ctx - this row's context.
  * @param state - the row's reconcile ledger.
+ * @param coalesce - collapse a burst of triggers into the single pass that reads the settled settings.
  * @returns The chain tail; never rejects.
  */
-function scheduleReconcile(ctx: Context, state: CompactionRowState): Promise<void> {
-  state.chain = state.chain.then(() => runReconcile(ctx, state)).catch(cause => {
+function scheduleReconcile(ctx: Context, state: CompactionRowState, coalesce: boolean): Promise<void> {
+  if (coalesce) {
+    if (state.queued) return state.chain
+    state.queued = true
+  }
+  state.chain = state.chain.then(async () => {
+    state.queued = false
+    await runReconcile(ctx, state)
+  }).catch(cause => {
+    state.queued = false
     ctx.logger.error('model-switch: compaction engine reconcile failed')
     ctx.logger.error(cause)
   })
@@ -230,17 +275,18 @@ function scheduleReconcile(ctx: Context, state: CompactionRowState): Promise<voi
  * with the same package under the configurable summarization route. Host
  * settings and the loader are read structurally so a disabled `model-switch`
  * row leaves official compaction untouched. Reconciles run on
- * `model-switch/settings-update` (emitted by the host on volatile commits and
- * ordinary saves); the listener is global so instances of this row inside
- * agent-preset realms still hear the host row's emission. The initial
+ * `model-switch/settings-update` (emitted by the host at construction, on
+ * volatile commits, and on ordinary saves) and read the settled settings, so one
+ * save costs at most one remount; the listener is global so instances of this
+ * row inside agent-preset realms still hear the host row's emission. The initial
  * reconcile is awaited so `/compact` resolves the service as soon as this row
  * completes.
  * @param ctx - this row's context.
  */
 export async function apply(ctx: Context): Promise<void> {
-  const state: CompactionRowState = { chain: Promise.resolve(), signature: null, engine: undefined, missingRow: false }
+  const state: CompactionRowState = { chain: Promise.resolve(), queued: false, signature: null, engine: undefined, missingRow: false }
   ctx.on('model-switch/settings-update', () => {
-    void scheduleReconcile(ctx, state)
+    void scheduleReconcile(ctx, state, true)
   }, { global: true })
-  await scheduleReconcile(ctx, state)
+  await scheduleReconcile(ctx, state, false)
 }

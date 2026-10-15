@@ -1,23 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
-  applyProviderGroupTo,
   entryOf,
   groupOf,
   normalizeProviderGroups,
-  providerGroupWrites,
   withProviderGroup,
-  type ProviderGroupConfig,
-  type ProviderGroupSink,
 } from '../src/provider-group.js'
-
-function sink() {
-  const calls: Array<{ op: 'set' | 'unset'; field: string; value?: string }> = []
-  const mock: ProviderGroupSink = {
-    set: async (field, value) => { calls.push({ op: 'set', field, value }) },
-    unset: async field => { calls.push({ op: 'unset', field }) },
-  }
-  return { calls, mock }
-}
 
 describe('normalizeProviderGroups', () => {
   it('returns an empty map for every non-object input', () => {
@@ -47,6 +34,9 @@ describe('normalizeProviderGroups', () => {
     ])).toEqual({ codex: { compactProvider: 'new' } })
     expect(normalizeProviderGroups({ codex: 'junk', grok: { compactProvider: 'grok' } })).toEqual({ grok: { compactProvider: 'grok' } })
   })
+  it('drops blank record keys and blank fields as if they were absent', () => {
+    expect(normalizeProviderGroups({ '  ': { compactProvider: 'x' }, codex: { subagentModel: '   ' } })).toEqual({ codex: {} })
+  })
   it('treats a literal __proto__ provider id as data, never as a prototype', () => {
     const raw: unknown = JSON.parse('{"__proto__": {"compactProvider": "x"}, "codex": {}}')
     const groups = normalizeProviderGroups(raw)
@@ -66,60 +56,6 @@ describe('groupOf', () => {
   })
 })
 
-describe('providerGroupWrites', () => {
-  it('emits an ordered full-replacement sequence with the mode write last', () => {
-    expect(providerGroupWrites({
-      compactProvider: 'deepseek', compactModel: 'deep-chat',
-      autoReviewProvider: 'codex', autoReviewModel: 'gpt-review',
-      subagentProvider: 'grok', subagentModel: 'grok-fast', subagentReasoningEffort: 'low',
-    })).toEqual([
-      { field: 'compactProvider', value: 'deepseek' },
-      { field: 'compactModel', value: 'deep-chat' },
-      { field: 'autoReviewProvider', value: 'codex' },
-      { field: 'autoReviewModel', value: 'gpt-review' },
-      { field: 'subagentProvider', value: 'grok' },
-      { field: 'subagentModel', value: 'grok-fast' },
-      { field: 'subagentReasoningEffort', value: 'low' },
-      { field: 'subagentMode', mode: 'fixed' },
-    ])
-  })
-  it('reverts every capability to its default when the group pins nothing', () => {
-    expect(providerGroupWrites({})).toEqual([
-      { field: 'compactProvider', value: undefined },
-      { field: 'compactModel', value: undefined },
-      { field: 'autoReviewProvider', value: undefined },
-      { field: 'autoReviewModel', value: undefined },
-      { field: 'subagentProvider', value: undefined },
-      { field: 'subagentModel', value: undefined },
-      { field: 'subagentReasoningEffort', value: undefined },
-      { field: 'subagentMode', mode: 'follow-main' },
-    ])
-  })
-  it('drops half pairs instead of writing them', () => {
-    const writes = providerGroupWrites({ compactProvider: 'codex', autoReviewModel: 'gpt', subagentProvider: 'grok', subagentModel: 'grok-fast' })
-    expect(writes).toEqual([
-      { field: 'compactProvider', value: undefined },
-      { field: 'compactModel', value: undefined },
-      { field: 'autoReviewProvider', value: undefined },
-      { field: 'autoReviewModel', value: undefined },
-      { field: 'subagentProvider', value: 'grok' },
-      { field: 'subagentModel', value: 'grok-fast' },
-      { field: 'subagentReasoningEffort', value: undefined },
-      { field: 'subagentMode', mode: 'fixed' },
-    ])
-  })
-  it('drops the effort with its subagent pair when the pair is incomplete', () => {
-    const writes = providerGroupWrites({ subagentProvider: 'grok', subagentReasoningEffort: 'low' })
-    expect(writes.find(write => write.field === 'subagentReasoningEffort')).toEqual({ field: 'subagentReasoningEffort', value: undefined })
-    expect(writes.at(-1)).toEqual({ field: 'subagentMode', mode: 'follow-main' })
-  })
-  it('keeps a blank effort as the provider default while the pair stays fixed', () => {
-    const writes = providerGroupWrites({ subagentProvider: 'grok', subagentModel: 'grok-fast', subagentReasoningEffort: '  ' })
-    expect(writes.find(write => write.field === 'subagentReasoningEffort')).toEqual({ field: 'subagentReasoningEffort', value: undefined })
-    expect(writes.at(-1)).toEqual({ field: 'subagentMode', mode: 'fixed' })
-  })
-})
-
 describe('entryOf', () => {
   it('produces a complete storage entry with blanks for absent fields', () => {
     expect(entryOf('codex', { compactProvider: 'codex', compactModel: 'gpt' })).toEqual({
@@ -131,6 +67,22 @@ describe('entryOf', () => {
       subagentProvider: '',
       subagentModel: '',
       subagentReasoningEffort: '',
+      titleProvider: '',
+      titleModel: '',
+    })
+  })
+  it('stores a pinned naming route alongside the other capabilities', () => {
+    expect(entryOf('deepseek', { titleProvider: 'deepseek', titleModel: 'deep-mini' })).toEqual({
+      provider: 'deepseek',
+      compactProvider: '',
+      compactModel: '',
+      autoReviewProvider: '',
+      autoReviewModel: '',
+      subagentProvider: '',
+      subagentModel: '',
+      subagentReasoningEffort: '',
+      titleProvider: 'deepseek',
+      titleModel: 'deep-mini',
     })
   })
 })
@@ -172,46 +124,5 @@ describe('withProviderGroup', () => {
       entryOf('codex', { compactProvider: 'codex' }),
       entryOf('grok', { compactProvider: 'grok', compactModel: 'fast' }),
     ])
-  })
-})
-
-describe('applyProviderGroupTo', () => {
-  it('writes nothing and reports false when the provider has no group', async () => {
-    const probe = sink()
-    await expect(applyProviderGroupTo(probe.mock, normalizeProviderGroups([]), 'codex')).resolves.toBe(false)
-    expect(probe.calls).toEqual([])
-    await expect(applyProviderGroupTo(probe.mock, undefined, 'codex')).resolves.toBe(false)
-    expect(probe.calls).toEqual([])
-  })
-  it('applies a saved group as ordered set/unset writes ending on subagentMode', async () => {
-    const probe = sink()
-    const groups = normalizeProviderGroups([
-      { provider: 'codex', compactProvider: 'codex', compactModel: 'gpt', subagentProvider: 'codex', subagentModel: 'gpt-sub', subagentReasoningEffort: '' },
-    ])
-    await expect(applyProviderGroupTo(probe.mock, groups, 'codex')).resolves.toBe(true)
-    expect(probe.calls).toEqual([
-      { op: 'set', field: 'compactProvider', value: 'codex' },
-      { op: 'set', field: 'compactModel', value: 'gpt' },
-      { op: 'unset', field: 'autoReviewProvider' },
-      { op: 'unset', field: 'autoReviewModel' },
-      { op: 'set', field: 'subagentProvider', value: 'codex' },
-      { op: 'set', field: 'subagentModel', value: 'gpt-sub' },
-      { op: 'unset', field: 'subagentReasoningEffort' },
-      { op: 'set', field: 'subagentMode', value: 'fixed' },
-    ])
-  })
-  it('propagates a rejected write', async () => {
-    const group: ProviderGroupConfig = { compactProvider: 'codex', compactModel: 'gpt' }
-    const rejecting: ProviderGroupSink = { set: async () => { throw new Error('rpc down') }, unset: async () => undefined }
-    await expect(applyProviderGroupTo(rejecting, { codex: group }, 'codex')).rejects.toThrow('rpc down')
-  })
-  it('settles only after every write, in order', async () => {
-    const order: string[] = []
-    const slow: ProviderGroupSink = {
-      set: async field => { order.push('set:' + field) },
-      unset: async field => { order.push('unset:' + field) },
-    }
-    await applyProviderGroupTo(slow, { codex: { subagentProvider: 'codex', subagentModel: 'gpt' } }, 'codex')
-    expect(order.at(-1)).toBe('set:subagentMode')
   })
 })

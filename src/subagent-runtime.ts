@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
-import type { AgentOptions, ModelSelection } from '@deepseek-ai/dsh-agent'
+import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import OfficialSubagentRuntime, {
   type ContinuableStart,
   type ContinuableStartSpec,
@@ -8,6 +8,7 @@ import OfficialSubagentRuntime, {
   type SubagentStartRequest,
 } from '@deepseek-ai/dsh-subagent'
 import type { ModelSwitchSettings } from './host-settings.js'
+import { sessionSubagentRouteOf, type SubagentRoute } from './session-route.js'
 
 /** Raised only when an explicit startup check finds an unsupported public surface. */
 export class StartupIncompatibilityError extends Error {
@@ -54,31 +55,28 @@ function spawnHasAnyRouteField(options: AgentOptions | undefined): boolean {
   return present(options?.provider) || present(options?.model) || options?.reasoningEffort !== undefined
 }
 
-function fixedRoute(settings: ModelSwitchSettings): ModelSelection | undefined {
-  if (!present(settings.subagentProvider) || !present(settings.subagentModel)) return undefined
-  return {
-    provider: settings.subagentProvider,
-    model: settings.subagentModel,
-    ...(present(settings.subagentReasoningEffort) ? { reasoningEffort: ReasoningEffortId(settings.subagentReasoningEffort) } : {}),
-  }
-}
-
-/** Inject a fixed Default Subagent route, or leave the request for Official inherit. */
-export function routeSubagentRequest<T extends RoutableSubagentRequest>(
-  request: T,
-  settings: ModelSwitchSettings,
-): T {
+/**
+ * Inject one resolved route into a spawn that names none.
+ *
+ * A spawn that already names a provider, model, or effort keeps it: the caller's
+ * explicit selection outranks any profile policy. The route itself is derived
+ * from the DELEGATING session (its provider selects a saved group, else the flat
+ * Subagent card in `fixed` mode), so two sessions on different providers route
+ * their own spawns and neither can rewrite the other's policy.
+ * @param request - the caller's spawn request.
+ * @param route - the delegating session's resolved route, or undefined for official inherit.
+ * @returns The request to hand the official runtime.
+ */
+export function routeSubagentRequest<T extends RoutableSubagentRequest>(request: T, route: SubagentRoute | undefined): T {
   if (spawnHasAnyRouteField(request.agentOptions)) return request
-  if (settings.subagentMode !== 'fixed') return request
-  const selected = fixedRoute(settings)
-  if (selected === undefined) return request
+  if (route === undefined) return request
   return {
     ...request,
     agentOptions: {
       ...request.agentOptions,
-      provider: selected.provider,
-      model: selected.model,
-      ...(selected.reasoningEffort === undefined ? {} : { reasoningEffort: selected.reasoningEffort }),
+      provider: route.provider,
+      model: route.model,
+      ...(route.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(route.reasoningEffort) }),
     },
   }
 }
@@ -240,7 +238,7 @@ export class ModelSwitchSubagentRuntime extends OfficialSubagentRuntime {
     // Native continuable Subagents or inject a provider/model route.
     if (provider !== undefined && provider.capabilities.agentOptions !== true) return request
     const modelSwitch = routingSurface(this.ctx)
-    return routeSubagentRequest(request, modelSwitch.currentSettings())
+    return routeSubagentRequest(request, sessionSubagentRouteOf(this.ctx, request.parent.session, modelSwitch.currentSettings()))
   }
 
   override start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {

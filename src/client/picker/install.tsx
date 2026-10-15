@@ -10,15 +10,13 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { useEffect, useSyncExternalStore } from 'react'
-import { MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, type ModelSwitchSettingsView } from '../../client-contract.ts'
-import { applyProviderGroupTo, normalizeProviderGroups } from '../../provider-group.ts'
+import { PROVIDERS_CONFIG_ID } from '../../client-contract.ts'
 import { selectPlanReview, type PlanCommitOutcome } from '../../picker/plan-review.ts'
 import type { GoalRemote } from '../../picker/plan-goal.ts'
 import { ComposerPicker } from './ComposerPicker.tsx'
 import { createPlanPreviewBinding, type PlanPreviewBinding } from './plan-preview.ts'
 import type { ProviderOrderSettings } from 'dsh-llm-providers-ui/order'
 import { pickerDirectoryViewOrdered, type PickerDirectoryFace } from './PickerDirectory.ts'
-import { createProviderGroupWatch } from './provider-group-watch.ts'
 import type { PickerInteractionOperations } from './popup-dismissal.ts'
 import { PlanReviewCard, ProviderLockHint } from './PlanReviewCard.tsx'
 import { PickerSeatBoundary } from './PickerSeatBoundary.tsx'
@@ -191,26 +189,6 @@ export function installComposerPicker(ctx: ClientContext): void {
       subagentAddress?: (id: unknown) => unknown
       get?: (id: unknown) => { getSnapshot?: () => { blank?: boolean } }
     } | undefined
-    const ownedForm = scope.configForms.get<ModelSwitchSettingsView>(MODEL_SWITCH_CONFIG_ID)
-    // One group watcher per seat session: both slot faces (seat and Plan
-    // Review) observe the same directory, so sharing keeps a provider switch
-    // single-writer no matter which surface performs it.
-    const groupWatches = new Map<string, () => void>()
-    const watchGroupsFor = (sessionId: unknown, source: { subscribe: (listener: () => void) => () => void, getSnapshot: () => { current: ModelSelection | null } }): void => {
-      const key = String(sessionId)
-      if (groupWatches.has(key)) return
-      const watch = createProviderGroupWatch({
-        source,
-        apply: async provider => {
-          await applyProviderGroupTo(ownedForm, normalizeProviderGroups(ownedForm.getSnapshot().value?.providerGroups), provider)
-        },
-      })
-      groupWatches.set(key, watch.dispose)
-    }
-    scope.effect(() => () => {
-      for (const dispose of groupWatches.values()) dispose()
-      groupWatches.clear()
-    })
     let directoryService: ProviderDirectoryFace | undefined
     const orderStore = providerOrderStore(scope.configForms.get<ProviderOrderSettings>(PROVIDERS_CONFIG_ID))
     scope.inject(['providerDirectory'], directoryScope => {
@@ -241,10 +219,6 @@ export function installComposerPicker(ctx: ClientContext): void {
       }
       const roleOf = (key: string): string | undefined => readProviderRole(directoryService, key)
       const providerLockStore = createProviderLockStore(readLock)
-      // Adopt the target provider's group on any switch surface: the watcher
-      // observes the official projection, so TUI and other-client switches of
-      // this Session reach the same apply this plugin used to do inline.
-      if (available) watchGroupsFor(sessionId, directory.store)
       return {
         available,
         roleOf,
@@ -280,8 +254,6 @@ export function installComposerPicker(ctx: ClientContext): void {
           // throw; treating it as success would answer a Plan under a model the
           // Session never adopted.
           if (!result.ok) return { committed: false }
-          // Capability-group adoption happens in the directory watcher above,
-          // which also covers switches this plugin did not perform.
           return { committed: true }
         },
       }

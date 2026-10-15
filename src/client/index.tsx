@@ -6,7 +6,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { AUTO_REVIEW_SETTINGS_FIELDS, deriveAutoReviewSettings, deriveCompactionSettings, deriveImageSettings, deriveSearchSettings, deriveSubagentSettings, COMPACTION_SETTINGS_FIELDS, IMAGE_SETTINGS_FIELDS, MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, SEARCH_SETTINGS_FIELDS, SUBAGENT_SETTINGS_FIELDS } from '../client-contract.js'
+import { AUTO_REVIEW_SETTINGS_FIELDS, deriveAutoReviewSettings, deriveCompactionSettings, deriveImageSettings, deriveSearchSettings, deriveSubagentSettings, deriveTitleSettings, COMPACTION_SETTINGS_FIELDS, IMAGE_SETTINGS_FIELDS, MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, SEARCH_SETTINGS_FIELDS, SUBAGENT_SETTINGS_FIELDS, TITLE_SETTINGS_FIELDS } from '../client-contract.js'
 import { withProviderGroup, type ProviderGroupConfig } from '../provider-group.js'
 import { deriveConfigForm } from './derived-config-form.js'
 import { RUNTIME_CAPABILITIES } from '../runtime-capabilities.js'
@@ -40,6 +40,7 @@ export function apply(ctx: ClientContext): void {
   const image = deriveConfigForm(owned, deriveImageSettings, IMAGE_SETTINGS_FIELDS)
   const autoReview = deriveConfigForm(owned, deriveAutoReviewSettings, AUTO_REVIEW_SETTINGS_FIELDS)
   const compaction = deriveConfigForm(owned, deriveCompactionSettings, COMPACTION_SETTINGS_FIELDS)
+  const sessionTitle = deriveConfigForm(owned, deriveTitleSettings, TITLE_SETTINGS_FIELDS)
   const connectionRpc = ((): PluginRpcClient | undefined => {
     try {
       const connection = ctx.get('connection', false) as ConnectionHandle | undefined
@@ -66,7 +67,7 @@ export function apply(ctx: ClientContext): void {
   const subscribeProviderOrder = orderStore.subscribe
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'model-switch', order: 9, label: () => t('nav'), locale: localeNamespace,
-    inject: (): ModelSwitchSettingsFace => ({ t, hooks: { subagentSettings: subagent, searchSettings: search, imageSettings: image, autoReviewSettings: autoReview, compactionSettings: compaction, switchSettings: owned }, capabilities: RUNTIME_CAPABILITIES, setSubagent: (field, value) => value === undefined ? subagent.unset(field) : subagent.set(field, value), setCapability: (route, field, value) => { const scope = route === 'search' ? search : route === 'image' ? image : route === 'compaction' ? compaction : autoReview; return value === undefined ? scope.unset(field) : scope.set(field, value) }, setCompactOnSwitch: async value => { if (!await owned.set('compactOnSwitch', value)) throw new Error('settings-rejected') },
+    inject: (): ModelSwitchSettingsFace => ({ t, hooks: { subagentSettings: subagent, searchSettings: search, imageSettings: image, autoReviewSettings: autoReview, compactionSettings: compaction, titleSettings: sessionTitle, switchSettings: owned }, capabilities: RUNTIME_CAPABILITIES, saveSubagent: ops => subagent.mutate(ops), saveCapability: (route, ops) => { const scope = route === 'search' ? search : route === 'image' ? image : route === 'compaction' ? compaction : route === 'title' ? sessionTitle : autoReview; return scope.mutate(ops) }, setCompactOnSwitch: async value => { if (!await owned.set('compactOnSwitch', value)) throw new Error('settings-rejected') },
       saveProviderGroup: async (provider: string, group: ProviderGroupConfig | undefined) => {
         const current = owned.getSnapshot().value?.providerGroups
         const next = withProviderGroup(current, provider, group)

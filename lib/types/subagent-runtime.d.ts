@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis';
 import OfficialSubagentRuntime, { type ContinuableStart, type ContinuableStartSpec, type SubagentRun, type SubagentStartRequest } from '@deepseek-ai/dsh-subagent';
-import type { ModelSwitchSettings } from './host-settings.js';
+import { type SubagentRoute } from './session-route.js';
 /** Raised only when an explicit startup check finds an unsupported public surface. */
 export declare class StartupIncompatibilityError extends Error {
     readonly name = "StartupIncompatibilityError";
@@ -21,8 +21,19 @@ export interface MountedStartup<T> {
     readonly dispose: () => Promise<void>;
 }
 type RoutableSubagentRequest = Pick<SubagentStartRequest, 'parent' | 'agentOptions'>;
-/** Inject a fixed Default Subagent route, or leave the request for Official inherit. */
-export declare function routeSubagentRequest<T extends RoutableSubagentRequest>(request: T, settings: ModelSwitchSettings): T;
+/**
+ * Inject one resolved route into a spawn that names none.
+ *
+ * A spawn that already names a provider, model, or effort keeps it: the caller's
+ * explicit selection outranks any profile policy. The route itself is derived
+ * from the DELEGATING session (its provider selects a saved group, else the flat
+ * Subagent card in `fixed` mode), so two sessions on different providers route
+ * their own spawns and neither can rewrite the other's policy.
+ * @param request - the caller's spawn request.
+ * @param route - the delegating session's resolved route, or undefined for official inherit.
+ * @returns The request to hand the official runtime.
+ */
+export declare function routeSubagentRequest<T extends RoutableSubagentRequest>(request: T, route: SubagentRoute | undefined): T;
 /**
  * Mount a candidate and use the fallback only for typed startup incompatibility.
  *

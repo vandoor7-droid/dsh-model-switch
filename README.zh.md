@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-在 DeepSeek Harness 中为当前会话、Subagent、Web Search、图像生成和 Plan 执行模型配置明确路由。Model Switch 只使用 DSH 公开服务和 Provider 自有 Adapter；不修改 DSH Core，也不管理 Provider 登录凭证。
+在 DeepSeek Harness 中为当前会话、Subagent、Web Search、图像生成、Plan 执行和自动会话命名配置明确路由。Model Switch 只使用 DSH 公开服务和 Provider 自有 Adapter；不修改 DSH Core，也不管理 Provider 登录凭证。
 
 <p align="center"><img src="docs/screenshots/composer-picker.png" alt="包含 Model、Effort、Context 和 Fast 的 Composer Picker" width="314"></p>
 
@@ -13,7 +13,7 @@ Picker 在切换页面或关闭搜索时保留键盘焦点，不覆盖搜索框�
 | 路由 | 行为 |
 | --- | --- |
 | 会话模型 | 当前对话的 provider/model/effort，只由 Composer Picker 或 Plan Review 修改。部署默认模型（新建会话）归 DSH 自己管理；选择器从不写它。 |
-| Subagent | 跟随当前父请求，或使用固定 provider/model/effort；Workflow 显式覆盖始终优先。 |
+| Subagent | 子代理 spawn 未指定 provider/model/effort 时：使用委派会话自身推导出的路由——其供应商组的子代理对，其次是固定卡片的对；两者都没有则为官方继承（先父请求实时路由，再创建时快照）。显式指定路由的 spawn 永远不会被覆盖；Workflow 显式覆盖始终优先。 |
 | Composer Picker | 只修改当前会话，并提交 catalog 中的原始 model id。 |
 | Plan Review | 在发送 Plan 审核确认前，先提交执行模型。 |
 | Web Search | 保留官方 `web_search`；部署显式启用后，通过 Provider 动态声明的独立搜索适配器路由。 |
@@ -25,7 +25,7 @@ Picker 在切换页面或关闭搜索时保留键盘焦点，不覆盖搜索框�
 
 ## 配置 Subagent 与能力路由
 
-打开 **设置 → Model Switch**。Subagent 可以跟随父请求，也可以使用固定 provider、model 和 effort。
+打开 **设置 → Model Switch**。设置页共有六张路由卡片——Subagent、Web 搜索、图像生成、自动审查、压缩、会话命名——外加「供应商配置组」卡片。子代理可以使用委派会话推导出的路由，也可以使用固定的 provider、model 和 effort。
 
 自 0.4.23 起本插件不再配置、也不再保护部署默认模型（原「主模型」卡片）。默认模型归 DSH 自己：Host 会把最后一次会话切换写成默认值（包括经本插件选择器或 TUI 的切换），与原生切换行为一致——新会话从"上次用过的模型"开始。需要固定默认值时，请使用 DSH 自带的 **设置 → 模型** 页面。官方 DSH 在非本机浏览器将 ConfigForms 设为仅内存模式，设置页会明确显示不可用；请在 Host 的 127.0.0.1 页面打开设置。移除主卡片的附带收益：模型切换从此不再依赖设置可写状态（此前选择器要等 Main 表单可写才允许切换）。
 
@@ -33,7 +33,11 @@ Picker 在切换页面或关闭搜索时保留键盘焦点，不覆盖搜索框�
 
 ![Model Switch 设置中的固定 Subagent 路由](docs/screenshots/settings-subagent.png)
 
-Follow 先读取当前父请求，再读取 Host 自身的会话默认模型。固定路由会在官方 Subagent descriptor 创建前注入。DSH 0.1.2-alpha.4 会在该 descriptor 中携带 provider、model 和固定 reasoning effort。
+官方继承先读取当前父请求，再读取 Host 自身的会话默认模型。推导或固定的路由会在官方 Subagent descriptor 创建前注入，且仅当 spawn 未指定 provider、model 或 effort——显式指定路由的 spawn 永远不会被覆盖，能力不是 `agentOptions` 的 provider（例如一次性进程适配器）也不会被重新解释为可路由的 Agent。DSH 0.1.2-alpha.4 会在该 descriptor 中携带 provider、model 和固定 reasoning effort。
+
+### 保存设置
+
+每一行的保存都是**一次**原子的、带版本围栏的官方 ConfigForm `mutate`：写入被拒绝时要么整行生效、要么什么都不写，不会再留下只写了一半的 provider/model 对。你编辑中的草稿不会被外部快照更新（另一标签页的保存、能力轮询）覆盖；版本冲突会明确报告并提供重新加载路径，而不是悄悄丢掉任何一方；30 秒内始终没有落定的写入会明确报错，而不是让页面卡在「保存中…」。值旁边的 ⚠ 标记现在只有一个含义：该值不在当前 Provider 目录中。
 
 ## 自定义模型如何出现在 Picker
 
@@ -90,19 +94,42 @@ Plan Review 拥有独立于会话当前路由的执行模型草稿。**确认执
 
 ## 自动审查模型（Auto review）
 
-官方 `@deepseek-ai/dsh-experimental-auto-review`（Auto 权限预设的逐调用审查）把审查请求固定在会话自身的路由上。本插件通过 `cordis.patch.yml` 的行替换接管这一行：官方行被禁用，改挂 `dsh-model-switch/auto-review`，它在作用域子上下文里运行**同一份官方 `apply`**，只把 `llm.stream` 的 `provider/model` 改写为设置里固定的审查模型。设置页「自动审查模型」默认关闭 = 审查跟随当前会话模型；打开时以目录首位模型作为可再改的固定起点，保存后对下一次审查立即生效。审查未配置官方能力包（`@deepseek-ai/dsh-experimental-auto-review` 未随 profile 启动）时本行不挂载，Auto 预设保持官方的关闭状态；官方行若已在别处注册，本行明确报错而不产生第二个 `registerAuto`。
+官方 `@deepseek-ai/dsh-experimental-auto-review`（Auto 权限预设的逐调用审查）把审查请求固定在会话自身的路由上。本插件通过 `cordis.patch.yml` 的行替换接管这一行：官方行被禁用，改挂 `dsh-model-switch/auto-review`，它在作用域子上下文里运行**同一份官方 `apply`**，只把 `llm.stream` 的 `provider/model` 改写为设置里固定的审查模型。设置页「自动审查模型」默认关闭 = 审查跟随当前会话模型；打开时以目录首位模型作为可再改的固定起点，保存后对下一次审查立即生效。审查未配置官方能力包（`@deepseek-ai/dsh-experimental-auto-review` 未随 profile 启动）时本行不挂载，Auto 预设保持官方的关闭状态；官方行若已在别处注册，本行明确报错而不产生第二个 `registerAuto`。审查路由刻意保持部署级：官方闸门构造审查请求时不带会话身份、且只闭包它被 apply 的那一个上下文，因此没有任何公开接缝能把一次审查归属到某个会话——它需要的按会话路由已记录在 `docs/seam-gap.md`。
 
 ## 压缩模型（Compaction model）
 
 官方压缩——`/compact` 与 DSH 的自动压缩——默认使用会话当前的目标模型做摘要。「压缩模型」卡片（默认关闭）改为固定摘要路由：打开时以目录首位模型作为可再改的固定起点，保存后对下一次压缩立即生效。两个字段都留空即回到官方默认。保存时若恰有压缩进行中，可能被打断并在下次重试。
 
+摘要模型的固定对刻意保持部署级：官方压缩事务会持久记录写下摘要的 provider/model，若按会话改写摘要调用，这条持久记录就会与实际使用的路由不符。需要按路由区分摘要的部署，官方支持的做法是在 profile 的 `compaction-basic` 行配置里使用精确目标的 `modelPolicies` 数组：每个条目精确匹配一个实际路由的会话目标模型，并只对该目标覆盖其压缩策略——包括摘要路由；本插件会原样转发该行配置（仅当卡片两个字段都填写时才覆盖全局摘要对）：
+
+```yaml
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+  config:
+    modelPolicies:
+      - provider: deepseek
+        model: deepseek-chat
+        summarizationProvider: deepseek
+        summarizationModel: deepseek-reasoner
+```
+
 路由如何到达压缩引擎取决于部署在哪一层组合 agent。Web 面把压缩放进每个 Agent 预设的隔离 `compaction` 组里，而 profile patch 无法寻址 preset `plugins` 列表内部的行——因此本插件整表替换各预设行（与 Web 预设编辑器保存修改用的是同一套 id 定位机制），把该组的官方 `compaction-basic` 换成 `model-switch-compaction`，由它挂载**同一份官方 `BasicCompactionEngine`**、只覆盖 `summarizationProvider`/`summarizationModel`（只填其一忽略）。进程级组合 agent 的面（如 TUI）则走顶层行替换。两个后果：DSH 发布若改动这些预设，随包副本需要同步（本插件的逐版本核对覆盖这一步）；部署若用 Web 编辑器改预设，会写出自己的整表行、并从那之后自行负责合并。
 
 已知问题（上游侧，见 `docs/seam-gap.md`）：当工作集持续超过官方引擎的压力阈值时，自动压缩可能每步触发，并反复重试摘要过不了官方「摘要必须更小」守卫的小片段——表现为"不停自动压缩"，本插件不控制该行为（已在同一会话做过插件开/关 A/B 对照）。可用的缓解（都在转发行配置上）：`auto: false`（保留 `/compact`）、调高 `thresholdRatio`、减少挂载的工具 schema，或固定一个摘要更精炼的压缩模型。
 
+## 会话命名模型（Session naming model）
+
+DSH 会自动为新会话起名；命名的触发节奏由 profile 的官方命名行决定（首条提示后一次，或每条提示一次）。「会话命名模型」卡片选择这些命名请求使用的模型。**关闭——两个字段都留空——即官方行为：命名跟随会话自身的模型。** 打开时以目录首位模型作为可再改的固定起点。
+
+路由在**每次命名请求时现读**：保存后对下一次起名立即生效、无需重启，且进行中的命名请求不会被保存打断。每次请求按顺序解析路由：该会话供应商组里的命名对，其次卡片的部署级对，其次会话自身的模型。请求经由官方命名实现发出，它会把实际使用的 provider/model 记录到该会话自己的 `session/title-llm-request` 事件里，因此持久记录与真实请求永远一致。本插件替换官方的 `session-title-llm` 行而不分叉命名逻辑（该接缝每个上下文只允许注册一个命名 provider），并镜像该行声明的节奏；profile 没有官方命名行时保持 DSH 的确定性兜底标题。
+
 ## 供应商配置组（Provider groups）
 
-「供应商配置组」卡片为每个供应商保存一组路由——压缩、子代理、审查三条路由一起存；当**本会话模型的供应商**发生变化时自动应用，且无论变化来自插件的选择器、TUI 还是其他客户端——插件观察的是该会话的官方模型选择投影，所有切换都会落到同一个 watcher。应用是一次完整替换：三条路由一次性写入上方对应卡片，覆盖卡片当前值**（包括手动修改）**；组里没有固定的项回到该能力的默认值（压缩/审查跟随会话模型、子代理跟随父请求）。切换到没有配置组的供应商时现有路由保持不变，同一供应商内部切换不会重写路由。存储是 profile 级的（共享设置命名空间），不按会话生效；剩余边界是 watcher 只存在于本 Web 打开过的会话——从未在本浏览器打开的会话上的切换不会动路由。编辑器里首次配置某供应商时从当前生效路由种子化；每行能力开关的关闭态表示"用该能力的默认值"并按默认存储；「删除该组」彻底移除该组（删掉最后一组时同时清掉存储字段）。搜索与图片路由不在本功能范围内。应用失败不会让切换失败：watcher 记录一条警告，路由保持原样。
+「供应商配置组」卡片为每个供应商保存一组路由——会话命名与子代理两条路由一起存；为供应商 X 保存的组，作用于自身供应商就是 X 的会话。组是**推导出来的，而不是写进去的**：切换某个会话的供应商不写任何东西，因此不同供应商上的两个会话再也不能互相覆盖、互相改写对方的辅助路由（0.4.24 之前切换会把组**写进**共享字段，一个会话的切换能改道另一个会话的命名与子代理请求）。
+
+每次请求都从持久状态推导自己的路由：先取该会话的供应商（它的模型选择——刚做出、尚未被请求消费的 pending 选择优先——其次最近一次已记录的请求路由），再取该供应商的组对，再取部署级的平铺对，最后是官方默认（命名用会话自身模型；子代理用官方继承，且平铺卡片仅在 `fixed` 模式下生效）。因为什么都不写，本浏览器从未打开过的会话、以及来自 TUI 或其他客户端的切换同样生效——没有 watcher，也没有剩余边界；观察不到供应商的会话直接落到部署默认。切换到没有配置组的供应商不改变任何东西，同一供应商内部切换推导出的还是同一些路由。
+
+因此组编辑器恰好只覆盖这两条路由：自动审查与压缩保持部署级卡片（原因见上面两节），搜索与图片路由不在范围内。存储格式不变——较早的组条目若还带着压缩/自动审查字段，会原样接受并忽略这些字段，无需迁移。编辑器里首次配置某供应商时，草稿从当前推导出的路由种子化；每行的关闭态表示"不固定——先落到卡片、再落到官方默认"；「删除该组」彻底移除该供应商的条目（删掉最后一组时同时清掉存储字段）。
 
 ## Model Switch 不会改变什么
 
@@ -112,7 +139,7 @@ Plan Review 拥有独立于会话当前路由的执行模型草稿。**确认执
 - 官方 Agent Presets
 - 已有的 Provider 专属图像工具
 - 部署默认模型本身（DSH 自己把最后一次会话切换写成默认值，与原生 TUI 切换一致）
-- 全局压缩策略、标题或 DSH Core
+- 全局压缩策略、命名节奏（只可配置命名模型）或 DSH Core
 
 ## 安装
 

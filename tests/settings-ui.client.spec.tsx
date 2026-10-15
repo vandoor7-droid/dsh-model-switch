@@ -27,8 +27,9 @@ function face(options?: {
   memoryOnly?: true
   autoReview?: { provider?: string; model?: string }
   compaction?: { provider?: string; model?: string }
-  setSubagent?: ReturnType<typeof vi.fn>
-  setCapability?: ReturnType<typeof vi.fn>
+  title?: { provider?: string; model?: string }
+  saveSubagent?: ReturnType<typeof vi.fn>
+  saveCapability?: ReturnType<typeof vi.fn>
   setCompactOnSwitch?: ReturnType<typeof vi.fn>
   saveProviderGroup?: ReturnType<typeof vi.fn>
   providerGroups?: ProviderGroupsStorage
@@ -48,6 +49,8 @@ function face(options?: {
   const autoReviewSettings = snapshot(options?.autoReview ?? {})
   // Unset compaction fields = the official default: compaction follows the conversation target.
   const compactionSettings = snapshot(options?.compaction ?? {})
+  // Unset naming fields = the official default: naming follows the session model.
+  const titleSettings = snapshot(options?.title ?? {})
   return {
     t: (key: string) => key,
     capabilities: {
@@ -59,10 +62,11 @@ function face(options?: {
     useImageSettings: () => imageSettings,
     useAutoReviewSettings: () => autoReviewSettings,
     useCompactionSettings: () => compactionSettings,
+    useTitleSettings: () => titleSettings,
     useSwitchSettings: () => switchSettings,
     useSubagentSettings: () => subagentSnapshot,
-    setSubagent: options?.setSubagent ?? vi.fn(async () => undefined),
-    setCapability: options?.setCapability ?? vi.fn(),
+    saveSubagent: options?.saveSubagent ?? vi.fn(async () => undefined),
+    saveCapability: options?.saveCapability ?? vi.fn(),
     setCompactOnSwitch: options?.setCompactOnSwitch ?? vi.fn(async () => undefined),
     saveProviderGroup: options?.saveProviderGroup ?? vi.fn(async () => undefined),
   } as never
@@ -77,16 +81,42 @@ function instanceText(node: { children?: readonly unknown[] }): string {
 }
 
 function mountSettings(options?: Parameters<typeof face>[0]) {
-  const setSubagent = options?.setSubagent ?? vi.fn(async () => undefined)
-  const setCapability = options?.setCapability ?? vi.fn()
+  const saveSubagent = options?.saveSubagent ?? vi.fn(async () => undefined)
+  const saveCapability = options?.saveCapability ?? vi.fn()
   const setCompactOnSwitch = options?.setCompactOnSwitch ?? vi.fn(async () => undefined)
   const saveProviderGroup = options?.saveProviderGroup ?? vi.fn(async () => undefined)
-  const props = face({ ...options, setSubagent, setCapability, setCompactOnSwitch, saveProviderGroup })
+  const props = face({ ...options, saveSubagent, saveCapability, setCompactOnSwitch, saveProviderGroup })
   let renderer!: ReactTestRenderer
   act(() => {
     renderer = create(<ModelSwitchSettings {...props} />)
   })
-  return { renderer, setSubagent, setCapability, setCompactOnSwitch, saveProviderGroup }
+  /**
+   * Render again with a fresh face, the way an accepted snapshot from the Host
+   * (or another tab) reaches the mounted component.
+   */
+  const rerender = (next: Parameters<typeof face>[0] = {}): void => {
+    const nextProps = face({ ...options, saveSubagent, saveCapability, setCompactOnSwitch, saveProviderGroup, ...next })
+    act(() => {
+      renderer.update(<ModelSwitchSettings {...nextProps} />)
+    })
+  }
+  return { renderer, rerender, saveSubagent, saveCapability, setCompactOnSwitch, saveProviderGroup }
+}
+
+/**
+ * The op list of the last Subagent row save, which keeps it in argument 0.
+ *
+ * One row save is one atomic write, so the op list IS the whole change: a test
+ * can assert that both halves of a pinned pair travel together, which is what
+ * stops a refused write from leaving a half-written route behind.
+ */
+function subagentOps(mock: ReturnType<typeof vi.fn>): readonly { field: string; value?: unknown }[] {
+  return (mock.mock.calls.at(-1)?.[0] ?? []) as readonly { field: string; value?: unknown }[]
+}
+
+/** The op list of the last capability save, which keeps it in argument 1 after the row id. */
+function capabilityOps(mock: ReturnType<typeof vi.fn>): readonly { field: string; value?: unknown }[] {
+  return (mock.mock.calls.at(-1)?.[1] ?? []) as readonly { field: string; value?: unknown }[]
 }
 
 describe('Model Switch settings menu', () => {
@@ -172,28 +202,25 @@ describe('Model Switch settings menu', () => {
   })
 
   it('writes follow-main on Subagent off without clearing the stored route', async () => {
-    const { renderer, setSubagent } = mountSettings({ subagent: { mode: 'fixed', provider: 'codex', model: 'gpt-subagent' } })
+    const { renderer, saveSubagent } = mountSettings({ subagent: { mode: 'fixed', provider: 'codex', model: 'gpt-subagent' } })
     const toggle = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'subagent')
     expect(toggle?.props['aria-checked']).toBe(true)
     await act(async () => {
       toggle?.props.onClick()
     })
-    expect(setSubagent).toHaveBeenCalledWith('mode', 'follow-main')
-    expect(setSubagent).not.toHaveBeenCalledWith('provider', undefined)
-    expect(setSubagent).not.toHaveBeenCalledWith('model', undefined)
-    expect(setSubagent).not.toHaveBeenCalledWith('effort', undefined)
+    // Turning the capability off writes the mode alone: the stored pair stays
+    // as the row left it, ready for the next switch-on.
+    expect(subagentOps(saveSubagent)).toEqual([{ field: 'mode', value: 'follow-main' }])
   })
 
   it('writes fixed on Subagent on and keeps last provider/model', async () => {
-    const { renderer, setSubagent } = mountSettings({ subagent: { mode: 'follow-main', provider: 'codex', model: 'gpt-subagent' } })
+    const { renderer, saveSubagent } = mountSettings({ subagent: { mode: 'follow-main', provider: 'codex', model: 'gpt-subagent' } })
     const toggle = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'subagent')
     expect(toggle?.props['aria-checked']).toBe(false)
     await act(async () => {
       toggle?.props.onClick()
     })
-    expect(setSubagent).toHaveBeenCalledWith('mode', 'fixed')
-    expect(setSubagent).not.toHaveBeenCalledWith('provider', undefined)
-    expect(setSubagent).not.toHaveBeenCalledWith('model', undefined)
+    expect(subagentOps(saveSubagent)).toEqual([{ field: 'mode', value: 'fixed' }])
   })
 
   it('expands provider, model, and effort when the Default Subagent route is on', () => {
@@ -237,28 +264,28 @@ describe('Model Switch settings menu', () => {
   })
 
   it('unsets both reviewer fields on Auto review off', async () => {
-    const { renderer, setCapability } = mountSettings({ autoReview: { provider: 'codex', model: 'gpt-main' } })
+    const { renderer, saveCapability } = mountSettings({ autoReview: { provider: 'codex', model: 'gpt-main' } })
     const toggle = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'autoReview')
     await act(async () => {
       toggle?.props.onClick()
       await new Promise(resolve => setTimeout(resolve, 0))
     })
-    expect(setCapability).toHaveBeenCalledWith('autoReview', 'provider', undefined)
-    expect(setCapability).toHaveBeenCalledWith('autoReview', 'model', undefined)
+    expect(saveCapability.mock.calls.at(-1)?.[0]).toBe('autoReview')
+    expect(capabilityOps(saveCapability)).toEqual([{ field: 'provider', value: undefined }, { field: 'model', value: undefined }])
   })
 
   it('seeds the reviewer route to the catalog head when Auto review is switched on', async () => {
-    const { renderer, setCapability } = mountSettings()
+    const { renderer, saveCapability } = mountSettings()
     const toggle = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'autoReview')
     expect(toggle?.props['aria-checked']).toBe(false)
     await act(async () => {
       toggle?.props.onClick()
       await new Promise(resolve => setTimeout(resolve, 0))
     })
-    expect(setCapability).toHaveBeenCalledWith('autoReview', 'provider', 'codex')
-    expect(setCapability).toHaveBeenCalledWith('autoReview', 'model', 'gpt-subagent')
+    expect(saveCapability.mock.calls.at(-1)?.[0]).toBe('autoReview')
+    expect(capabilityOps(saveCapability)).toEqual([{ field: 'provider', value: 'codex' }, { field: 'model', value: 'gpt-subagent' }])
     // Both fields are pinned as one decision; partial writes never ship.
-    expect(setCapability).toHaveBeenCalledTimes(2)
+    expect(saveCapability).toHaveBeenCalledTimes(1)
   })
 
   it('keeps zh/en copy for the Auto review card', () => {
@@ -297,28 +324,28 @@ describe('Model Switch settings menu', () => {
   })
 
   it('unsets both compaction fields on Compaction off', async () => {
-    const { renderer, setCapability } = mountSettings({ compaction: { provider: 'codex', model: 'gpt-main' } })
+    const { renderer, saveCapability } = mountSettings({ compaction: { provider: 'codex', model: 'gpt-main' } })
     const toggle = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'compaction')
     await act(async () => {
       toggle?.props.onClick()
       await new Promise(resolve => setTimeout(resolve, 0))
     })
-    expect(setCapability).toHaveBeenCalledWith('compaction', 'provider', undefined)
-    expect(setCapability).toHaveBeenCalledWith('compaction', 'model', undefined)
+    expect(saveCapability.mock.calls.at(-1)?.[0]).toBe('compaction')
+    expect(capabilityOps(saveCapability)).toEqual([{ field: 'provider', value: undefined }, { field: 'model', value: undefined }])
   })
 
   it('seeds the compaction route to the catalog head when Compaction is switched on', async () => {
-    const { renderer, setCapability } = mountSettings()
+    const { renderer, saveCapability } = mountSettings()
     const toggle = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'compaction')
     expect(toggle?.props['aria-checked']).toBe(false)
     await act(async () => {
       toggle?.props.onClick()
       await new Promise(resolve => setTimeout(resolve, 0))
     })
-    expect(setCapability).toHaveBeenCalledWith('compaction', 'provider', 'codex')
-    expect(setCapability).toHaveBeenCalledWith('compaction', 'model', 'gpt-subagent')
+    expect(saveCapability.mock.calls.at(-1)?.[0]).toBe('compaction')
+    expect(capabilityOps(saveCapability)).toEqual([{ field: 'provider', value: 'codex' }, { field: 'model', value: 'gpt-subagent' }])
     // Both fields are pinned as one decision; partial writes never ship.
-    expect(setCapability).toHaveBeenCalledTimes(2)
+    expect(saveCapability).toHaveBeenCalledTimes(1)
   })
 
   it('gates Compaction save on a complete route', () => {
@@ -345,6 +372,70 @@ describe('Model Switch settings menu', () => {
     expect(zh.compactionHelp).toContain('/compact')
     expect(en.compactionHelp).toContain('/compact')
     expect(zh.compactionRouteHelp).toContain('Provider')
+  })
+
+  it('shows the Session title card collapsed and following the session model by default', () => {
+    const markup = renderSettings()
+    expect(markup).toContain('>sessionTitle<')
+    expect(markup).toContain('>titleFollow<')
+    expect(markup).toContain('>titleHelp<')
+    const toggle = markup.match(/<button[^>]*aria-label="sessionTitle"[^>]*>/)?.[0]
+    expect(toggle).toContain('aria-checked="false"')
+    // No route fields while naming follows the session model.
+    expect(markup).not.toContain('aria-expanded="true"')
+  })
+
+  it('expands the pinned naming route when the Session title route is set', () => {
+    const { renderer } = mountSettings({ title: { provider: 'codex', model: 'gpt-main' } })
+    const toggle = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'sessionTitle')
+    expect(toggle?.props['aria-checked']).toBe(true)
+    const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('sessionTitle'))
+    act(() => {
+      header?.props.onClick()
+    })
+    const labels = renderer.root.findAllByType('span').map(node => instanceText(node))
+    expect(labels).toContain('provider')
+    expect(labels).toContain('model')
+    // Naming carries no reasoning effort field.
+    expect(labels).not.toContain('effort')
+    const selects = renderer.root.findAllByType('select')
+    expect(selects.some(select => String(select.props.value) === 'codex')).toBe(true)
+  })
+
+  it('unsets both naming fields on Session title off', async () => {
+    const { renderer, saveCapability } = mountSettings({ title: { provider: 'codex', model: 'gpt-main' } })
+    const toggle = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'sessionTitle')
+    await act(async () => {
+      toggle?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect(saveCapability.mock.calls.at(-1)?.[0]).toBe('title')
+    expect(capabilityOps(saveCapability)).toEqual([{ field: 'provider', value: undefined }, { field: 'model', value: undefined }])
+  })
+
+  it('seeds the naming route to the catalog head when Session title is switched on', async () => {
+    const { renderer, saveCapability } = mountSettings()
+    const toggle = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'sessionTitle')
+    expect(toggle?.props['aria-checked']).toBe(false)
+    await act(async () => {
+      toggle?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect(saveCapability.mock.calls.at(-1)?.[0]).toBe('title')
+    expect(capabilityOps(saveCapability)).toEqual([{ field: 'provider', value: 'codex' }, { field: 'model', value: 'gpt-subagent' }])
+    // Both fields are pinned as one decision; partial writes never ship.
+    expect(saveCapability).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps zh/en copy for the Session title card', () => {
+    expect(zh.sessionTitle).toBe('会话命名模型')
+    expect(en.sessionTitle).toBe('Session title model')
+    expect(zh.titleFollow).toBe('跟随会话模型')
+    expect(en.titleFollow).toContain('session model')
+    expect(zh.titleHelp).toContain('新会话')
+    expect(en.titleHelp).toContain('first prompt')
+    expect(zh.titleRouteHelp).toContain('Provider')
+    expect(en.titleRouteHelp).toContain('no reasoning effort')
   })
 
   it('renders the provider groups section with a configured-count badge', () => {
@@ -383,14 +474,14 @@ describe('Model Switch settings menu', () => {
   })
 
   it('toggles a capability row off to the default and back on with the live route', async () => {
-    const { renderer, saveProviderGroup } = mountSettings({ compaction: { provider: 'codex', model: 'gpt-main' } })
+    const { renderer, saveProviderGroup } = mountSettings({ title: { provider: 'codex', model: 'gpt-main' } })
     const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('providerGroupsCard'))
     act(() => {
       header?.props.onClick()
     })
-    const rowToggles = () => renderer.root.findAllByType('button').filter(button => button.props['aria-label'] === 'compaction')
-    // First is the Compaction card switch, second is the group row switch.
-    // The row opens seeded from the active compaction route.
+    const rowToggles = () => renderer.root.findAllByType('button').filter(button => button.props['aria-label'] === 'sessionTitle')
+    // First is the Session title card switch, second is the group row switch.
+    // The row opens seeded from the active naming route.
     expect(rowToggles()).toHaveLength(2)
     expect(rowToggles()[1]?.props['aria-checked']).toBe(true)
     const save = () => renderer.root.findAllByType('button').find(button => instanceText(button) === 'save')
@@ -406,9 +497,9 @@ describe('Model Switch settings menu', () => {
     })
     let [provider, group] = (saveProviderGroup as ReturnType<typeof vi.fn>).mock.calls[0]
     expect(provider).toBe('codex')
-    expect(group).toMatchObject<ProviderGroupConfig>({ compactProvider: '', compactModel: '' })
+    expect(group).toMatchObject<ProviderGroupConfig>({ titleProvider: '', titleModel: '' })
 
-    // Switch it back on: the row re-seeds from the live compaction route.
+    // Switch it back on: the row re-seeds from the live naming route.
     await act(async () => {
       rowToggles()[1]?.props.onClick()
       await new Promise(resolve => setTimeout(resolve, 0))
@@ -418,7 +509,7 @@ describe('Model Switch settings menu', () => {
       await new Promise(resolve => setTimeout(resolve, 0))
     })
     ;[, group] = (saveProviderGroup as ReturnType<typeof vi.fn>).mock.calls[1]
-    expect(group).toMatchObject<ProviderGroupConfig>({ compactProvider: 'codex', compactModel: 'gpt-main' })
+    expect(group).toMatchObject<ProviderGroupConfig>({ titleProvider: 'codex', titleModel: 'gpt-main' })
   })
 
   it('gates the delete button on a saved group and removes it on click', async () => {
@@ -446,14 +537,98 @@ describe('Model Switch settings menu', () => {
     expect(remove?.props.disabled).toBe(true)
   })
 
+  it('follows an accepted snapshot only while the row draft is pristine', () => {
+    const { renderer, rerender } = mountSettings({ title: { provider: 'codex', model: 'gpt-main' } })
+    const header = () => renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('sessionTitle'))
+    act(() => {
+      header()?.props.onClick()
+    })
+    const selectWith = (value: string) => renderer.root.findAllByType('select').find(select => String(select.props.value) === value)
+
+    // A pristine draft adopts whatever the Host accepted.
+    rerender({ title: { provider: 'codex', model: 'gpt-subagent' } })
+    expect(selectWith('gpt-subagent')).toBeDefined()
+
+    // Once the user has edited the row, an incoming snapshot must not discard it.
+    act(() => {
+      selectWith('gpt-subagent')?.props.onChange({ target: { value: 'gpt-main' } })
+    })
+    rerender({ title: { provider: 'codex', model: 'gpt-subagent' } })
+    expect(selectWith('gpt-main')).toBeDefined()
+    expect(selectWith('gpt-subagent')).toBeUndefined()
+  })
+
+  it('clears the busy latch and reports a refused row save', async () => {
+    const refused = vi.fn(async () => { throw new Error('requestFailed') })
+    const { renderer } = mountSettings({ compaction: { provider: 'codex', model: 'gpt-main' }, saveCapability: refused })
+    const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('compaction'))
+    act(() => {
+      header?.props.onClick()
+    })
+    const save = () => renderer.root.findAllByType('button').find(button => instanceText(button) === 'save')
+    await act(async () => {
+      save?.()?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect(refused).toHaveBeenCalledTimes(1)
+    // The page is not latched on "保存中…", and the failure is visible.
+    expect(renderer.root.findAllByType('button').some(button => instanceText(button) === 'saving')).toBe(false)
+    expect(renderer.root.findAllByType('p').some(node => instanceText(node) === 'requestFailed')).toBe(true)
+  })
+
   it('keeps zh/en copy for the provider groups card', () => {
     expect(zh.providerGroups).toBe('供应商配置组')
     expect(en.providerGroups).toBe('Provider groups')
-    expect(zh.providerGroupsSummary).toContain('会话模型切换')
-    expect(en.providerGroupsSummary).toContain('this session switches')
-    expect(zh.providerGroupsBodyHelp).toContain('未配置的供应商')
-    expect(en.providerGroupsBodyHelp).toContain('without a group')
+    expect(zh.providerGroupsSummary).toContain('使用该供应商')
+    expect(en.providerGroupsSummary).toContain('using that provider')
+    expect(zh.providerGroupsBodyHelp).toContain('互不影响')
+    expect(en.providerGroupsBodyHelp).toContain('never affect each other')
     expect(zh.providerGroupDelete).toBe('删除该组')
+    // A group covers the two capabilities with a public per-session seam.
+    expect(zh.providerGroupsHelp).toContain('命名')
+    expect(en.providerGroupsHelp).toContain('naming')
+    expect(zh.providerGroupsHelp).toContain('子代理')
+    expect(en.providerGroupsHelp).toContain('subagent')
+    // The stalled-save report the row shows has copy in both languages.
+    expect(zh.saveTimeout).toBe('保存超时，请重试')
+    expect(en.saveTimeout).toBe('The save timed out; try again')
+  })
+
+  it('edits the naming row inside a provider group and clears it back to the default', async () => {
+    const { renderer, saveProviderGroup } = mountSettings()
+    const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('providerGroupsCard'))
+    act(() => {
+      header?.props.onClick()
+    })
+    const rows = () => renderer.root.findAllByType('button').filter(button => button.props['aria-label'] === 'sessionTitle')
+    // First is the Session title card switch, second is the group row switch.
+    expect(rows()).toHaveLength(2)
+    expect(rows()[1]?.props['aria-checked']).toBe(false)
+    const save = () => renderer.root.findAllByType('button').find(button => instanceText(button) === 'save')
+
+    // Switch the row on: it seeds to the catalog head because no naming route is pinned.
+    await act(async () => {
+      rows()[1]?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    await act(async () => {
+      save?.()?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    let [, group] = (saveProviderGroup as ReturnType<typeof vi.fn>).mock.calls[0]
+    expect(group).toMatchObject<ProviderGroupConfig>({ titleProvider: 'codex', titleModel: 'gpt-subagent' })
+
+    // Switch the row off: both halves clear so naming falls back to the session model.
+    await act(async () => {
+      rows()[1]?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    await act(async () => {
+      save?.()?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    ;[, group] = (saveProviderGroup as ReturnType<typeof vi.fn>).mock.calls[1]
+    expect(group).toMatchObject<ProviderGroupConfig>({ titleProvider: '', titleModel: '' })
   })
 
   it('labels the subagent effort as pinned only when one is stored', () => {

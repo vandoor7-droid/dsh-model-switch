@@ -11,6 +11,7 @@ export interface ModelSwitchSettingsView {
   compactOnSwitch?: boolean
   autoReviewProvider?: string; autoReviewModel?: string
   compactProvider?: string; compactModel?: string
+  titleProvider?: string; titleModel?: string
   /** Raw saved per-provider groups; edited whole through the provider-groups card. */
   providerGroups?: ProviderGroupsStorage
 }
@@ -29,6 +30,8 @@ export const IMAGE_SETTINGS_FIELDS = Object.freeze({ provider: 'imageProvider', 
 export const AUTO_REVIEW_SETTINGS_FIELDS = Object.freeze({ provider: 'autoReviewProvider', model: 'autoReviewModel' } as const)
 /** Compaction summarization route for `/compact` and automatic compaction; both unset means the official default (the conversation target). */
 export const COMPACTION_SETTINGS_FIELDS = Object.freeze({ provider: 'compactProvider', model: 'compactModel' } as const)
+/** Automatic session-title naming route; both unset means the official default (the session's own logged route). */
+export const TITLE_SETTINGS_FIELDS = Object.freeze({ provider: 'titleProvider', model: 'titleModel' } as const)
 
 export function deriveSubagentSettings(settings: ModelSwitchSettingsView): SubagentSettingsView {
   return { mode: settings.subagentMode, ...(settings.subagentProvider === undefined ? {} : { provider: settings.subagentProvider }), ...(settings.subagentModel === undefined ? {} : { model: settings.subagentModel }), ...(settings.subagentReasoningEffort === undefined ? {} : { reasoningEffort: settings.subagentReasoningEffort }) }
@@ -37,6 +40,7 @@ export function deriveSearchSettings(settings: ModelSwitchSettingsView): Capabil
 export function deriveImageSettings(settings: ModelSwitchSettingsView): CapabilityRouteView { return { ...(settings.imageProvider === undefined ? {} : { provider: settings.imageProvider }), ...(settings.imageModel === undefined ? {} : { model: settings.imageModel }) } }
 export function deriveAutoReviewSettings(settings: ModelSwitchSettingsView): CapabilityRouteView { return { ...(settings.autoReviewProvider === undefined ? {} : { provider: settings.autoReviewProvider }), ...(settings.autoReviewModel === undefined ? {} : { model: settings.autoReviewModel }) } }
 export function deriveCompactionSettings(settings: ModelSwitchSettingsView): CapabilityRouteView { return { ...(settings.compactProvider === undefined ? {} : { provider: settings.compactProvider }), ...(settings.compactModel === undefined ? {} : { model: settings.compactModel }) } }
+export function deriveTitleSettings(settings: ModelSwitchSettingsView): CapabilityRouteView { return { ...(settings.titleProvider === undefined ? {} : { provider: settings.titleProvider }), ...(settings.titleModel === undefined ? {} : { model: settings.titleModel }) } }
 /** Whether both fields of a model route form a complete pair; an incomplete pair stays off. */
 export function routePairConfigured(route: CapabilityRouteView | undefined): boolean {
   return route !== undefined && (route.provider ?? '').trim() !== '' && (route.model ?? '').trim() !== ''

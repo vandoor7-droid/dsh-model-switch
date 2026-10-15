@@ -23,6 +23,10 @@ export interface ModelSwitchSettings {
   compactProvider?: string
   /** Summarization model for `/compact` and automatic compaction; set together with `compactProvider`. */
   compactModel?: string
+  /** Naming provider for automatic session titles; both fields unset = official default (the session's own logged route). */
+  titleProvider?: string
+  /** Naming model for automatic session titles; set together with `titleProvider`. */
+  titleModel?: string
   /** Per-provider compaction/subagent/review presets, keyed by provider id; absent when no group is saved. */
   providerGroups?: ProviderGroups
 }
@@ -42,6 +46,8 @@ export interface Config {
   autoReviewModel: Volatile<string | undefined>
   compactProvider: Volatile<string | undefined>
   compactModel: Volatile<string | undefined>
+  titleProvider: Volatile<string | undefined>
+  titleModel: Volatile<string | undefined>
   /** Saved per-provider capability groups as one entry per provider; entry route fields are '' when the capability stays at its default. */
   providerGroups: Volatile<readonly ProviderGroupEntry[]>
 }
@@ -65,6 +71,8 @@ export const Config: z<any, Config, 'plain'> = z.object({
   autoReviewModel: z.string().volatile(),
   compactProvider: z.string().volatile(),
   compactModel: z.string().volatile(),
+  titleProvider: z.string().volatile(),
+  titleModel: z.string().volatile(),
   providerGroups: z.array(z.object({
     provider: z.string().default(''),
     compactProvider: z.string().default(''),
@@ -74,6 +82,8 @@ export const Config: z<any, Config, 'plain'> = z.object({
     subagentProvider: z.string().default(''),
     subagentModel: z.string().default(''),
     subagentReasoningEffort: z.string().default(''),
+    titleProvider: z.string().default(''),
+    titleModel: z.string().default(''),
   })).default([]).volatile(),
 })
 
@@ -89,6 +99,8 @@ export function readConfig(config: Config): ModelSwitchSettings {
   const autoReviewModel = config.autoReviewModel.get()
   const compactProvider = config.compactProvider.get()
   const compactModel = config.compactModel.get()
+  const titleProvider = config.titleProvider.get()
+  const titleModel = config.titleModel.get()
   const providerGroups = normalizeProviderGroups(config.providerGroups.get())
   return {
     subagentMode: config.subagentMode.get(),
@@ -104,6 +116,8 @@ export function readConfig(config: Config): ModelSwitchSettings {
     ...(autoReviewModel === undefined || autoReviewModel === '' ? {} : { autoReviewModel }),
     ...(compactProvider === undefined || compactProvider === '' ? {} : { compactProvider }),
     ...(compactModel === undefined || compactModel === '' ? {} : { compactModel }),
+    ...(titleProvider === undefined || titleProvider === '' ? {} : { titleProvider }),
+    ...(titleModel === undefined || titleModel === '' ? {} : { titleModel }),
     ...(Object.keys(providerGroups).length === 0 ? {} : { providerGroups }),
   }
 }

@@ -172,8 +172,8 @@ describe('composer picker seat ownership', () => {
 
   /**
    * Face-level bench for one Session switch: the directory store is driven by
-   * the test exactly like the official model-selection projection, so a
-   * provider change performed on ANY surface reaches the group watcher.
+   * the test exactly like the official model-selection projection, and the
+   * form spies record every settings write the picker would attempt.
    */
   function selectBench(initial: { value: { provider: string, model: string } }, providerGroups?: readonly Record<string, unknown>[]) {
     let current: { provider: string, model: string } | null = initial.value
@@ -195,6 +195,7 @@ describe('composer picker seat ownership', () => {
       select: vi.fn(async () => ({ ok: true })),
     }
     const entries: Array<{ spec: Record<string, unknown> }> = []
+    const disposers: Array<() => void> = []
     const ctx = {
       locale: { register: vi.fn(() => () => undefined) },
       slots: {
@@ -206,7 +207,12 @@ describe('composer picker seat ownership', () => {
       modelDirectories: { directoryFor: vi.fn(() => directory) },
       sessions: { subagentAddress: vi.fn(() => undefined) },
       configForms: { get: () => providerForm },
-      effect: (register: () => unknown) => register(),
+      // Install-time effects may hand back a teardown; collect it so the bench can run the dispose path.
+      effect: (register: () => unknown) => {
+        const dispose = register()
+        if (typeof dispose === 'function') disposers.push(dispose as () => void)
+        return dispose
+      },
       get: vi.fn(() => undefined),
       inject: (services: string[], register: (scope: unknown) => unknown) => services.includes('providerDirectory') ? undefined : register(ctx),
     }
@@ -218,11 +224,15 @@ describe('composer picker seat ownership', () => {
       current = next
       for (const listener of listeners) listener()
     }
-    /** Flush the watcher's async apply chain. */
+    /** Flush async seat work before asserting on writes. */
     const settle = async (): Promise<void> => {
       for (let round = 0; round < 3; round += 1) await new Promise(resolve => setTimeout(resolve, 0))
     }
-    return { face, directory, project, settle, groupSet, groupUnset }
+    /** Release every install-time resource, innermost first, like an injected scope teardown. */
+    const dispose = (): void => {
+      for (const stop of disposers.splice(0).reverse()) stop()
+    }
+    return { face, directory, project, settle, groupSet, groupUnset, listeners, dispose }
   }
 
   it('reports a refused Session switch as an uncommitted model change', async () => {
@@ -236,81 +246,41 @@ describe('composer picker seat ownership', () => {
     expect(directory.select).toHaveBeenCalledOnce()
   })
 
-  it('adopts the saved group when the session provider switches on any surface', async () => {
-    const { project, settle, groupSet, groupUnset } = selectBench(
+  it('installs with no group watcher and writes no settings when the session provider changes', async () => {
+    const { face, project, settle, groupSet, groupUnset, listeners } = selectBench(
       { value: { provider: 'deepseek', model: 'deep-chat' } },
       [{ provider: 'codex', compactProvider: 'codex', compactModel: 'gpt-compact' }],
     )
 
-    // No plugin call involved: the projection alone (e.g. a TUI switch) drives the apply.
-    project({ provider: 'codex', model: 'gpt-switched' })
-    await settle()
-    expect(groupSet).toHaveBeenCalledWith('compactProvider', 'codex')
-    expect(groupSet).toHaveBeenCalledWith('compactModel', 'gpt-compact')
-    // The group pins nothing else, so every other capability reverts to its default.
-    expect(groupUnset).toHaveBeenCalledWith('autoReviewProvider')
-    expect(groupUnset).toHaveBeenCalledWith('autoReviewModel')
-    expect(groupSet).toHaveBeenCalledWith('subagentMode', 'follow-main')
-  })
-
-  it('stays silent on mount, on the baseline, and when the switch stays on one provider', async () => {
-    const { project, settle, groupSet, groupUnset } = selectBench(
-      { value: { provider: 'codex', model: 'gpt-old' } },
-      [{ provider: 'codex', compactProvider: 'codex', compactModel: 'gpt-compact' }],
-    )
-
-    await settle()
-    expect(groupSet).not.toHaveBeenCalled()
-    expect(groupUnset).not.toHaveBeenCalled()
-    project({ provider: 'codex', model: 'gpt-new' })
-    await settle()
-    expect(groupSet).not.toHaveBeenCalled()
-    expect(groupUnset).not.toHaveBeenCalled()
-  })
-
-  it('leaves the routes untouched when the target provider has no group', async () => {
-    const { project, settle, groupSet, groupUnset } = selectBench({ value: { provider: 'deepseek', model: 'deep-chat' } })
-
+    // Routes now derive on the Host from the session's own provider, so the
+    // seat subscribes no write-through watcher on the directory projection.
+    expect(listeners.size).toBe(0)
+    // A provider landing from another surface (e.g. a TUI switch) writes nothing,
+    // even though the stored table holds a group for that exact provider.
     project({ provider: 'codex', model: 'gpt-switched' })
     await settle()
     expect(groupSet).not.toHaveBeenCalled()
     expect(groupUnset).not.toHaveBeenCalled()
-  })
-
-  it('warns instead of throwing when a group write fails', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    try {
-      const { project, settle, groupSet } = selectBench(
-        { value: { provider: 'deepseek', model: 'deep-chat' } },
-        [{ provider: 'codex', compactProvider: 'codex', compactModel: 'gpt-compact' }],
-      )
-      groupSet.mockRejectedValue(new Error('rpc down'))
-
-      project({ provider: 'codex', model: 'gpt-switched' })
-      await settle()
-      expect(warn).toHaveBeenCalledWith('dsh-model-switch: provider group apply failed', expect.any(Error))
-    } finally {
-      warn.mockRestore()
-    }
-  })
-
-  it('applies a group exactly once when the projection lands during the switch RPC', async () => {
-    const { face, directory, project, settle, groupSet } = selectBench(
-      { value: { provider: 'deepseek', model: 'deep-chat' } },
-      [{ provider: 'codex', compactProvider: 'codex', compactModel: 'gpt-compact' }],
-    )
-    // The official projection lands while the switch RPC is still in flight, so
-    // the RPC path and the watcher both observe this one provider change.
-    directory.select.mockImplementation(async () => {
-      project({ provider: 'codex', model: 'gpt-switched' })
-      return { ok: true }
-    })
-
+    // This plugin's own switch surface stays write-free as well.
     await expect(face.select({ provider: 'codex', model: 'gpt-switched' })).resolves.toEqual(COMMITTED)
     await settle()
-    // One writer only: the applier is the watcher, never a second inline apply.
-    expect(groupSet.mock.calls.filter(([field]) => field === 'compactProvider')).toHaveLength(1)
-    expect(groupSet.mock.calls.filter(([field]) => field === 'compactModel')).toHaveLength(1)
+    expect(groupSet).not.toHaveBeenCalled()
+    expect(groupUnset).not.toHaveBeenCalled()
+  })
+
+  it('disposes cleanly with no watcher subscription to unwind', async () => {
+    const { project, settle, groupSet, groupUnset, listeners, dispose } = selectBench(
+      { value: { provider: 'deepseek', model: 'deep-chat' } },
+      [{ provider: 'codex', compactProvider: 'codex', compactModel: 'gpt-compact' }],
+    )
+
+    dispose()
+    expect(listeners.size).toBe(0)
+    // A provider change observed after teardown must not resurrect a write.
+    project({ provider: 'codex', model: 'gpt-switched' })
+    await settle()
+    expect(groupSet).not.toHaveBeenCalled()
+    expect(groupUnset).not.toHaveBeenCalled()
   })
 
   it('uses non-strict lookup for the optional interaction service', () => {

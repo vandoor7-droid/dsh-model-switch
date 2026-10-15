@@ -33,6 +33,7 @@ function faceProps(loadCapabilities: unknown) {
   const autoReviewSettings = snapshot({})
   const compactionSettings = snapshot({})
   const subagentSettings = snapshot({ mode: 'follow-main' })
+  const titleSettings = snapshot({})
   return {
     t: (key: string) => key,
     capabilities: {
@@ -46,6 +47,7 @@ function faceProps(loadCapabilities: unknown) {
     useCompactionSettings: (selector: (value: unknown) => unknown) => selector(compactionSettings),
     useSwitchSettings: (selector: (value: unknown) => unknown) => selector(switchSettings),
     useSubagentSettings: (selector: (value: unknown) => unknown) => selector(subagentSettings),
+    useTitleSettings: (selector: (value: unknown) => unknown) => selector(titleSettings),
     setSubagent: vi.fn(),
     setCapability: vi.fn(),
     loadCapabilities,

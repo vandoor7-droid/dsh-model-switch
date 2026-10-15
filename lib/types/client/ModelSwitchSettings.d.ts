@@ -7,7 +7,7 @@ import { type ProviderGroupConfig } from '../provider-group.js';
 import type { RuntimeCapabilities } from '../runtime-capabilities.js';
 import { type CapabilitiesSnapshot } from './search-capabilities.js';
 import type { ModelSwitchLocaleKey } from './locales.js';
-import type { ConfigViewForm } from './derived-config-form.js';
+import type { ConfigViewForm, ConfigViewOp } from './derived-config-form.js';
 export interface ModelSwitchSettingsFace {
     t: (key: ModelSwitchLocaleKey) => string;
     hooks: {
@@ -16,11 +16,16 @@ export interface ModelSwitchSettingsFace {
         imageSettings: ConfigViewForm<CapabilityRouteView>;
         autoReviewSettings: ConfigViewForm<CapabilityRouteView>;
         compactionSettings: ConfigViewForm<CapabilityRouteView>;
+        titleSettings: ConfigViewForm<CapabilityRouteView>;
         switchSettings: Pick<ConfigForm<ModelSwitchSettingsView>, 'getSnapshot' | 'subscribe'>;
     };
     capabilities: RuntimeCapabilities;
-    setSubagent: (field: 'mode' | 'provider' | 'model' | 'reasoningEffort', value: string | undefined) => Promise<void>;
-    setCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction', field: 'provider' | 'model', value: string | undefined) => Promise<void>;
+    /**
+     * Apply one row's changes as a SINGLE revision-fenced write, so a refused
+     * write can never leave a half-written provider/model pair behind.
+     */
+    saveSubagent: (ops: readonly ConfigViewOp<SubagentSettingsView>[]) => Promise<void>;
+    saveCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction' | 'title', ops: readonly ConfigViewOp<CapabilityRouteView>[]) => Promise<void>;
     setCompactOnSwitch: (value: boolean) => Promise<void>;
     /** Replace or remove (undefined) one provider's saved capability group. */
     saveProviderGroup: (provider: string, group: ProviderGroupConfig | undefined) => Promise<void>;

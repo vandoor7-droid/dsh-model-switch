@@ -10,6 +10,7 @@ it('preserves existing global search and custom fetch pins through real patch co
     { id: 'subagent', name: '@deepseek-ai/dsh-subagent' },
     { id: 'auto-review', name: '@deepseek-ai/dsh-experimental-auto-review' },
     { id: 'compaction-basic', name: '@deepseek-ai/dsh-compaction-basic' },
+    { id: 'session-title-llm', name: '@deepseek-ai/dsh-session-title-first-prompt-llm' },
     // The shipped preset rows this patch replaces wholesale so the Web
     // surface's preset-nested compaction group runs the routed engine.
     { id: 'preset-standard', name: '@deepseek-ai/dsh-agent-preset' },
@@ -20,4 +21,9 @@ it('preserves existing global search and custom fetch pins through real patch co
   expect(composed.find(entry => entry.id === 'web')?.config).toEqual({ searchProvider: 'previous-search', fetchProvider: 'custom-fetch' })
   expect(composed.find(entry => entry.id === 'compaction-basic')?.disabled).toBe(true)
   expect(composed.some(entry => entry.id === 'model-switch-compaction')).toBe(true)
+  expect(composed.find(entry => entry.id === 'session-title-llm')?.disabled).toBe(true)
+  expect(composed.some(entry => entry.id === 'model-switch-session-title')).toBe(true)
+  // Disabling keeps the original row in the tree, so the replacement's own row
+  // id is what carries the configurable route.
+  expect(composed.find(entry => entry.id === 'model-switch-session-title')?.name).toBe('dsh-model-switch/session-title')
 })
