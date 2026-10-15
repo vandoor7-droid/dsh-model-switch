@@ -28,6 +28,7 @@ This repository inherits `../AGENTS.md`; read it before changing this checkout.
   2. `pnpm run check` 全绿（tsc + tsdown + 全部测试 + pack 闸门）；
   3. 提交，并打与版本号一致的标签 `vX.Y.Z`（工作流强制校验 `v` + package.json version 一致，不一致直接失败）；
   4. `git push && git push origin vX.Y.Z`——标签即发布，无需其他操作。
+- 发布自主权（2026-10-15 起）：**功能性/行为性更新（大更新）在推送到 `main` 后直接按上面的序列发版、打标签、推标签，无需逐次等用户确认**；**纯文档/措辞更新只推送 `main`，不发包、不打标签**。判定看改动是否触及运行时或用户可见行为（`src/`、构建产物 `lib/`、`cordis.patch.yml`、`package.json` 版本与依赖、`PRODUCT.md` 的冻结范围）——只改 `README*`、`docs/`、`CHANGELOG.md` 措辞、代码注释的属于“只推送”。拿不准时按“只推送”处理，等用户明示后再发。
 - 发布前提：npmjs.com 该包的 Trusted Publisher 已配置为 GitHub Actions（`vandoor7-droid` / `dsh-model-switch` / `release.yml`，Environment 留空）。该配置闲置不用会过期，长期未发版后应在推标签前重新确认。
 - `workflow_dispatch` 只跑发布闸门、绝不发布；只有标签触发才会 `npm publish`。本地改完版本但尚未打标签时，仓库随时可继续提交，不存在误发风险。
 - 发布后核对：npm `latest` dist-tag 指向新版本、GitHub Release 已生成；失败时看 Actions 日志中的 OIDC 校验步骤（它会给出授权缺失等明确错误）。
