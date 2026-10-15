@@ -2,7 +2,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Entry, Loader } from '@deepseek-ai/cordis-plugin-loader'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
 import type {} from '@deepseek-ai/dsh-compaction'
+import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
+import type { Session } from '@deepseek-ai/dsh-session'
 import type { ModelSwitchSettings } from './host-settings.js'
+import { resolveCapabilityRoute, sessionProviderOf } from './session-route.js'
 
 /** Official compaction row this module supersedes. */
 const OFFICIAL_COMPACTION_ROW = 'compaction-basic'
@@ -24,16 +27,21 @@ type MountedEngine = Awaited<ReturnType<Context['plugin']>>
 /**
  * Both identifiers trimmed and non-empty; undefined means "official default".
  *
- * The summarization route stays deployment-wide on purpose. The official
- * compaction transaction durably records the provider/model that wrote the
- * summary, so a per-session rewrite of the summarization call would make that
- * record false; a deployment that needs provider-scoped summarization uses the
- * official exact-target `modelPolicies` table, which this row forwards
- * verbatim from the profile's `compaction-basic` row config.
+ * Each summarization call derives its route per session (the session's provider
+ * group → the flat compaction card → the official row's `modelPolicies` /
+ * conversation-target fallback) and mutates `options.provider`/`options.model`
+ * in place before `ctx.llm.stream(options)` so the official `summarizeWithLlm`
+ * returns and durably records the exact route that wrote the summary in
+ * `compaction/summary`.
  */
 export interface CompactionRoute {
   readonly provider: string
   readonly model: string
+}
+
+/** Public llm face the official compaction engine uses (`stream` + `resolveModelInfo`). */
+export interface CompactionLlm {
+  stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 }
 
 /** Reconcile ledger for one compaction row lifetime. */
@@ -129,6 +137,116 @@ function currentCompactionRoute(ctx: Context): CompactionRoute | undefined {
 }
 
 /**
+ * Resolve the compaction summarization route for one session id.
+ *
+ * Looks up the session from `ctx.sessions` when available, derives its current
+ * provider (`pending` selection preferred over `lastUsed`, then logged routes),
+ * and resolves the provider group's compaction pair before falling back to the
+ * deployment-wide compaction pair.
+ * @param ctx - this row's context.
+ * @param sessionId - the session id carried on `GenerateOptions.sessionId`.
+ * @returns The derived compaction route, or undefined for the engine's own route.
+ */
+export function resolveSessionCompactionRoute(ctx: Context, sessionId: string | undefined): CompactionRoute | undefined {
+  if (typeof sessionId !== 'string' || sessionId.trim() === '') return undefined
+  let settings: ModelSwitchSettings | undefined
+  try {
+    settings = ctx.get('modelSwitch', false)?.currentSettings()
+  } catch {
+    settings = undefined
+  }
+  if (!settings) return undefined
+  let session: Session | undefined
+  try {
+    const sessions = ctx.get('sessions', false) as { get?(id: string): Session | undefined } | undefined
+    session = sessions?.get?.(sessionId)
+  } catch {
+    session = undefined
+  }
+  const provider = sessionProviderOf(ctx, session)
+  return resolveCapabilityRoute(settings, provider, 'compaction')
+}
+
+/**
+ * Wrap the real llm service so `purpose === 'compaction'` calls resolve their
+ * summarization route per session while keeping `compaction/summary` truthful.
+ *
+ * `summarizeWithLlm` builds a mutable `options` literal with `purpose: 'compaction'`
+ * and `sessionId: agent.session.id`, calls `ctx.llm.stream(options)`, and then
+ * returns `{ provider: options.provider, model: options.model }` to `commitCompactionBody`.
+ * Mutating `options.provider` and `options.model` in place before delegating to
+ * `target.stream(options)` ensures the durable `compaction/summary` event
+ * records the exact provider/model that wrote the summary. All other members
+ * (such as `resolveModelInfo`) pass through bound to `real`.
+ * @param real - the host's `ctx.llm`.
+ * @param resolve - per-session route resolver; undefined keeps `options` untouched.
+ * @param onError - optional error sink when the resolver throws.
+ * @returns A transparent Proxy over `real`.
+ */
+export function compactionLlm<T extends CompactionLlm>(
+  real: T,
+  resolve: (sessionId: string) => CompactionRoute | undefined,
+  onError?: (cause: unknown) => void,
+): T {
+  return new Proxy(real, {
+    get(target, property, _receiver) {
+      if (property === 'stream') {
+        return (options: GenerateOptions): AsyncIterable<StreamChunk> => {
+          if (options.purpose === 'compaction' && typeof options.sessionId === 'string' && options.sessionId.trim() !== '') {
+            let route: CompactionRoute | undefined
+            try {
+              route = resolve(options.sessionId)
+            } catch (cause) {
+              onError?.(cause)
+              route = undefined
+            }
+            if (route !== undefined) {
+              if (Object.isFrozen(options)) {
+                return target.stream({ ...options, provider: route.provider, model: route.model })
+              }
+              options.provider = route.provider
+              options.model = route.model
+            }
+          }
+          return target.stream(options)
+        }
+      }
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+}
+
+/**
+ * Build the child context the compaction engine mounts under.
+ *
+ * When `ctx.llm` is present, shadows it with {@link compactionLlm} on an
+ * extended context so the child engine fiber resolves the per-session wrapper
+ * while registering `ctx.compaction` on the shared context tree.
+ * @param ctx - this row's context.
+ * @returns A context shadowing `llm` when available, else `ctx`.
+ */
+export function compactionScope(ctx: Context): Context {
+  let real: CompactionLlm | undefined
+  try {
+    real = ctx.get('llm', false) as CompactionLlm | undefined
+  } catch {
+    real = undefined
+  }
+  if (real === undefined) return ctx
+  return ctx.extend({
+    llm: compactionLlm(
+      real,
+      sessionId => resolveSessionCompactionRoute(ctx, sessionId),
+      cause => {
+        ctx.logger.error('model-switch: failed to resolve per-session compaction route; keeping the engine route')
+        ctx.logger.error(cause)
+      },
+    ),
+  })
+}
+
+/**
  * Whether the compaction capability is actually served from this context.
  *
  * Awaiting a plugin fiber settles even when the plugin's injections were never
@@ -169,7 +287,7 @@ async function mountEngine(
   }
   let fiber: MountedEngine | undefined
   try {
-    fiber = ctx.plugin(loaded.default as EngineClass, config)
+    fiber = compactionScope(ctx).plugin(loaded.default as EngineClass, config)
     await fiber
   } catch (cause) {
     if (fiber) {

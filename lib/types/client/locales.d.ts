@@ -4,12 +4,9 @@ export declare const zh: {
     readonly subtitle: "为子代理与能力路由设置固定模型；当前会话模型用输入框旁的选择器直接切换。";
     readonly conversationRoutes: "对话路由";
     readonly capabilityRoutes: "能力路由";
-    readonly sendProtection: "发送保护";
     readonly settingsSynced: "设置已同步";
     readonly remoteSettingsUnavailable: "官方 DSH 在非本机浏览器禁用配置读取与写入；请在 Host 的 127.0.0.1 页面打开设置。";
     readonly cancel: "取消";
-    readonly compactOnSwitch: "切换时压缩";
-    readonly compactOnSwitchHelp: "发送且换了模型时，先按目标窗口检查上下文；超了就用切换前的模型压一次历史，再继续请求。只选模型、不发送，不会压缩。官方自动压缩和 /compact 不受影响。压缩会产生额外模型用量，摘要可能省略细节。";
     readonly provider: "提供商";
     readonly model: "模型";
     readonly providerDefault: "使用提供商默认值";
@@ -46,8 +43,8 @@ export declare const zh: {
     readonly providerGroups: "供应商配置组";
     readonly providerGroupsCard: "按供应商预设路由";
     readonly providerGroupsSummary: "使用该供应商的会话自动采用对应组";
-    readonly providerGroupsHelp: "为会话命名与子代理按供应商分别保存路由。";
-    readonly providerGroupsBodyHelp: "每个供应商保存一组会话命名与子代理路由。会话自身的供应商与该组一致时，该会话的命名与子代理按组解析，否则回落到上方卡片里的全局设置。切换某个会话的模型不会写入任何全局设置，因此不同供应商的多个会话互不影响。压缩与自动审查仍是全局卡片：压缩事件要如实记录实际写入摘要的模型，审查的拦截点没有会话身份。";
+    readonly providerGroupsHelp: "为压缩、自动审查、会话命名与子代理按供应商分别保存路由。";
+    readonly providerGroupsBodyHelp: "每个供应商保存一组压缩、自动审查、会话命名与子代理路由。会话自身的供应商与该组一致时，这四项能力按组实时解析，未固定项回落到上方卡片里的全局设置。切换某个会话的模型不会写入任何全局设置，因此不同供应商的多个会话并行时互不影响，会话中切换供应商后下一次调用也会立即跟随新供应商的配置组。";
     readonly providerGroupPick: "选择供应商以编辑其配置组。";
     readonly providerGroupDelete: "删除该组";
     readonly saveTimeout: "保存超时，请重试";

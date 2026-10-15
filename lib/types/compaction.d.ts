@@ -1,6 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis';
 import type { Entry, Loader } from '@deepseek-ai/cordis-plugin-loader';
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic';
+import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm';
 /** Cordis plugin identity; matches the cordis.patch.yml insert row id. */
 export declare const name = "model-switch-compaction";
 /** The loader is awaited at row activation; settings and the official row are still read structurally so stock compaction survives a disabled Model Switch row. */
@@ -8,16 +9,20 @@ export declare const inject: string[];
 /**
  * Both identifiers trimmed and non-empty; undefined means "official default".
  *
- * The summarization route stays deployment-wide on purpose. The official
- * compaction transaction durably records the provider/model that wrote the
- * summary, so a per-session rewrite of the summarization call would make that
- * record false; a deployment that needs provider-scoped summarization uses the
- * official exact-target `modelPolicies` table, which this row forwards
- * verbatim from the profile's `compaction-basic` row config.
+ * Each summarization call derives its route per session (the session's provider
+ * group → the flat compaction card → the official row's `modelPolicies` /
+ * conversation-target fallback) and mutates `options.provider`/`options.model`
+ * in place before `ctx.llm.stream(options)` so the official `summarizeWithLlm`
+ * returns and durably records the exact route that wrote the summary in
+ * `compaction/summary`.
  */
 export interface CompactionRoute {
     readonly provider: string;
     readonly model: string;
+}
+/** Public llm face the official compaction engine uses (`stream` + `resolveModelInfo`). */
+export interface CompactionLlm {
+    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;
 }
 /**
  * Resolve the configurable summarization route from live settings.
@@ -48,6 +53,45 @@ export declare function officialCompactionEntry(loader: Loader | undefined): Ent
  * @returns A plain object spread; missing or invalid configs become `{}`.
  */
 export declare function forwardedConfig(entry: Entry): BasicCompactionConfig;
+/**
+ * Resolve the compaction summarization route for one session id.
+ *
+ * Looks up the session from `ctx.sessions` when available, derives its current
+ * provider (`pending` selection preferred over `lastUsed`, then logged routes),
+ * and resolves the provider group's compaction pair before falling back to the
+ * deployment-wide compaction pair.
+ * @param ctx - this row's context.
+ * @param sessionId - the session id carried on `GenerateOptions.sessionId`.
+ * @returns The derived compaction route, or undefined for the engine's own route.
+ */
+export declare function resolveSessionCompactionRoute(ctx: Context, sessionId: string | undefined): CompactionRoute | undefined;
+/**
+ * Wrap the real llm service so `purpose === 'compaction'` calls resolve their
+ * summarization route per session while keeping `compaction/summary` truthful.
+ *
+ * `summarizeWithLlm` builds a mutable `options` literal with `purpose: 'compaction'`
+ * and `sessionId: agent.session.id`, calls `ctx.llm.stream(options)`, and then
+ * returns `{ provider: options.provider, model: options.model }` to `commitCompactionBody`.
+ * Mutating `options.provider` and `options.model` in place before delegating to
+ * `target.stream(options)` ensures the durable `compaction/summary` event
+ * records the exact provider/model that wrote the summary. All other members
+ * (such as `resolveModelInfo`) pass through bound to `real`.
+ * @param real - the host's `ctx.llm`.
+ * @param resolve - per-session route resolver; undefined keeps `options` untouched.
+ * @param onError - optional error sink when the resolver throws.
+ * @returns A transparent Proxy over `real`.
+ */
+export declare function compactionLlm<T extends CompactionLlm>(real: T, resolve: (sessionId: string) => CompactionRoute | undefined, onError?: (cause: unknown) => void): T;
+/**
+ * Build the child context the compaction engine mounts under.
+ *
+ * When `ctx.llm` is present, shadows it with {@link compactionLlm} on an
+ * extended context so the child engine fiber resolves the per-session wrapper
+ * while registering `ctx.compaction` on the shared context tree.
+ * @param ctx - this row's context.
+ * @returns A context shadowing `llm` when available, else `ctx`.
+ */
+export declare function compactionScope(ctx: Context): Context;
 /**
  * Whether the compaction capability is actually served from this context.
  *

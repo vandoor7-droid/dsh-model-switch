@@ -8,7 +8,7 @@ describe('Host runtime surface', () => {
     expect(ModelSwitchRuntime.inject ?? []).toEqual([])
   })
   it('defaults Subagent to follow-main and retains unavailable choices in volatile config', () => {
-    expect(readConfig(Config({}))).toEqual({ subagentMode: 'follow-main', compactOnSwitch: true })
+    expect(readConfig(Config({}))).toEqual({ subagentMode: 'follow-main' })
     expect(readConfig(Config({ subagentMode: 'fixed', subagentProvider: 'not-installed', subagentModel: 'remember-me' }))).toMatchObject({
       subagentMode: 'fixed', subagentProvider: 'not-installed', subagentModel: 'remember-me',
     })

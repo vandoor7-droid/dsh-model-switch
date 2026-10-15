@@ -5,17 +5,20 @@
  * reviewer to the session's own request route (`header.config`). This row runs
  * the official `apply` under a scoped child context whose `llm` service is
  * shadowed by a wrapper that rewrites only `stream()`'s provider/model — and
- * only while the profile has a complete reviewer route configured. With no
- * route configured the wrapper passes options through by identity, so the
- * reviewer follows the session model exactly.
+ * only when the reviewing session's derived route (its provider group's
+ * reviewer pair, else the deployment-wide reviewer card) pins one. With no
+ * route pinned the wrapper passes options through by identity, so the reviewer
+ * follows the session model exactly.
  *
- * The reviewer route is deliberately DEPLOYMENT-WIDE. The official gate builds
- * its request with no session id and no purpose and closes over the single
- * context it was applied with, so this plugin has no public way to tell which
- * session a review serves; guessing one would attribute a review to the wrong
- * session and make the recorded reviewer route false. The unsupported
- * per-session reviewer route is recorded in `docs/seam-gap.md` with the public
- * seam it would need.
+ * Although the official gate omits `sessionId` and `purpose` from its frozen
+ * `GenerateOptions`, its `tools/pre-execute` waterfall listener receives
+ * `exec.agent` (`exec.agent.session`). After running `official.apply(scope)`,
+ * this module registers a `{ prepend: true }` `tools/pre-execute` listener on
+ * the same scope — which Cordis places ahead of the official gate's listener in
+ * the waterfall — and binds `exec.agent?.session` in an `AsyncLocalStorage`
+ * scope around `next()`. Every `scope.llm.stream()` call from `classifyRisk`
+ * therefore resolves the exact session being reviewed, with zero cross-session
+ * interference when multiple sessions review tool calls concurrently.
  *
  * The official gate stays an opt-in capability: the row mounts it only when
  * the profile actually started with the experimental-auto-review bundle.
@@ -25,9 +28,13 @@
  * @module dsh-model-switch/auto-review
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import type {} from './host-runtime.js'
+import type { Session } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-tools'
+import type { ModelSwitchSettings } from './host-settings.js'
+import { resolveCapabilityRoute, sessionProviderOf } from './session-route.js'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'model-switch-auto-review'
@@ -92,13 +99,56 @@ export function reviewLlm(real: ReviewLlm, route: () => AutoReviewRoute | undefi
 }
 
 /**
+ * Resolve the reviewer route for one session (or deployment-wide when no session is bound).
+ *
+ * @param ctx - host context whose modelSwitch settings and sessionProjections derive the route.
+ * @param session - the session whose tool call is being reviewed, when known.
+ * @returns The derived reviewer route, or undefined to follow the session model.
+ */
+export function resolveSessionAutoReviewRoute(ctx: Context, session?: Session): AutoReviewRoute | undefined {
+  let settings: ModelSwitchSettings | undefined
+  try {
+    settings = ctx.modelSwitch.currentSettings()
+  } catch {
+    settings = undefined
+  }
+  const provider = sessionProviderOf(ctx, session)
+  return resolveCapabilityRoute(settings, provider, 'autoReview')
+}
+
+/**
+ * Install the outer `tools/pre-execute` correlation listener ahead of the official gate.
+ *
+ * Because Cordis `on(..., { prepend: true })` unshifts onto the event hook list,
+ * registering this listener AFTER `official.apply(scope)` places it at index 0
+ * — directly ahead of the official gate's own prepended listener — so
+ * `activeSession.run(exec.agent?.session, next)` wraps the entire official
+ * review execution.
+ *
+ * @param scope - the review scope context where the gate is mounted.
+ * @param activeSession - AsyncLocalStorage holding the session under review.
+ */
+export function bindAutoReviewSessionCorrelation(
+  scope: Context,
+  activeSession: AsyncLocalStorage<Session | undefined>,
+): void {
+  scope.effect(function* () {
+    yield scope.on('tools/pre-execute', (exec, next) => activeSession.run(exec.agent?.session, next), { prepend: true })
+  }, 'model-switch: auto-review session correlation')
+}
+
+/**
  * Build the scoped context the official gate runs under.
  * @param ctx - host context whose modelSwitch settings pin the reviewer route.
+ * @param activeSession - optional AsyncLocalStorage correlating each `tools/pre-execute` call to its session.
  * @returns A child context shadowing only the llm service.
  */
-export function reviewScope(ctx: Context): Context {
+export function reviewScope(
+  ctx: Context,
+  activeSession: AsyncLocalStorage<Session | undefined> = new AsyncLocalStorage<Session | undefined>(),
+): Context {
   return ctx.extend({
-    llm: reviewLlm(ctx.llm, () => autoReviewRouteOf(ctx.modelSwitch.currentSettings())),
+    llm: reviewLlm(ctx.llm, () => resolveSessionAutoReviewRoute(ctx, activeSession.getStore())),
   })
 }
 
@@ -135,8 +185,11 @@ export async function apply(ctx: Context): Promise<void> {
     ctx.logger.error(cause)
     return
   }
+  const activeSession = new AsyncLocalStorage<Session | undefined>()
+  const scope = reviewScope(ctx, activeSession)
   try {
-    official.apply(reviewScope(ctx))
+    official.apply(scope)
+    bindAutoReviewSessionCorrelation(scope, activeSession)
   } catch (cause) {
     // registerAuto is single-registration: an already-active official row owns
     // the gate, and a second one must fail loudly without tearing it down.

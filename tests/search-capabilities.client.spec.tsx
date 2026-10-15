@@ -29,7 +29,7 @@ function faceProps(loadCapabilities: unknown) {
   // Stable hook snapshots: the component reads them every render, so they must keep identity.
   const searchSettings = snapshot({ provider: 'codex', model: 'gpt-search' })
   const imageSettings = snapshot({ provider: 'grok', model: 'grok-imagine-image-quality' })
-  const switchSettings = snapshot({ compactOnSwitch: true })
+  const switchSettings = snapshot({})
   const autoReviewSettings = snapshot({})
   const compactionSettings = snapshot({})
   const subagentSettings = snapshot({ mode: 'follow-main' })

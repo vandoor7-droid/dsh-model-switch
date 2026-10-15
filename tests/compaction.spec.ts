@@ -1,18 +1,24 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Entry, Loader } from '@deepseek-ai/cordis-plugin-loader'
+import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import {
   apply,
+  compactionLlm,
   compactionRouteOf,
+  compactionScope,
   composeCompactionConfig,
   forwardedConfig,
   inject,
   name,
   officialCompactionEntry,
+  resolveSessionCompactionRoute,
+  type CompactionLlm,
 } from '../src/compaction.ts'
 
 /** Every engine construction, in order: the composed config each mount received. */
 const mounts = vi.hoisted(() => [] as Record<string, unknown>[])
+const seenContexts = vi.hoisted(() => [] as Context[])
 
 vi.mock('@deepseek-ai/dsh-compaction-basic', async () => {
   const { Service } = await import('@deepseek-ai/cordis')
@@ -22,6 +28,7 @@ vi.mock('@deepseek-ai/dsh-compaction-basic', async () => {
     constructor(ctx: Context, config: Record<string, unknown> = {}) {
       super(ctx, 'compaction')
       mounts.push({ ...config })
+      seenContexts.push(this.ctx as Context)
       if (config.summarizationProvider === 'poison') throw new Error('route rejected')
       // `auto: 'unactivated'` mirrors a fiber whose injections were never
       // satisfied: the service exists but exposes none of the engine's public
@@ -42,7 +49,8 @@ function officialRow(config: Record<string, unknown> = { auto: false }): Record<
 function bench(options: { settings?: Record<string, unknown>; entries?: unknown[]; host?: boolean } = {}) {
   const ctx = new Context()
   mounts.length = 0
-  const settings: Record<string, unknown> = { compactOnSwitch: true, ...options.settings }
+  seenContexts.length = 0
+  const settings: Record<string, unknown> = { ...options.settings }
   if (options.host !== false) ctx.provide('modelSwitch', { currentSettings: () => ({ ...settings }) } as never)
   const entries = options.entries ?? [officialRow()]
   ctx.provide('loader', { entries: () => entries.values() } as never)
@@ -230,5 +238,172 @@ describe('apply', () => {
     await vi.waitFor(() => {
       expect(mounts.length).toBeGreaterThanOrEqual(2)
     })
+  })
+
+  it('mounts the engine under compactionScope so the child fiber sees the per-session llm wrapper while parent ctx.llm stays untouched', async () => {
+    const { ctx, settings } = bench({
+      settings: {
+        compactProvider: 'global-p',
+        compactModel: 'global-m',
+        providerGroups: {
+          codex: { compactProvider: 'group-p', compactModel: 'group-m' },
+        },
+      },
+    })
+    async function* chunks(): AsyncGenerator<StreamChunk> {}
+    const stream = vi.fn((_opts: GenerateOptions) => chunks())
+    const resolveModelInfo = vi.fn(async (provider: string, model: string) => ({ provider, id: model }))
+    const realLlm = { stream, resolveModelInfo }
+    ctx.provide('llm', realLlm as never)
+
+    const sessionState = { provider: 'codex' }
+    const session = {
+      id: 'session-1',
+      requestContext: () => ({ provider: sessionState.provider, model: 'gpt-5' }),
+      requestHeader: () => undefined,
+    }
+    ctx.provide('sessions', { get: (id: string) => id === 'session-1' ? session : undefined } as never)
+
+    await apply(ctx)
+    expect(ctx.llm).toBe(realLlm)
+    const engineLlm = seenContexts[0]?.llm as unknown as typeof realLlm
+    expect(engineLlm).toBeDefined()
+    expect(engineLlm).not.toBe(realLlm)
+
+    // `resolveModelInfo` passes through to the real service untouched.
+    await expect(engineLlm.resolveModelInfo('codex', 'gpt-5')).resolves.toEqual({ provider: 'codex', id: 'gpt-5' })
+    expect(resolveModelInfo).toHaveBeenCalledWith('codex', 'gpt-5')
+
+    // A compaction summarization call mutates options in place so `summarizeWithLlm`
+    // records the exact provider/model that wrote the summary in `compaction/summary`.
+    const options = {
+      provider: 'global-p',
+      model: 'global-m',
+      sessionId: 'session-1',
+      purpose: 'compaction',
+      messages: [],
+    } as unknown as GenerateOptions
+    void engineLlm.stream(options)
+    expect(options.provider).toBe('group-p')
+    expect(options.model).toBe('group-m')
+    expect(stream).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'group-p', model: 'group-m' }))
+
+    // Mid-session provider switch: switching the session to an ungrouped provider
+    // immediately falls back to the deployment-wide pair without remounting the engine.
+    sessionState.provider = 'deepseek'
+    const secondOptions = {
+      provider: 'codex',
+      model: 'gpt-5',
+      sessionId: 'session-1',
+      purpose: 'compaction',
+      messages: [],
+    } as unknown as GenerateOptions
+    void engineLlm.stream(secondOptions)
+    expect(secondOptions.provider).toBe('global-p')
+    expect(secondOptions.model).toBe('global-m')
+    expect(mounts).toHaveLength(1)
+
+    // Updating providerGroups in settings takes effect on the next call with zero remounts.
+    settings.providerGroups = {
+      deepseek: { compactProvider: 'ds-compact-p', compactModel: 'ds-compact-m' },
+    }
+    const thirdOptions = {
+      provider: 'deepseek',
+      model: 'deep-chat',
+      sessionId: 'session-1',
+      purpose: 'compaction',
+      messages: [],
+    } as unknown as GenerateOptions
+    void engineLlm.stream(thirdOptions)
+    expect(thirdOptions.provider).toBe('ds-compact-p')
+    expect(thirdOptions.model).toBe('ds-compact-m')
+    expect(mounts).toHaveLength(1)
+  })
+})
+
+describe('compactionLlm & resolveSessionCompactionRoute', () => {
+  async function* chunks(): AsyncGenerator<StreamChunk> {}
+
+  it('passes non-compaction or sessionless calls through untouched', () => {
+    const stream = vi.fn((_opts: GenerateOptions) => chunks())
+    const resolve = vi.fn(() => ({ provider: 'group-p', model: 'group-m' }))
+    const wrapped = compactionLlm({ stream } as CompactionLlm, resolve)
+
+    const chatOpts = { provider: 'orig-p', model: 'orig-m', sessionId: 's1', messages: [] } as unknown as GenerateOptions
+    void wrapped.stream(chatOpts)
+    expect(resolve).not.toHaveBeenCalled()
+    expect(chatOpts.provider).toBe('orig-p')
+
+    const noSessionOpts = { provider: 'orig-p', model: 'orig-m', purpose: 'compaction', messages: [] } as unknown as GenerateOptions
+    void wrapped.stream(noSessionOpts)
+    expect(resolve).not.toHaveBeenCalled()
+    expect(noSessionOpts.provider).toBe('orig-p')
+  })
+
+  it('copies frozen options instead of throwing and recovers when the resolver throws', () => {
+    const stream = vi.fn((_opts: GenerateOptions) => chunks())
+    const onError = vi.fn()
+    let shouldThrow = false
+    const wrapped = compactionLlm(
+      { stream } as CompactionLlm,
+      () => {
+        if (shouldThrow) throw new Error('boom')
+        return { provider: 'group-p', model: 'group-m' }
+      },
+      onError,
+    )
+
+    const frozen = Object.freeze({
+      provider: 'orig-p',
+      model: 'orig-m',
+      sessionId: 's1',
+      purpose: 'compaction',
+      messages: [],
+    }) as unknown as GenerateOptions
+    void wrapped.stream(frozen)
+    expect(stream).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'group-p', model: 'group-m' }))
+    expect(frozen.provider).toBe('orig-p')
+
+    shouldThrow = true
+    const mutable = {
+      provider: 'orig-p',
+      model: 'orig-m',
+      sessionId: 's1',
+      purpose: 'compaction',
+      messages: [],
+    } as unknown as GenerateOptions
+    void wrapped.stream(mutable)
+    expect(onError).toHaveBeenCalledOnce()
+    expect(mutable.provider).toBe('orig-p')
+    expect(stream).toHaveBeenLastCalledWith(mutable)
+  })
+
+  it('prefers the pending modelSelection projection when resolving a session compaction route', () => {
+    const { ctx } = bench({
+      settings: {
+        providerGroups: {
+          codex: { compactProvider: 'codex-c', compactModel: 'gpt-c' },
+          grok: { compactProvider: 'grok-c', compactModel: 'grok-m' },
+        },
+      },
+    })
+    const projection = {
+      lastUsed: { provider: 'codex', model: 'gpt-5' },
+      pending: { provider: 'grok', model: 'grok-4' } as { provider: string; model: string } | null,
+    }
+    const session = {
+      id: 's1',
+      requestContext: () => ({ provider: 'codex', model: 'gpt-5' }),
+      requestHeader: () => undefined,
+    }
+    ctx.provide('sessions', { get: (id: string) => id === 's1' ? session : undefined } as never)
+    ctx.provide('sessionProjections', { stateOf: () => projection } as never)
+
+    expect(resolveSessionCompactionRoute(ctx, 's1')).toEqual({ provider: 'grok-c', model: 'grok-m' })
+    projection.pending = null
+    expect(resolveSessionCompactionRoute(ctx, 's1')).toEqual({ provider: 'codex-c', model: 'gpt-c' })
+    expect(resolveSessionCompactionRoute(ctx, '')).toBeUndefined()
+    expect(resolveSessionCompactionRoute(ctx, undefined)).toBeUndefined()
+    expect(compactionScope(ctx)).toBe(ctx)
   })
 })

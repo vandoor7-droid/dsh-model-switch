@@ -1,7 +1,19 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
-import { apply, autoReviewRouteOf, inject, name, reviewLlm, reviewScope, type ReviewLlm } from '../src/auto-review.ts'
+import type { Session } from '@deepseek-ai/dsh-session'
+import {
+  apply,
+  autoReviewRouteOf,
+  bindAutoReviewSessionCorrelation,
+  inject,
+  name,
+  resolveSessionAutoReviewRoute,
+  reviewLlm,
+  reviewScope,
+  type ReviewLlm,
+} from '../src/auto-review.ts'
 
 const BUNDLE = '@deepseek-ai/dsh-experimental-auto-review'
 
@@ -25,7 +37,7 @@ function bench(options: { startedBundles?: string[] | undefined; auto?: boolean;
   const registerAuto = options.auto === true
     ? vi.fn(() => { throw new Error(`permission: "${'auto'}" is already registered`) })
     : vi.fn(() => () => undefined)
-  const currentSettings = vi.fn(() => ({ compactOnSwitch: true, ...options.settings }))
+  const currentSettings = vi.fn(() => ({ ...options.settings }))
   ctx.provide('modelSwitch', { currentSettings } as never)
   ctx.provide('llm', { stream } as never)
   ctx.provide('permissionPresets', { registerAuto, current: () => 'safe', set: vi.fn() } as never)
@@ -124,10 +136,75 @@ describe('reviewScope', () => {
 
     // Unpinning flips the very next review back to the session route.
     const settings = { autoReviewProvider: 'pin-p', autoReviewModel: 'pin-m' }
-    currentSettings.mockImplementation(() => ({ compactOnSwitch: true, ...settings }))
+    currentSettings.mockImplementation(() => ({ ...settings }))
     settings.autoReviewProvider = ''
     void scope.llm.stream(routeOptions('session-p', 'session-m'))
     expect(stream).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'session-p', model: 'session-m' }))
+  })
+
+  it('correlates parallel tools/pre-execute waterfalls to their own sessions and follows mid-session provider switches', async () => {
+    const settings: Record<string, unknown> = {
+      autoReviewProvider: 'global-p',
+      autoReviewModel: 'global-m',
+      providerGroups: {
+        codex: { autoReviewProvider: 'codex-rev-p', autoReviewModel: 'codex-rev-m' },
+        grok: { autoReviewProvider: 'grok-rev-p', autoReviewModel: 'grok-rev-m' },
+      },
+    }
+    const { ctx, stream } = bench({ settings })
+    const projections = new Map<object, { lastUsed?: { provider: string } | null; pending?: { provider: string } | null }>()
+    ctx.provide('sessionProjections', { stateOf: (session: object) => projections.get(session) } as never)
+
+    const sessionA = {
+      requestContext: () => ({ provider: 'codex', model: 'gpt-5' }),
+      requestHeader: () => undefined,
+    } as unknown as Session
+    const sessionB = {
+      requestContext: () => ({ provider: 'grok', model: 'grok-4' }),
+      requestHeader: () => undefined,
+    } as unknown as Session
+    const sessionUngrouped = {
+      requestContext: () => ({ provider: 'deepseek', model: 'deep-chat' }),
+      requestHeader: () => undefined,
+    } as unknown as Session
+
+    const activeSession = new AsyncLocalStorage<Session | undefined>()
+    const scope = reviewScope(ctx, activeSession)
+
+    // Register a fake gate listener first (just like official.apply(scope) does),
+    // then bindAutoReviewSessionCorrelation afterwards so its { prepend: true }
+    // listener sits ahead of the gate listener in the waterfall.
+    scope.on('tools/pre-execute', async (_exec: { agent?: { session?: Session } }, next: () => Promise<unknown>) => {
+      await new Promise(resolve => setTimeout(resolve, Math.random() * 5))
+      const frozen = Object.freeze(routeOptions('session-orig-p', 'session-orig-m'))
+      void scope.llm.stream(frozen)
+      return next()
+    }, { prepend: true })
+    bindAutoReviewSessionCorrelation(scope, activeSession)
+
+    // Dispatch two tool calls in parallel for sessions on different providers.
+    await Promise.all([
+      scope.waterfall('tools/pre-execute', { agent: { session: sessionA } } as never, async () => ({ kind: 'allow' as const })),
+      scope.waterfall('tools/pre-execute', { agent: { session: sessionB } } as never, async () => ({ kind: 'allow' as const })),
+    ])
+
+    const seenRoutes = stream.mock.calls.map(call => {
+      const arg = (call as unknown as [GenerateOptions])[0]
+      return { provider: arg.provider, model: arg.model }
+    })
+    expect(seenRoutes).toContainEqual({ provider: 'codex-rev-p', model: 'codex-rev-m' })
+    expect(seenRoutes).toContainEqual({ provider: 'grok-rev-p', model: 'grok-rev-m' })
+
+    // Mid-session provider switch on sessionA (pending selection -> grok) switches
+    // the very next review to grok's reviewer group without writing global settings.
+    projections.set(sessionA, { lastUsed: { provider: 'codex' }, pending: { provider: 'grok' } })
+    await scope.waterfall('tools/pre-execute', { agent: { session: sessionA } } as never, async () => ({ kind: 'allow' as const }))
+    expect(stream).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'grok-rev-p', model: 'grok-rev-m' }))
+
+    // Ungrouped session falls back to the deployment-wide reviewer pair.
+    await scope.waterfall('tools/pre-execute', { agent: { session: sessionUngrouped } } as never, async () => ({ kind: 'allow' as const }))
+    expect(stream).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'global-p', model: 'global-m' }))
+    expect(resolveSessionAutoReviewRoute(ctx, sessionUngrouped)).toEqual({ provider: 'global-p', model: 'global-m' })
   })
 })
 

@@ -10,7 +10,6 @@ export interface ModelSwitchSettingsView {
     searchModel?: string;
     imageProvider?: string;
     imageModel?: string;
-    compactOnSwitch?: boolean;
     autoReviewProvider?: string;
     autoReviewModel?: string;
     compactProvider?: string;

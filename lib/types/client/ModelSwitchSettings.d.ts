@@ -26,7 +26,6 @@ export interface ModelSwitchSettingsFace {
      */
     saveSubagent: (ops: readonly ConfigViewOp<SubagentSettingsView>[]) => Promise<void>;
     saveCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction' | 'title', ops: readonly ConfigViewOp<CapabilityRouteView>[]) => Promise<void>;
-    setCompactOnSwitch: (value: boolean) => Promise<void>;
     /** Replace or remove (undefined) one provider's saved capability group. */
     saveProviderGroup: (provider: string, group: ProviderGroupConfig | undefined) => Promise<void>;
     loadCatalog: () => Promise<readonly ModelProviderGroup[]>;

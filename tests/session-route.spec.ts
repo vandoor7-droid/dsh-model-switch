@@ -11,14 +11,17 @@ import {
   type RouteBearingSettings,
 } from '../src/session-route.js'
 
-/** One provider's saved group: a naming pin, a subagent pin, and one blank field. */
+/** One provider's saved group: compaction, auto-review, naming, and subagent pins. */
 const codexGroup = {
+  compactProvider: 'grok',
+  compactModel: 'grok-compact',
+  autoReviewProvider: 'grok',
+  autoReviewModel: 'grok-review',
   titleProvider: 'grok',
   titleModel: 'grok-title',
   subagentProvider: 'grok',
   subagentModel: 'grok-fast',
   subagentReasoningEffort: 'low',
-  autoReviewModel: '  ',
 }
 
 /** Deployment-wide flat routes plus the saved group table. */
@@ -78,7 +81,9 @@ describe('deploymentRoute', () => {
 })
 
 describe('groupRoute', () => {
-  it('returns the saved pair for the provider the session reports', () => {
+  it('returns the saved pair for the provider the session reports across all four capabilities', () => {
+    expect(groupRoute(settings(), 'codex', 'compaction')).toEqual({ provider: 'grok', model: 'grok-compact' })
+    expect(groupRoute(settings(), 'codex', 'autoReview')).toEqual({ provider: 'grok', model: 'grok-review' })
     expect(groupRoute(settings(), 'codex', 'title')).toEqual({ provider: 'grok', model: 'grok-title' })
     expect(groupRoute(settings(), 'codex', 'subagent')).toEqual({ provider: 'grok', model: 'grok-fast' })
   })
@@ -90,7 +95,8 @@ describe('groupRoute', () => {
   })
 
   it('ignores a blank or half-written group field instead of pinning an empty route', () => {
-    expect(groupRoute(settings(), 'codex', 'autoReview')).toBeUndefined()
+    expect(groupRoute(settings({ providerGroups: { codex: { autoReviewModel: '  ' } } }), 'codex', 'autoReview')).toBeUndefined()
+    expect(groupRoute(settings({ providerGroups: { codex: { compactProvider: 'grok' } } }), 'codex', 'compaction')).toBeUndefined()
     expect(groupRoute(settings({ providerGroups: { codex: { titleProvider: 'grok' } } }), 'codex', 'title')).toBeUndefined()
   })
 
@@ -101,12 +107,28 @@ describe('groupRoute', () => {
 })
 
 describe('resolveCapabilityRoute', () => {
-  it('prefers the session provider group over the deployment-wide pair', () => {
-    expect(resolveCapabilityRoute(settings(), 'codex', 'title')).toEqual({ provider: 'grok', model: 'grok-title' })
+  it('prefers the session provider group over the deployment-wide pair for every capability', () => {
+    const live = settings({
+      compactProvider: 'deepseek',
+      compactModel: 'deep-compact',
+      autoReviewProvider: 'deepseek',
+      autoReviewModel: 'deep-review',
+    })
+    expect(resolveCapabilityRoute(live, 'codex', 'compaction')).toEqual({ provider: 'grok', model: 'grok-compact' })
+    expect(resolveCapabilityRoute(live, 'codex', 'autoReview')).toEqual({ provider: 'grok', model: 'grok-review' })
+    expect(resolveCapabilityRoute(live, 'codex', 'title')).toEqual({ provider: 'grok', model: 'grok-title' })
   })
 
   it('falls back to the deployment-wide pair for a provider without a group', () => {
-    expect(resolveCapabilityRoute(settings(), 'deepseek', 'title')).toEqual({ provider: 'deepseek', model: 'deep-title' })
+    const live = settings({
+      compactProvider: 'deepseek',
+      compactModel: 'deep-compact',
+      autoReviewProvider: 'deepseek',
+      autoReviewModel: 'deep-review',
+    })
+    expect(resolveCapabilityRoute(live, 'deepseek', 'compaction')).toEqual({ provider: 'deepseek', model: 'deep-compact' })
+    expect(resolveCapabilityRoute(live, 'deepseek', 'autoReview')).toEqual({ provider: 'deepseek', model: 'deep-review' })
+    expect(resolveCapabilityRoute(live, 'deepseek', 'title')).toEqual({ provider: 'deepseek', model: 'deep-title' })
   })
 
   it('falls back to the deployment-wide pair when no session provider is observable', () => {
@@ -121,8 +143,10 @@ describe('resolveCapabilityRoute', () => {
     expect(resolveCapabilityRoute(settings(), 'codex', 'title')).toEqual(pinned)
   })
 
-  it('resolves one capability per call, so a group pin on naming leaves auto review alone', () => {
-    expect(resolveCapabilityRoute(settings(), 'codex', 'autoReview')).toBeUndefined()
+  it('resolves one capability per call, so a group pin on naming leaves an unpinned capability alone', () => {
+    const partial = settings({ providerGroups: { codex: { titleProvider: 'grok', titleModel: 'grok-title' } } })
+    expect(resolveCapabilityRoute(partial, 'codex', 'autoReview')).toBeUndefined()
+    expect(resolveCapabilityRoute(partial, 'codex', 'compaction')).toBeUndefined()
   })
 })
 

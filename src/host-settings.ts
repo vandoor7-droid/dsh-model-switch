@@ -14,7 +14,6 @@ export interface ModelSwitchSettings {
   searchModel?: string
   imageProvider?: string
   imageModel?: string
-  compactOnSwitch: boolean
   /** Reviewer provider for the Auto preset; both fields unset = follow the session model. */
   autoReviewProvider?: string
   /** Reviewer model for the Auto preset; set together with `autoReviewProvider`. */
@@ -41,7 +40,6 @@ export interface Config {
   searchModel: Volatile<string | undefined>
   imageProvider: Volatile<string | undefined>
   imageModel: Volatile<string | undefined>
-  compactOnSwitch: Volatile<boolean>
   autoReviewProvider: Volatile<string | undefined>
   autoReviewModel: Volatile<string | undefined>
   compactProvider: Volatile<string | undefined>
@@ -66,7 +64,6 @@ export const Config: z<any, Config, 'plain'> = z.object({
   searchModel: z.string().volatile(),
   imageProvider: z.string().volatile(),
   imageModel: z.string().volatile(),
-  compactOnSwitch: z.boolean().default(true).volatile(),
   autoReviewProvider: z.string().volatile(),
   autoReviewModel: z.string().volatile(),
   compactProvider: z.string().volatile(),
@@ -111,7 +108,6 @@ export function readConfig(config: Config): ModelSwitchSettings {
     ...(searchModel === undefined ? {} : { searchModel }),
     ...(imageProvider === undefined ? {} : { imageProvider }),
     ...(imageModel === undefined ? {} : { imageModel }),
-    compactOnSwitch: config.compactOnSwitch.get(),
     ...(autoReviewProvider === undefined || autoReviewProvider === '' ? {} : { autoReviewProvider }),
     ...(autoReviewModel === undefined || autoReviewModel === '' ? {} : { autoReviewModel }),
     ...(compactProvider === undefined || compactProvider === '' ? {} : { compactProvider }),

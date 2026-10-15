@@ -8,7 +8,6 @@ export interface ModelSwitchSettingsView {
   subagentProvider?: string; subagentModel?: string; subagentReasoningEffort?: string
   searchProvider?: string; searchModel?: string
   imageProvider?: string; imageModel?: string
-  compactOnSwitch?: boolean
   autoReviewProvider?: string; autoReviewModel?: string
   compactProvider?: string; compactModel?: string
   titleProvider?: string; titleModel?: string

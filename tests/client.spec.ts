@@ -39,7 +39,7 @@ function form<T>(value: T, revision = 7) {
   return { form: result, set, unset }
 }
 
-function ctxWith(ownedValue: ModelSwitchSettingsView = { subagentMode: 'follow-main', compactOnSwitch: true }) {
+function ctxWith(ownedValue: ModelSwitchSettingsView = { subagentMode: 'follow-main' }) {
   let registration: Record<string, unknown> | undefined
   const directoryMounts: Array<(scope: unknown) => unknown> = []
   const owned = form<ModelSwitchSettingsView>(ownedValue)
@@ -132,13 +132,10 @@ describe('Client ConfigForms surface', () => {
     expect(rpc.call).toHaveBeenCalledWith('/api', 'plugin-rpc/model-switch', { endpoint: 'capabilities', payload: { revision: 4 } }, undefined)
   })
 
-  it('maps compact switch edits through the owned ConfigForm and surfaces refusal', async () => {
-    const { registration, owned } = ctxWith()
-    const face = (registration?.inject as () => { setCompactOnSwitch(value: boolean): Promise<void> })()
-    await expect(face.setCompactOnSwitch(false)).resolves.toBeUndefined()
-    expect(owned.set).toHaveBeenCalledWith('compactOnSwitch', false)
-    owned.set.mockResolvedValue(false)
-    await expect(face.setCompactOnSwitch(true)).rejects.toThrow('settings-rejected')
+  it('omits removed send-time compaction controls and maps subagent mode toggle helpers', () => {
+    const { registration } = ctxWith()
+    const face = (registration?.inject as () => Record<string, unknown>)()
+    expect(face.setCompactOnSwitch).toBeUndefined()
     expect(subagentModeForEnabled(true)).toBe('fixed')
     expect(subagentModeForEnabled(false)).toBe('follow-main')
   })
@@ -157,7 +154,7 @@ describe('Client ConfigForms surface', () => {
 
   it('unsets the storage when the last group is removed and no-ops without stored groups', async () => {
     const { registration, owned } = ctxWith({
-      subagentMode: 'follow-main', compactOnSwitch: true,
+      subagentMode: 'follow-main',
       providerGroups: [entryOf('codex', { compactProvider: 'codex', compactModel: 'gpt' })],
     })
     const face = (registration?.inject as () => {

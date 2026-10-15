@@ -12,7 +12,6 @@ export interface ModelSwitchSettings {
     searchModel?: string;
     imageProvider?: string;
     imageModel?: string;
-    compactOnSwitch: boolean;
     /** Reviewer provider for the Auto preset; both fields unset = follow the session model. */
     autoReviewProvider?: string;
     /** Reviewer model for the Auto preset; set together with `autoReviewProvider`. */
@@ -38,7 +37,6 @@ export interface Config {
     searchModel: Volatile<string | undefined>;
     imageProvider: Volatile<string | undefined>;
     imageModel: Volatile<string | undefined>;
-    compactOnSwitch: Volatile<boolean>;
     autoReviewProvider: Volatile<string | undefined>;
     autoReviewModel: Volatile<string | undefined>;
     compactProvider: Volatile<string | undefined>;

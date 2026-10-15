@@ -7,12 +7,24 @@ import { entryOf, type ProviderGroupConfig, type ProviderGroupsStorage } from '.
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
+/**
+ * The catalog state the settings page reads. A test that simulates the real
+ * load race flips `emptyCatalog` on: the settings snapshot arrives before the
+ * async model catalog, so catalog-seeded controls must stay disabled instead of
+ * silently dropping the click.
+ */
+const catalogState = {
+  emptyCatalog: false,
+  groups: [{ id: 'codex', name: 'Codex', models: [{ id: 'gpt-subagent', name: 'GPT Subagent' }] }],
+  catalogError: undefined as string | undefined,
+}
+
 vi.mock('../src/client/main-row-controller.js', () => ({
   deriveRouteChoices: () => ({ providers: [{ id: 'codex', name: 'Codex' }], models: [{ id: 'gpt-subagent', name: 'GPT Subagent' }] }),
   selectRouteModel: () => ({ provider: 'codex', model: 'gpt-subagent' }),
   useSettingsCatalog: () => ({
-    groups: [{ id: 'codex', name: 'Codex', models: [{ id: 'gpt-subagent', name: 'GPT Subagent' }] }],
-    catalogError: undefined,
+    groups: catalogState.emptyCatalog ? [] : catalogState.groups,
+    catalogError: catalogState.catalogError,
   }),
 }))
 
@@ -22,15 +34,12 @@ function snapshot<T>(value: T) {
 
 function face(options?: {
   subagent?: { mode: 'follow-main' | 'fixed'; provider?: string; model?: string; reasoningEffort?: string }
-  compactOnSwitch?: boolean
-  omitCompactOnSwitch?: true
   memoryOnly?: true
   autoReview?: { provider?: string; model?: string }
   compaction?: { provider?: string; model?: string }
   title?: { provider?: string; model?: string }
   saveSubagent?: ReturnType<typeof vi.fn>
   saveCapability?: ReturnType<typeof vi.fn>
-  setCompactOnSwitch?: ReturnType<typeof vi.fn>
   saveProviderGroup?: ReturnType<typeof vi.fn>
   providerGroups?: ProviderGroupsStorage
 }) {
@@ -40,7 +49,6 @@ function face(options?: {
   const switchSettings = options?.memoryOnly
     ? { status: 'unavailable' as const, value: undefined, base: undefined, user: {}, revision: undefined, writable: false, mode: 'memory' as const }
     : snapshot({
-        ...(options?.omitCompactOnSwitch === true ? {} : { compactOnSwitch: options?.compactOnSwitch !== false }),
         ...(options?.providerGroups === undefined ? {} : { providerGroups: options.providerGroups }),
       })
   const searchSettings = snapshot({ provider: 'codex', model: 'gpt-search' })
@@ -67,7 +75,6 @@ function face(options?: {
     useSubagentSettings: () => subagentSnapshot,
     saveSubagent: options?.saveSubagent ?? vi.fn(async () => undefined),
     saveCapability: options?.saveCapability ?? vi.fn(),
-    setCompactOnSwitch: options?.setCompactOnSwitch ?? vi.fn(async () => undefined),
     saveProviderGroup: options?.saveProviderGroup ?? vi.fn(async () => undefined),
   } as never
 }
@@ -83,9 +90,8 @@ function instanceText(node: { children?: readonly unknown[] }): string {
 function mountSettings(options?: Parameters<typeof face>[0]) {
   const saveSubagent = options?.saveSubagent ?? vi.fn(async () => undefined)
   const saveCapability = options?.saveCapability ?? vi.fn()
-  const setCompactOnSwitch = options?.setCompactOnSwitch ?? vi.fn(async () => undefined)
   const saveProviderGroup = options?.saveProviderGroup ?? vi.fn(async () => undefined)
-  const props = face({ ...options, saveSubagent, saveCapability, setCompactOnSwitch, saveProviderGroup })
+  const props = face({ ...options, saveSubagent, saveCapability, saveProviderGroup })
   let renderer!: ReactTestRenderer
   act(() => {
     renderer = create(<ModelSwitchSettings {...props} />)
@@ -95,12 +101,12 @@ function mountSettings(options?: Parameters<typeof face>[0]) {
    * (or another tab) reaches the mounted component.
    */
   const rerender = (next: Parameters<typeof face>[0] = {}): void => {
-    const nextProps = face({ ...options, saveSubagent, saveCapability, setCompactOnSwitch, saveProviderGroup, ...next })
+    const nextProps = face({ ...options, saveSubagent, saveCapability, saveProviderGroup, ...next })
     act(() => {
       renderer.update(<ModelSwitchSettings {...nextProps} />)
     })
   }
-  return { renderer, rerender, saveSubagent, saveCapability, setCompactOnSwitch, saveProviderGroup }
+  return { renderer, rerender, saveSubagent, saveCapability, saveProviderGroup }
 }
 
 /**
@@ -120,7 +126,7 @@ function capabilityOps(mock: ReturnType<typeof vi.fn>): readonly { field: string
 }
 
 describe('Model Switch settings menu', () => {
-  it('shows Send protection B-row and Subagent RouteCard without a follow-main select', () => {
+  it('shows Subagent and Capability RouteCards without Send protection or a follow-main select', () => {
     const markup = renderSettings()
 
     expect(markup).not.toContain('>main<')
@@ -128,10 +134,9 @@ describe('Model Switch settings menu', () => {
     expect(markup).toContain('>search<')
     expect(markup).not.toContain('>vision<')
     expect(markup).toContain('>image<')
-    expect(markup).toContain('>sendProtection<')
-    expect(markup).toContain('compactOnSwitch')
+    expect(markup).not.toContain('sendProtection')
+    expect(markup).not.toContain('compactOnSwitch')
     expect(markup).toContain('role="switch"')
-    expect(markup).toContain('aria-label="compactOnSwitch"')
     expect(markup).toContain('aria-label="subagent"')
     expect(markup).not.toContain('type="checkbox"')
     expect(markup).not.toContain('>save<')
@@ -139,7 +144,6 @@ describe('Model Switch settings menu', () => {
     expect(markup).not.toContain('subagentMode')
     expect(markup).not.toContain('follow-main')
     expect(markup).not.toContain('subagentFollowMain')
-    expect(markup.indexOf('sendProtection')).toBeLessThan(markup.indexOf('conversationRoutes'))
   })
   it('shows a final unavailable state instead of controls or endless loading under the official remote memory policy', () => {
     const markup = renderSettings({ memoryOnly: true })
@@ -160,45 +164,20 @@ describe('Model Switch settings menu', () => {
     expect(markup).toContain('>subagentHelp<')
     expect(markup).not.toContain('aria-expanded="true"')
     expect(markup).not.toContain('>provider<')
-    expect(markup).toContain('>sendProtection<')
     expect(markup).toContain('role="switch"')
   })
 
-  it('treats missing compactOnSwitch as on in the Send protection switch', () => {
-    const markup = renderSettings({ omitCompactOnSwitch: true })
-    const compact = markup.match(/<button[^>]*aria-label="compactOnSwitch"[^>]*>/)?.[0]
-    expect(compact).toContain('aria-checked="true"')
-    expect(compact).toContain('role="switch"')
-  })
-
-  it('shows compact off when compactOnSwitch is false', () => {
-    const markup = renderSettings({ compactOnSwitch: false })
-    const compact = markup.match(/<button[^>]*aria-label="compactOnSwitch"[^>]*>/)?.[0]
-    expect(compact).toContain('aria-checked="false"')
-  })
-
-  it('keeps zh/en copy for Send protection and the Subagent Allowlist hint', () => {
-    expect(zh.sendProtection).toBe('发送保护')
-    expect(en.sendProtection).toBe('Send protection')
+  it('keeps zh/en copy for the Subagent Allowlist hint and omits removed Send protection keys', () => {
+    expect(zh).not.toHaveProperty('sendProtection')
+    expect(en).not.toHaveProperty('sendProtection')
+    expect(zh).not.toHaveProperty('compactOnSwitch')
+    expect(en).not.toHaveProperty('compactOnSwitch')
     expect(zh.subagentHelp).toContain('白名单')
     expect(en.subagentHelp).toContain('Allowlist')
     expect(zh.subagentHelp).not.toMatch(/href=|settings\./)
     expect(en.subagentHelp).not.toMatch(/href=|settings\./)
-    expect(zh.compactOnSwitchHelp).toContain('发送且换了模型')
-    expect(en.compactOnSwitchHelp).toContain('/compact')
     expect(zh).not.toHaveProperty('subagentFollowMain')
     expect(en).not.toHaveProperty('subagentFollowMain')
-  })
-
-  it('writes compactOnSwitch immediately from the Send protection switch', async () => {
-    const { renderer, setCompactOnSwitch } = mountSettings()
-    const compact = renderer.root.findAllByType('button').find(button => button.props['aria-label'] === 'compactOnSwitch')
-    expect(compact?.props['aria-checked']).toBe(true)
-    await act(async () => {
-      compact?.props.onClick()
-    })
-    expect(setCompactOnSwitch).toHaveBeenCalledWith(false)
-    expect(setCompactOnSwitch).toHaveBeenCalledTimes(1)
   })
 
   it('writes follow-main on Subagent off without clearing the stored route', async () => {
@@ -576,7 +555,7 @@ describe('Model Switch settings menu', () => {
     expect(renderer.root.findAllByType('p').some(node => instanceText(node) === 'requestFailed')).toBe(true)
   })
 
-  it('keeps zh/en copy for the provider groups card', () => {
+  it('keeps zh/en copy for the provider groups card across all four capabilities', () => {
     expect(zh.providerGroups).toBe('供应商配置组')
     expect(en.providerGroups).toBe('Provider groups')
     expect(zh.providerGroupsSummary).toContain('使用该供应商')
@@ -584,14 +563,132 @@ describe('Model Switch settings menu', () => {
     expect(zh.providerGroupsBodyHelp).toContain('互不影响')
     expect(en.providerGroupsBodyHelp).toContain('never affect each other')
     expect(zh.providerGroupDelete).toBe('删除该组')
-    // A group covers the two capabilities with a public per-session seam.
+    // A group covers all four per-session capabilities.
+    expect(zh.providerGroupsHelp).toContain('压缩')
+    expect(zh.providerGroupsHelp).toContain('自动审查')
     expect(zh.providerGroupsHelp).toContain('命名')
-    expect(en.providerGroupsHelp).toContain('naming')
     expect(zh.providerGroupsHelp).toContain('子代理')
+    expect(en.providerGroupsHelp).toContain('compaction')
+    expect(en.providerGroupsHelp).toContain('auto-review')
+    expect(en.providerGroupsHelp).toContain('session-naming')
     expect(en.providerGroupsHelp).toContain('subagent')
     // The stalled-save report the row shows has copy in both languages.
     expect(zh.saveTimeout).toBe('保存超时，请重试')
     expect(en.saveTimeout).toBe('The save timed out; try again')
+  })
+
+  it('edits all four capability rows (compaction, autoReview, sessionTitle, subagent) inside a provider group and seeds from active cards', async () => {
+    const { renderer, saveProviderGroup } = mountSettings({
+      compaction: { provider: 'codex', model: 'gpt-compact' },
+      autoReview: { provider: 'codex', model: 'gpt-review' },
+      title: { provider: 'codex', model: 'gpt-title' },
+      subagent: { mode: 'fixed', provider: 'codex', model: 'gpt-subagent', reasoningEffort: 'high' },
+    })
+    const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('providerGroupsCard'))
+    act(() => {
+      header?.props.onClick()
+    })
+    const togglesFor = (label: string) => renderer.root.findAllByType('button').filter(button => button.props['aria-label'] === label)
+    expect(togglesFor('compaction')).toHaveLength(2)
+    expect(togglesFor('autoReview')).toHaveLength(2)
+    expect(togglesFor('sessionTitle')).toHaveLength(2)
+    expect(togglesFor('subagent')).toHaveLength(2)
+    expect(togglesFor('compaction')[1]?.props['aria-checked']).toBe(true)
+    expect(togglesFor('autoReview')[1]?.props['aria-checked']).toBe(true)
+    expect(togglesFor('sessionTitle')[1]?.props['aria-checked']).toBe(true)
+    expect(togglesFor('subagent')[1]?.props['aria-checked']).toBe(true)
+
+    const save = () => renderer.root.findAllByType('button').find(button => instanceText(button) === 'save')
+    await act(async () => {
+      save?.()?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect((saveProviderGroup as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]).toEqual<ProviderGroupConfig>({
+      compactProvider: 'codex',
+      compactModel: 'gpt-compact',
+      autoReviewProvider: 'codex',
+      autoReviewModel: 'gpt-review',
+      titleProvider: 'codex',
+      titleModel: 'gpt-title',
+      subagentProvider: 'codex',
+      subagentModel: 'gpt-subagent',
+      subagentReasoningEffort: 'high',
+    })
+
+    // Toggle compaction and autoReview off, then save.
+    await act(async () => {
+      togglesFor('compaction')[1]?.props.onClick()
+      togglesFor('autoReview')[1]?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    await act(async () => {
+      save?.()?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect((saveProviderGroup as ReturnType<typeof vi.fn>).mock.calls[1]?.[1]).toMatchObject<ProviderGroupConfig>({
+      compactProvider: '',
+      compactModel: '',
+      autoReviewProvider: '',
+      autoReviewModel: '',
+      titleProvider: 'codex',
+      titleModel: 'gpt-title',
+    })
+  })
+
+  it('disables off capability switches while the model catalog is still loading and enables them once loaded', async () => {
+    catalogState.emptyCatalog = true
+    try {
+      const { renderer, rerender, saveCapability } = mountSettings()
+      const findSwitch = (label: string) => renderer.root.findAllByType('button').find(button => button.props['aria-label'] === label)
+      expect(findSwitch('sessionTitle')?.props.disabled).toBe(true)
+      expect(findSwitch('autoReview')?.props.disabled).toBe(true)
+      expect(findSwitch('compaction')?.props.disabled).toBe(true)
+
+      await act(async () => {
+        findSwitch('sessionTitle')?.props.onClick()
+        await new Promise(resolve => setTimeout(resolve, 0))
+      })
+      expect(saveCapability).not.toHaveBeenCalled()
+
+      catalogState.emptyCatalog = false
+      rerender()
+      expect(findSwitch('sessionTitle')?.props.disabled).toBe(false)
+      expect(findSwitch('autoReview')?.props.disabled).toBe(false)
+      expect(findSwitch('compaction')?.props.disabled).toBe(false)
+
+      await act(async () => {
+        findSwitch('sessionTitle')?.props.onClick()
+        await new Promise(resolve => setTimeout(resolve, 0))
+      })
+      expect(saveCapability).toHaveBeenCalledWith('title', [
+        { field: 'provider', value: 'codex' },
+        { field: 'model', value: 'gpt-subagent' },
+      ])
+    } finally {
+      catalogState.emptyCatalog = false
+    }
+  })
+
+  it('disables other card switches while any save is in flight', async () => {
+    let resolveSave!: () => void
+    const pendingSave = vi.fn(() => new Promise<void>(resolve => { resolveSave = resolve }))
+    const { renderer } = mountSettings({ saveCapability: pendingSave })
+    const findSwitch = (label: string) => renderer.root.findAllByType('button').find(button => button.props['aria-label'] === label)
+
+    act(() => {
+      findSwitch('autoReview')?.props.onClick()
+    })
+    expect(findSwitch('sessionTitle')?.props.disabled).toBe(true)
+    expect(findSwitch('compaction')?.props.disabled).toBe(true)
+    expect(findSwitch('subagent')?.props.disabled).toBe(true)
+
+    await act(async () => {
+      resolveSave()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    expect(findSwitch('sessionTitle')?.props.disabled).toBe(false)
+    expect(findSwitch('compaction')?.props.disabled).toBe(false)
+    expect(findSwitch('subagent')?.props.disabled).toBe(false)
   })
 
   it('edits the naming row inside a provider group and clears it back to the default', async () => {
