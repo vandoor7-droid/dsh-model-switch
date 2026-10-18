@@ -22,6 +22,19 @@ export interface MountedStartup<T> {
 }
 type RoutableSubagentRequest = Pick<SubagentStartRequest, 'parent' | 'agentOptions'>;
 /**
+ * The 0.2.1+ activation spec, declared structurally.
+ *
+ * The pinned dependency typings predate the activation API, so the modern entry
+ * is described here and delegated through the base prototype. `request` carries
+ * the same `parent`/`agentOptions` pair the legacy start request does, which is
+ * why one route adapter serves both lines.
+ */
+export interface SubagentActivationSpecLike {
+    readonly provider: string;
+    readonly request: Pick<SubagentStartRequest, 'parent' | 'agentOptions'> & Record<string, unknown>;
+    readonly [field: string]: unknown;
+}
+/**
  * Inject one resolved route into a spawn that names none.
  *
  * A spawn that already names a provider, model, or effort keeps it: the caller's
@@ -34,6 +47,19 @@ type RoutableSubagentRequest = Pick<SubagentStartRequest, 'parent' | 'agentOptio
  * @returns The request to hand the official runtime.
  */
 export declare function routeSubagentRequest<T extends RoutableSubagentRequest>(request: T, route: SubagentRoute | undefined): T;
+/** The public start surface one installed Subagent runtime publishes. */
+export type SubagentSurfaceLine = 'activation' | 'start';
+/**
+ * Classify the runtime surface this Host publishes.
+ *
+ * DSH 0.2.1 replaced `start()` / `startContinuable()` with the activation API
+ * (`startActivation`), so a version-agnostic adapter has to recognize both
+ * lines instead of hard-coding one.
+ *
+ * @param value - a runtime class's prototype or a mounted runtime instance.
+ * @returns `activation` (0.2.1+), `start` (0.1.7/0.2.0), or undefined when neither is published.
+ */
+export declare function subagentSurfaceOf(value: unknown): SubagentSurfaceLine | undefined;
 /**
  * Mount a candidate and use the fallback only for typed startup incompatibility.
  *
@@ -68,5 +94,15 @@ export declare class ModelSwitchSubagentRuntime extends OfficialSubagentRuntime 
     private routed;
     start(name: string, request: SubagentStartRequest): Promise<SubagentRun>;
     startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart>;
+    /**
+     * 0.2.1+ activation entry: delegation tools call this instead of
+     * `start()`/`startContinuable()`, and its spec carries the same
+     * `request.agentOptions` this adapter already rewrites. Every other spec
+     * field (label, childId, signal, delivery) passes through untouched.
+     *
+     * @param spec - the activation spec published by the installed Host.
+     * @returns The official activation result.
+     */
+    startActivation(spec: SubagentActivationSpecLike): Promise<unknown>;
 }
 export default profileSubagentRuntime;

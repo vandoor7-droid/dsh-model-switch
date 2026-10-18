@@ -3,10 +3,17 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import OfficialSubagentRuntime, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
-import { ModelSwitchSubagentRuntime, routeSubagentRequest } from '../src/subagent-runtime.js'
+import {
+  ModelSwitchSubagentRuntime,
+  routeSubagentRequest,
+  type SubagentActivationSpecLike,
+} from '../src/subagent-runtime.js'
+
+const restorers: (() => void)[] = []
 
 afterEach(() => {
   vi.restoreAllMocks()
+  for (const restore of restorers.splice(0)) restore()
 })
 
 function request(agentOptions?: { provider?: string; model?: string; reasoningEffort?: ReturnType<typeof ReasoningEffortId>; maxTokens?: number }) {
@@ -172,5 +179,107 @@ describe('ModelSwitchSubagentRuntime per-spawn routing', () => {
     })
     await runtime.start('capture', spawnOf(sessionOf(undefined)))
     expect(started[0]?.request.agentOptions).toEqual({ provider: 'flat-provider', model: 'flat-model' })
+  })
+})
+
+/** One 0.2.1 activation spec, mirroring the published shape. */
+function activationSpecOf(session: Session, agentOptions?: Record<string, unknown>): SubagentActivationSpecLike {
+  return {
+    provider: 'capture',
+    label: 'child-label',
+    request: {
+      parent: { options: {}, session },
+      ...(agentOptions === undefined ? {} : { agentOptions }),
+    },
+    signal: new AbortController().signal,
+    delivery: 'parent',
+  } as unknown as SubagentActivationSpecLike
+}
+
+/**
+ * A runtime instance wired to the activation line.
+ *
+ * The pinned dependency typings predate `startActivation`, so the base method is
+ * installed for the test and removed afterwards; the adapter's delegation is
+ * observed through the recorded specs.
+ */
+function activationBench(options: {
+  settings: Record<string, unknown>
+  providers?: Record<string, ProviderStub | undefined>
+}) {
+  const started: SubagentActivationSpecLike[] = []
+  const prototype = OfficialSubagentRuntime.prototype as unknown as Record<string, unknown>
+  const saved = prototype.startActivation
+  prototype.startActivation = async function (spec: SubagentActivationSpecLike) {
+    started.push(spec)
+    return { childId: 'child' }
+  }
+  restorers.push(() => {
+    if (saved === undefined) delete prototype.startActivation
+    else prototype.startActivation = saved
+  })
+  const ctx = {
+    get: () => undefined,
+    subagents: { getProvider: (name: string) => options.providers?.[name] },
+    modelSwitch: { currentSettings: () => ({ ...options.settings }) },
+  }
+  const runtime = Object.create(ModelSwitchSubagentRuntime.prototype) as ModelSwitchSubagentRuntime
+  Reflect.set(runtime, 'ctx', ctx as unknown as Context)
+  return { runtime, started }
+}
+
+describe('ModelSwitchSubagentRuntime activation line (0.2.1+)', () => {
+  it('routes one activation through the delegating session group', async () => {
+    const { runtime, started } = activationBench({
+      settings: {
+        providerGroups: { codex: { subagentProvider: 'grok', subagentModel: 'grok-fast', subagentReasoningEffort: 'low' } },
+      },
+      providers: { capture: routedProvider },
+    })
+    const spec = activationSpecOf(sessionOf('codex'))
+    await runtime.startActivation(spec)
+    expect(started).toHaveLength(1)
+    expect(started[0]?.request.agentOptions).toEqual({ provider: 'grok', model: 'grok-fast', reasoningEffort: ReasoningEffortId('low') })
+    // Every other spec field passes through untouched.
+    expect(started[0]?.provider).toBe('capture')
+    expect(started[0]?.label).toBe('child-label')
+    expect(started[0]?.delivery).toBe('parent')
+    expect(started[0]?.signal).toBe(spec.signal)
+  })
+
+  it('falls back to the fixed flat pair and follows the session in follow-main mode', async () => {
+    const fixed = activationBench({
+      settings: { subagentMode: 'fixed', subagentProvider: 'flat-provider', subagentModel: 'flat-model' },
+      providers: { capture: routedProvider },
+    })
+    await fixed.runtime.startActivation(activationSpecOf(sessionOf('provider-without-group')))
+    expect(fixed.started[0]?.request.agentOptions).toEqual({ provider: 'flat-provider', model: 'flat-model' })
+
+    const follow = activationBench({
+      settings: { subagentMode: 'follow-main', subagentProvider: 'flat-provider', subagentModel: 'flat-model' },
+      providers: { capture: routedProvider },
+    })
+    await follow.runtime.startActivation(activationSpecOf(sessionOf('provider-without-group')))
+    expect(follow.started[0]?.request.agentOptions).toBeUndefined()
+  })
+
+  it('never overrides a spec that already names its route', async () => {
+    const { runtime, started } = activationBench({
+      settings: { subagentMode: 'fixed', subagentProvider: 'flat-provider', subagentModel: 'flat-model' },
+      providers: { capture: routedProvider },
+    })
+    await runtime.startActivation(activationSpecOf(sessionOf('codex'), {
+      provider: 'workflow-provider', model: 'workflow-model', maxTokens: 123,
+    }))
+    expect(started[0]?.request.agentOptions).toEqual({ provider: 'workflow-provider', model: 'workflow-model', maxTokens: 123 })
+  })
+
+  it('never reinterprets a provider that rejects agent options', async () => {
+    const { runtime, started } = activationBench({
+      settings: { subagentMode: 'fixed', subagentProvider: 'flat-provider', subagentModel: 'flat-model' },
+      providers: { capture: processWorker },
+    })
+    await runtime.startActivation(activationSpecOf(sessionOf('codex')))
+    expect(started[0]?.request.agentOptions).toBeUndefined()
   })
 })

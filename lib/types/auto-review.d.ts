@@ -33,7 +33,17 @@ import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm';
 import type { Session } from '@deepseek-ai/dsh-session';
 /** Cordis plugin name used by loader diagnostics. */
 export declare const name = "model-switch-auto-review";
-/** The official gate's host services plus Model Switch's settings owner. */
+/**
+ * Only the services this row's own code touches.
+ *
+ * The official gate used to run inside this row's fiber, so this list had to
+ * mirror every service the official `apply` reads. DSH 0.2.1 added
+ * `workingDirectory` to the official gate and the mirror went stale, which made
+ * every tool call fail with `cannot get property "workingDirectory" without
+ * inject`. The gate is now mounted as its own plugin (see {@link autoReviewGate}),
+ * so cordis resolves the official dependency list — including future additions —
+ * and this row declares only what it reads itself.
+ */
 export declare const inject: string[];
 /** Pinned reviewer route; both identifiers are non-empty. */
 export interface AutoReviewRoute {
@@ -93,6 +103,42 @@ export declare function bindAutoReviewSessionCorrelation(scope: Context, activeS
  * @returns A child context shadowing only the llm service.
  */
 export declare function reviewScope(ctx: Context, activeSession?: AsyncLocalStorage<Session | undefined>): Context;
+/**
+ * Structural view of the official gate's plugin face.
+ *
+ * `name` and `inject` are part of the module's released plugin contract; the
+ * gate is mounted through cordis rather than called directly so its own
+ * dependency list is what the fiber resolves.
+ */
+export interface OfficialAutoReviewGate {
+    readonly apply: (ctx: Context) => void;
+    readonly inject?: readonly string[];
+    readonly name?: string;
+}
+/** The plugin face handed to cordis, with the official dependency list kept. */
+export interface MountedAutoReviewGate {
+    readonly name: string;
+    readonly inject?: string[];
+    readonly apply: (gateCtx: Context) => void;
+}
+/**
+ * Wrap the official gate as a plugin that declares its own dependencies.
+ *
+ * Directly calling `official.apply(scope)` ran the gate's code on this row's
+ * fiber, so every service the gate reads had to be mirrored in this row's
+ * `inject`. Mounting it instead lets cordis resolve the official list, which is
+ * what keeps a released Host's new dependency (0.2.1's `workingDirectory`) from
+ * breaking every tool call. The hooks let the caller observe whether the gate
+ * actually ran before it binds the session-correlation listener.
+ *
+ * @param gate - the official module (or an equivalent structural gate).
+ * @param hooks - applied/failure observers; the failure is rethrown.
+ * @returns A cordis plugin mounting the official gate unchanged.
+ */
+export declare function autoReviewGate(gate: OfficialAutoReviewGate, hooks?: {
+    readonly onApplied?: () => void;
+    readonly onFailure?: (error: unknown) => void;
+}): MountedAutoReviewGate;
 /**
  * Mount the official gate under the reviewer-route scope.
  *

@@ -42,6 +42,20 @@ interface ModelSwitchSurface {
 }
 type RoutableSubagentRequest = Pick<SubagentStartRequest, 'parent' | 'agentOptions'>
 
+/**
+ * The 0.2.1+ activation spec, declared structurally.
+ *
+ * The pinned dependency typings predate the activation API, so the modern entry
+ * is described here and delegated through the base prototype. `request` carries
+ * the same `parent`/`agentOptions` pair the legacy start request does, which is
+ * why one route adapter serves both lines.
+ */
+export interface SubagentActivationSpecLike {
+  readonly provider: string
+  readonly request: Pick<SubagentStartRequest, 'parent' | 'agentOptions'> & Record<string, unknown>
+  readonly [field: string]: unknown
+}
+
 interface ProfileContext {
   readonly modelSwitch?: unknown
   readonly subagents?: unknown
@@ -87,6 +101,39 @@ function assertPublicMethod(value: unknown, surface: string, method: string): vo
   }
 }
 
+/** The public start surface one installed Subagent runtime publishes. */
+export type SubagentSurfaceLine = 'activation' | 'start'
+
+/**
+ * Classify the runtime surface this Host publishes.
+ *
+ * DSH 0.2.1 replaced `start()` / `startContinuable()` with the activation API
+ * (`startActivation`), so a version-agnostic adapter has to recognize both
+ * lines instead of hard-coding one.
+ *
+ * @param value - a runtime class's prototype or a mounted runtime instance.
+ * @returns `activation` (0.2.1+), `start` (0.1.7/0.2.0), or undefined when neither is published.
+ */
+export function subagentSurfaceOf(value: unknown): SubagentSurfaceLine | undefined {
+  if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return undefined
+  if (typeof Reflect.get(value, 'startActivation') === 'function') return 'activation'
+  const hasStart = typeof Reflect.get(value, 'start') === 'function'
+  const hasContinuable = typeof Reflect.get(value, 'startContinuable') === 'function'
+  return hasStart && hasContinuable ? 'start' : undefined
+}
+
+/** Read one public method, failing with the typed startup error when it is absent. */
+function publicMethod(prototype: unknown, surface: string, method: string): (...args: unknown[]) => unknown {
+  if (prototype === null || (typeof prototype !== 'object' && typeof prototype !== 'function')) {
+    throw new StartupIncompatibilityError(surface, surface + ' must expose public ' + method + '()')
+  }
+  const value = Reflect.get(prototype, method)
+  if (typeof value !== 'function') {
+    throw new StartupIncompatibilityError(surface, surface + ' must expose public ' + method + '()')
+  }
+  return value as (...args: unknown[]) => unknown
+}
+
 function constructible(value: unknown): value is Function {
   if (typeof value !== 'function') return false
   try {
@@ -98,14 +145,19 @@ function constructible(value: unknown): value is Function {
   }
 }
 
-function assertOfficialRuntimeSurface(): void {
+function assertOfficialRuntimeSurface(): SubagentSurfaceLine {
   const runtime = OfficialSubagentRuntime as unknown
   if (!constructible(runtime)) {
     throw new StartupIncompatibilityError('OfficialSubagentRuntime', 'OfficialSubagentRuntime must be constructible')
   }
-  const prototype = Reflect.get(runtime, 'prototype')
-  assertPublicMethod(prototype, 'OfficialSubagentRuntime', 'start')
-  assertPublicMethod(prototype, 'OfficialSubagentRuntime', 'startContinuable')
+  const line = subagentSurfaceOf(Reflect.get(runtime, 'prototype'))
+  if (line === undefined) {
+    throw new StartupIncompatibilityError(
+      'OfficialSubagentRuntime',
+      'OfficialSubagentRuntime must expose public startActivation() (0.2.1+) or start()/startContinuable()',
+    )
+  }
+  return line
 }
 
 function assertRoutingSurface(ctx: Context): void {
@@ -118,9 +170,14 @@ function routingSurface(ctx: Context): ModelSwitchSurface {
 }
 
 function assertMountedSurface(ctx: Context): void {
-  assertPublicMethod((ctx as ProfileContext).subagents, 'mounted Subagent runtime', 'start')
-  assertPublicMethod((ctx as ProfileContext).subagents, 'mounted Subagent runtime', 'startContinuable')
-  assertPublicMethod((ctx as ProfileContext).subagents, 'mounted Subagent runtime', 'resolveMaxDepth')
+  const service = (ctx as ProfileContext).subagents
+  assertPublicMethod(service, 'mounted Subagent runtime', 'resolveMaxDepth')
+  if (subagentSurfaceOf(service) === undefined) {
+    throw new StartupIncompatibilityError(
+      'mounted Subagent runtime',
+      'mounted Subagent runtime must expose public startActivation() (0.2.1+) or start()/startContinuable()',
+    )
+  }
 }
 
 function once(dispose: StartupDisposer): () => Promise<void> {
@@ -272,13 +329,28 @@ export class ModelSwitchSubagentRuntime extends OfficialSubagentRuntime {
   }
 
   override start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {
-    return super.start(name, this.routed(name, request))
+    const base = publicMethod(OfficialSubagentRuntime.prototype, 'OfficialSubagentRuntime', 'start')
+    return base.call(this, name, this.routed(name, request)) as Promise<SubagentRun>
   }
 
   override startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart> {
-    return super.startContinuable({ ...spec, request: this.routed(spec.provider, spec.request) })
+    const base = publicMethod(OfficialSubagentRuntime.prototype, 'OfficialSubagentRuntime', 'startContinuable')
+    return base.call(this, { ...spec, request: this.routed(spec.provider, spec.request) }) as Promise<ContinuableStart>
   }
 
+  /**
+   * 0.2.1+ activation entry: delegation tools call this instead of
+   * `start()`/`startContinuable()`, and its spec carries the same
+   * `request.agentOptions` this adapter already rewrites. Every other spec
+   * field (label, childId, signal, delivery) passes through untouched.
+   *
+   * @param spec - the activation spec published by the installed Host.
+   * @returns The official activation result.
+   */
+  startActivation(spec: SubagentActivationSpecLike): Promise<unknown> {
+    const base = publicMethod(OfficialSubagentRuntime.prototype, 'OfficialSubagentRuntime', 'startActivation')
+    return base.call(this, { ...spec, request: this.routed(spec.provider, spec.request) }) as Promise<unknown>
+  }
 }
 
 export default profileSubagentRuntime

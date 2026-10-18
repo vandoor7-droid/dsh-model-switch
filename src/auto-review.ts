@@ -38,8 +38,18 @@ import { resolveCapabilityRoute, sessionProviderOf } from './session-route.js'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'model-switch-auto-review'
-/** The official gate's host services plus Model Switch's settings owner. */
-export const inject = ['modelSwitch', 'approval', 'llm', 'permissionPresets', 'sessions', 'tools']
+/**
+ * Only the services this row's own code touches.
+ *
+ * The official gate used to run inside this row's fiber, so this list had to
+ * mirror every service the official `apply` reads. DSH 0.2.1 added
+ * `workingDirectory` to the official gate and the mirror went stale, which made
+ * every tool call fail with `cannot get property "workingDirectory" without
+ * inject`. The gate is now mounted as its own plugin (see {@link autoReviewGate}),
+ * so cordis resolves the official dependency list — including future additions —
+ * and this row declares only what it reads itself.
+ */
+export const inject = ['llm', 'modelSwitch']
 
 /** Optional bundle whose composition opts a profile into Auto review. */
 const AUTO_REVIEW_BUNDLE = '@deepseek-ai/dsh-experimental-auto-review'
@@ -166,6 +176,59 @@ function autoReviewBundleActive(ctx: Context): boolean {
 }
 
 /**
+ * Structural view of the official gate's plugin face.
+ *
+ * `name` and `inject` are part of the module's released plugin contract; the
+ * gate is mounted through cordis rather than called directly so its own
+ * dependency list is what the fiber resolves.
+ */
+export interface OfficialAutoReviewGate {
+  readonly apply: (ctx: Context) => void
+  readonly inject?: readonly string[]
+  readonly name?: string
+}
+
+/** The plugin face handed to cordis, with the official dependency list kept. */
+export interface MountedAutoReviewGate {
+  readonly name: string
+  readonly inject?: string[]
+  readonly apply: (gateCtx: Context) => void
+}
+
+/**
+ * Wrap the official gate as a plugin that declares its own dependencies.
+ *
+ * Directly calling `official.apply(scope)` ran the gate's code on this row's
+ * fiber, so every service the gate reads had to be mirrored in this row's
+ * `inject`. Mounting it instead lets cordis resolve the official list, which is
+ * what keeps a released Host's new dependency (0.2.1's `workingDirectory`) from
+ * breaking every tool call. The hooks let the caller observe whether the gate
+ * actually ran before it binds the session-correlation listener.
+ *
+ * @param gate - the official module (or an equivalent structural gate).
+ * @param hooks - applied/failure observers; the failure is rethrown.
+ * @returns A cordis plugin mounting the official gate unchanged.
+ */
+export function autoReviewGate(
+  gate: OfficialAutoReviewGate,
+  hooks: { readonly onApplied?: () => void; readonly onFailure?: (error: unknown) => void } = {},
+): MountedAutoReviewGate {
+  return {
+    name: gate.name ?? 'experimental-auto-review',
+    ...(gate.inject === undefined ? {} : { inject: [...gate.inject] }),
+    apply(gateCtx: Context): void {
+      try {
+        gate.apply(gateCtx)
+      } catch (error) {
+        hooks.onFailure?.(error)
+        throw error
+      }
+      hooks.onApplied?.()
+    },
+  }
+}
+
+/**
  * Mount the official gate under the reviewer-route scope.
  *
  * A profile that never enabled the optional bundle keeps no Auto preset and no
@@ -187,13 +250,29 @@ export async function apply(ctx: Context): Promise<void> {
   }
   const activeSession = new AsyncLocalStorage<Session | undefined>()
   const scope = reviewScope(ctx, activeSession)
+  let failure: unknown
+  let applied = false
+  const fiber = scope.plugin(autoReviewGate(official, {
+    onApplied: () => { applied = true },
+    onFailure: error => { failure = error },
+  }))
   try {
-    official.apply(scope)
-    bindAutoReviewSessionCorrelation(scope, activeSession)
+    await fiber
   } catch (cause) {
+    failure ??= cause
+  }
+  if (failure !== undefined) {
     // registerAuto is single-registration: an already-active official row owns
     // the gate, and a second one must fail loudly without tearing it down.
     ctx.logger.error('model-switch: the official auto-review row is already active; the reviewer route override is unavailable')
-    ctx.logger.error(cause)
+    ctx.logger.error(failure)
+    return
   }
+  if (!applied) {
+    // The fiber waits for the official dependency list; binding the correlation
+    // listener first would put it behind a gate that mounts later.
+    ctx.logger.info('model-switch: the official auto-review gate is waiting for its host services; the reviewer route override is not bound yet')
+    return
+  }
+  bindAutoReviewSessionCorrelation(scope, activeSession)
 }

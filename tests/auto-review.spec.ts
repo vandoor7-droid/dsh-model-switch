@@ -1,10 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { describe, expect, it, vi } from 'vitest'
-import { Context } from '@deepseek-ai/cordis'
+import { Context, Service } from '@deepseek-ai/cordis'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import {
   apply,
+  autoReviewGate,
   autoReviewRouteOf,
   bindAutoReviewSessionCorrelation,
   inject,
@@ -49,9 +50,66 @@ function bench(options: { startedBundles?: string[] | undefined; auto?: boolean;
 }
 
 describe('auto-review plugin identity', () => {
-  it('keeps the loader contract stable', () => {
+  it('declares only the services this row reads itself', () => {
     expect(name).toBe('model-switch-auto-review')
-    expect(inject).toEqual(['modelSwitch', 'approval', 'llm', 'permissionPresets', 'sessions', 'tools'])
+    // The official gate's own dependency list (including 0.2.1's
+    // `workingDirectory`) is resolved by cordis when the gate is mounted as a
+    // plugin; mirroring it here is what broke every tool call on 0.2.1.
+    expect(inject).toEqual(['llm', 'modelSwitch'])
+  })
+})
+
+describe('autoReviewGate', () => {
+  class ProbeWorkingDirectory extends Service {
+    calls = 0
+    constructor(ctx: Context) { super(ctx, 'probeWorkingDirectory') }
+    ensure(): string { this.calls += 1; return '/probe-cwd' }
+  }
+
+  async function serveWorkingDirectory(): Promise<{ ctx: Context; service: ProbeWorkingDirectory }> {
+    const ctx = new Context()
+    const fiber = ctx.plugin(ProbeWorkingDirectory)
+    await fiber
+    return { ctx, service: ctx.get('probeWorkingDirectory', false) as ProbeWorkingDirectory }
+  }
+
+  it('reproduces the 0.2.1 failure when the gate runs on a fiber that does not declare its service', async () => {
+    const { ctx } = await serveWorkingDirectory()
+    await expect(ctx.plugin({
+      name: 'raw-gate',
+      apply(gateCtx: Context) { (gateCtx as unknown as { probeWorkingDirectory: ProbeWorkingDirectory }).probeWorkingDirectory.ensure() },
+    })).rejects.toThrow('cannot get property "probeWorkingDirectory" without inject')
+  })
+
+  it('keeps the official dependency list on the mounted fiber, so a new Host service cannot break the gate', async () => {
+    const { ctx, service } = await serveWorkingDirectory()
+    let applied = 0
+    await ctx.plugin(autoReviewGate({
+      name: 'experimental-auto-review',
+      inject: ['probeWorkingDirectory'],
+      apply(gateCtx: Context) {
+        (gateCtx as unknown as { probeWorkingDirectory: ProbeWorkingDirectory }).probeWorkingDirectory.ensure()
+      },
+    }, { onApplied: () => { applied += 1 } }))
+    expect(service.calls).toBe(1)
+    expect(applied).toBe(1)
+  })
+
+  it('reports a failing gate to the caller and keeps the rejection', async () => {
+    const { ctx } = await serveWorkingDirectory()
+    const failures: unknown[] = []
+    await expect(ctx.plugin(autoReviewGate({
+      name: 'experimental-auto-review',
+      apply() { throw new Error('already registered') },
+    }, { onFailure: error => failures.push(error) }))).rejects.toThrow('already registered')
+    expect(failures).toHaveLength(1)
+  })
+
+  it('mounts the official name and inject list unchanged', () => {
+    const gate = autoReviewGate({ name: 'experimental-auto-review', inject: ['a', 'b'], apply: () => undefined })
+    expect(gate.name).toBe('experimental-auto-review')
+    expect(gate.inject).toEqual(['a', 'b'])
+    expect(autoReviewGate({ apply: () => undefined }).name).toBe('experimental-auto-review')
   })
 })
 

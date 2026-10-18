@@ -7,6 +7,7 @@ import {
   mountWithStartupFallback,
   profileSubagentRuntime,
   routedRuntimeUnavailableNotice,
+  subagentSurfaceOf,
 } from '../src/subagent-runtime.js'
 
 let context: Context | undefined
@@ -53,6 +54,44 @@ describe('replaced Subagent start surface', () => {
     ))
     expect(notice).toContain('the routed Subagent runtime is unavailable on this DSH Host')
     expect(notice).toContain('must expose public startContinuable()')
+  })
+
+  it('classifies both published runtime lines', () => {
+    expect(subagentSurfaceOf({ startActivation() {}, start() {}, startContinuable() {} })).toBe('activation')
+    expect(subagentSurfaceOf({ start() {}, startContinuable() {} })).toBe('start')
+    expect(subagentSurfaceOf({ start() {} })).toBeUndefined()
+    expect(subagentSurfaceOf({ startActivation: 'not-a-method' })).toBeUndefined()
+    expect(subagentSurfaceOf(undefined)).toBeUndefined()
+  })
+
+  it('mounts the routed runtime on an activation-only Host', async () => {
+    const prototype = OfficialSubagentRuntime.prototype as unknown as Record<string, unknown>
+    const saved = {
+      start: prototype.start,
+      startContinuable: prototype.startContinuable,
+      startActivation: prototype.startActivation,
+    }
+    try {
+      delete prototype.start
+      delete prototype.startContinuable
+      prototype.startActivation = async function () { return {} }
+      class CompatibleModelSwitch extends Service {
+        static inject = []
+        constructor(ctx: Context) { super(ctx, 'modelSwitch') }
+        currentSettings() { return {} }
+      }
+
+      context = new Context()
+      await context.plugin(CompatibleModelSwitch)
+      await context.plugin(profileSubagentRuntime)
+
+      expect(context.subagents).toBeInstanceOf(ModelSwitchSubagentRuntime)
+    } finally {
+      for (const [method, value] of Object.entries(saved)) {
+        if (value === undefined) delete prototype[method]
+        else prototype[method] = value
+      }
+    }
   })
 })
 
