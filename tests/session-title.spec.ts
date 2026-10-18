@@ -1,4 +1,4 @@
-﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Entry, Loader } from '@deepseek-ai/cordis-plugin-loader'
 import type { SessionTitleProviderRequest } from '@deepseek-ai/dsh-session-title'
@@ -326,10 +326,13 @@ describe('apply', () => {
   })
 
   it('reports a seam another provider already owns without failing the row', async () => {
-    const { ctx, registrations, errors } = bench({ registerThrows: true })
+    const { ctx, registrations, info, errors } = bench({ registerThrows: true })
     await expect(apply(ctx)).resolves.toBeUndefined()
     expect(registrations).toHaveLength(0)
-    expect(errors.some(line => line.includes('already registered'))).toBe(true)
+    // Another provider owns the slot: the row reports it once and leaves naming
+    // to that provider; a later removal slides the slot back (takeover listener).
+    expect(info.some(line => line.includes('already owns the seam'))).toBe(true)
+    expect(errors).toEqual([])
   })
 
   it('routes each request through the delegating session provider saved group', async () => {
@@ -358,7 +361,7 @@ describe('apply', () => {
     expect(llm.calls[0]?.config).toEqual({ ...POLICY, provider: 'deepseek', model: 'deep-title' })
   })
 
-  it('keeps the row鈥檚 own policy when the session resolves no route', async () => {
+  it('keeps the row policy when the session resolves no route', async () => {
     const { ctx, registrations } = bench()
     await apply(ctx)
     await registrations[0]!.generate(titleRequest(sessionOf(undefined), [message(1, 'only')]))
@@ -366,7 +369,7 @@ describe('apply', () => {
     expect(llm.calls[0]?.config).not.toHaveProperty('provider')
   })
 
-  it('keeps the row鈥檚 own policy when host settings are unavailable', async () => {
+  it('keeps the row policy when host settings are unavailable', async () => {
     const { ctx, registrations } = bench({ host: false, settings: { titleProvider: 'deepseek', titleModel: 'deep-title' } })
     await apply(ctx)
     await registrations[0]!.generate(titleRequest(sessionOf('codex'), [message(1, 'only')]))
@@ -399,9 +402,9 @@ describe('apply', () => {
     await apply(ctx)
     expect(registrations).toHaveLength(1)
     expect(listeners.filter(entry => entry.event === 'model-switch/settings-update')).toEqual([])
-    // A settings emission reaches no listener of this row, so the single
-    // registration survives untouched.
-    for (const entry of listeners) entry.listener()
+    // A settings emission reaches no settings listener of this row; the loader
+    // takeover listeners are the only listeners and never touch the slot here.
+    for (const entry of listeners.filter(item => item.event === 'model-switch/settings-update')) entry.listener()
     expect(registrations).toHaveLength(1)
   })
 })

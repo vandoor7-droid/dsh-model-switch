@@ -119,6 +119,8 @@ DSH 会自动为新会话起名；命名的触发节奏由 profile 的官方命�
 
 路由在**每次命名请求时现读**：保存后对下一次起名立即生效、无需重启，且进行中的命名请求不会被保存打断。每次请求按顺序解析路由：该会话供应商组里的命名对，其次卡片的部署级对，其次会话自身的模型。请求经由官方命名实现发出，它会把实际使用的 provider/model 记录到该会话自己的 `session/title-llm-request` 事件里，因此持久记录与真实请求永远一致。本插件替换官方的 `session-title-llm` 行而不分叉命名逻辑（该接缝每个上下文只允许注册一个命名 provider），并镜像该行声明的节奏；profile 没有官方命名行时保持 DSH 的确定性兜底标题。
 
+0.4.29 起与实验包「随对话更新的标题」（`dsh-experimental-session-titles-bundle`，插入 all-prompts 命名行）兼容：启用该实验包时，本插件接管同一个命名 provider 槽位并镜像 all-prompts 节奏，标题随对话更新，同时命名模型路由与供应商组路由继续生效（`session/title` 记录中的 provider id 为 `session-title-all-prompts-llm`，与官方行一致）；禁用实验包即回到首条提示节奏与同样的路由覆写。实现只使用 loader 已发布的缝（`loader/patch-context` 瀑布、`Entry.update`、`sessionTitle.register` 及其 disposer），让官方行先成功注册、再被停用并由本行重占槽位，因此启用时不再出现 `already registered` 激活失败弹窗。
+
 ## 供应商配置组（Provider groups）
 
 「供应商配置组」卡片为每个供应商保存一组路由——压缩、自动审查、会话命名与子代理四条路由一起存；为供应商 X 保存的组，作用于自身供应商就是 X 的会话。组是**推导出来的，而不是写进去的**：切换某个会话的供应商不写任何东西，因此不同供应商上的多个会话并行时再也不会互相覆盖、互相改写对方的辅助路由。

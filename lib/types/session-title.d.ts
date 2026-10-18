@@ -138,9 +138,14 @@ export declare function composeTitleRoute(config: TitleLlmPolicy, route: Capabil
 export declare function selectTitleMessages(messages: readonly SessionTitleUserMessage[], firstPromptOnly: boolean): readonly SessionTitleUserMessage[];
 /**
  * Locate the official session-title provider row in the loader tree.
+ *
  * Disabled entries stay in the tree, so a name-matched disable still matches.
+ * The all-prompts row wins when it is present: that row only exists while the
+ * experimental session-titles bundle is composed, and its presence is exactly
+ * the user's choice to update titles with every prompt. The default
+ * first-prompt row is the fallback when that bundle is off.
  * @param loader - the host loader, when one is reachable.
- * @returns The official entry, or undefined when this profile has no such row.
+ * @returns The official entry to mirror, or undefined when this profile has no such row.
  */
 export declare function officialTitleEntry(loader: Loader | undefined): Entry | undefined;
 /**
@@ -270,6 +275,12 @@ export declare function titleSystemPrompt(targets: TitleLengthTargets, hasCurren
  * @returns The framed user input.
  */
 export declare function frameTitleInput(messages: readonly SessionTitleUserMessage[], currentTitle: string | undefined): string;
+/** Timing knobs for the takeover choreography (exported for tests). */
+export declare const TAKEOVER_RETRY_DELAY_MS = 10;
+/** How many times the takeover re-checks after disabling the official row. */
+export declare const TAKEOVER_MAX_ATTEMPTS = 20;
+/** Whether one loader entry declares an official naming provider this row supersedes. */
+export declare function isOfficialTitleRow(entry: Entry | undefined): boolean;
 /**
  * Mount the Model Switch session-naming row for this profile.
  *

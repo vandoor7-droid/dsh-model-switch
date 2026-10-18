@@ -43,6 +43,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Entry, Loader } from '@deepseek-ai/cordis-plugin-loader'
 import type {
   SessionTitleAutomaticMode,
+  SessionTitleProvider,
   SessionTitleProviderId,
   SessionTitleProviderRequest,
   SessionTitleProviderResult,
@@ -237,20 +238,33 @@ export function selectTitleMessages(
   return [first]
 }
 
+/** The id the experimental session-titles bundle inserts for all-prompts naming. */
+const ALL_PROMPTS_ROW = 'optional-session-title-all-prompts'
+
 /**
  * Locate the official session-title provider row in the loader tree.
+ *
  * Disabled entries stay in the tree, so a name-matched disable still matches.
+ * The all-prompts row wins when it is present: that row only exists while the
+ * experimental session-titles bundle is composed, and its presence is exactly
+ * the user's choice to update titles with every prompt. The default
+ * first-prompt row is the fallback when that bundle is off.
  * @param loader - the host loader, when one is reachable.
- * @returns The official entry, or undefined when this profile has no such row.
+ * @returns The official entry to mirror, or undefined when this profile has no such row.
  */
 export function officialTitleEntry(loader: Loader | undefined): Entry | undefined {
   if (!loader) return undefined
+  const allPrompts = TITLE_CADENCES[1]
+  const firstPrompt = TITLE_CADENCES[0]
+  let fallback: Entry | undefined
   for (const entry of loader.entries()) {
-    if (entry.id === OFFICIAL_TITLE_ROW) return entry
+    if (entry.id === ALL_PROMPTS_ROW) return entry
     const pkg = entry.options?.name
-    if (typeof pkg === 'string' && TITLE_CADENCES.some(cadence => cadence.pkg === pkg)) return entry
+    if (typeof pkg === 'string' && allPrompts !== undefined && pkg === allPrompts.pkg) return entry
+    if (fallback === undefined && entry.id === OFFICIAL_TITLE_ROW) fallback = entry
+    else if (fallback === undefined && firstPrompt !== undefined && pkg === firstPrompt.pkg) fallback = entry
   }
-  return undefined
+  return fallback
 }
 
 /**
@@ -671,6 +685,247 @@ function currentSettings(ctx: Context): ModelSwitchSettings | undefined {
   }
 }
 
+/** Resolve the naming plan for one official row, or the shipped defaults when no row exists. */
+function planFor(ctx: Context, module: TitleLlmModule, entry: Entry | undefined): NamingPlan | undefined {
+  const cadence = titleCadence(entry === undefined ? undefined : officialTitlePackage(entry)) ?? TITLE_CADENCES[0]
+  if (cadence === undefined) return undefined
+  const forwarded: Record<string, unknown> = entry === undefined ? {} : forwardedConfig(entry)
+  let policy: ResolvedNamingPolicy
+  try {
+    policy = resolveNamingPolicy(module, forwarded)
+  } catch (cause) {
+    ctx.logger.error('model-switch: the official session-title row has no valid naming policy; naming keeps the deterministic fallback')
+    ctx.logger.error(cause)
+    return undefined
+  }
+  return { cadence, config: policy.config, targets: policy.targets }
+}
+
+/** One naming plan bound to a live route resolver. */
+function providerOf(ctx: Context, module: TitleLlmModule, plan: NamingPlan): SessionTitleProvider {
+  return {
+    id: plan.cadence.id,
+    automatic: plan.cadence.automatic,
+    generate: request => generateTitle(ctx, module, plan, request),
+  }
+}
+
+/** Timing knobs for the takeover choreography (exported for tests). */
+export const TAKEOVER_RETRY_DELAY_MS = 10
+/** How many times the takeover re-checks after disabling the official row. */
+export const TAKEOVER_MAX_ATTEMPTS = 20
+
+/**
+ * The single naming-provider slot this row serves.
+ *
+ * DSH's session-title service accepts exactly one registered provider, and the
+ * official rows (`session-title-llm`, and the experimental row the
+ * `dsh-experimental-session-titles-bundle` inserts) compete for the same slot.
+ * This row therefore mirrors one official row and owns the slot; when another
+ * official row activates anyway (the experimental bundle inserts its row after
+ * this plugin's patch layer, so a static `disabled` cannot reach it), it yields
+ * the slot so that row's own registration succeeds — no activation warning —
+ * and then disables that row and takes the slot back with its cadence mirrored.
+ * Every step uses released seams: the `loader/patch-context` waterfall, the
+ * public `Entry.update`, and `sessionTitle.register` plus its disposer.
+ */
+class NamingSeam {
+  private disposer: (() => Promise<void>) | undefined
+  private plan: NamingPlan
+
+  constructor(
+    private readonly ctx: Context,
+    private readonly module: TitleLlmModule,
+    plan: NamingPlan,
+  ) {
+    this.plan = plan
+  }
+
+  /** The cadence currently registered. */
+  get cadence(): TitleCadence {
+    return this.plan.cadence
+  }
+
+  /** Whether this row currently owns the slot. */
+  get claimed(): boolean {
+    return this.disposer !== undefined
+  }
+
+  /**
+   * Register this row's provider with the given plan.
+   * @param plan - the naming plan to serve (defaults to the current one).
+   * @returns true when the slot is ours, false when another provider holds it.
+   */
+  claim(plan: NamingPlan = this.plan): boolean {
+    this.plan = plan
+    if (this.disposer !== undefined) return true
+    try {
+      this.disposer = this.ctx.sessionTitle.register(providerOf(this.ctx, this.module, plan))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /** Release the slot (the service lets the next registration replace a closing one). */
+  yieldSlot(): void {
+    const disposer = this.disposer
+    this.disposer = undefined
+    if (disposer === undefined) return
+    try {
+      disposer()
+    } catch (cause) {
+      this.ctx.logger.error('model-switch: releasing the session-title provider failed')
+      this.ctx.logger.error(cause)
+    }
+  }
+
+  /** Swap the served plan, re-registering only when the slot is already ours. */
+  retarget(plan: NamingPlan): void {
+    if (!this.claimed) {
+      this.plan = plan
+      return
+    }
+    this.yieldSlot()
+    this.claim(plan)
+  }
+}
+
+/** Whether one loader entry declares an official naming provider this row supersedes. */
+export function isOfficialTitleRow(entry: Entry | undefined): boolean {
+  if (entry === undefined) return false
+  if (entry.id === OFFICIAL_TITLE_ROW || entry.id === ALL_PROMPTS_ROW) return true
+  const pkg = entry.options?.name
+  return typeof pkg === 'string' && TITLE_CADENCES.some(cadence => cadence.pkg === pkg)
+}
+
+/** The id one entry is known by (the loader's leaf id, not a nested path). */
+function leafId(entry: Entry): string | undefined {
+  const raw = entry.options?.id
+  return typeof raw === 'string' ? raw : undefined
+}
+
+/**
+ * Install the takeover choreography for naming rows that activate after this one.
+ *
+ * `loader/patch-context` runs inside the official entry's own `_init`, before its
+ * plugin's `apply`, and it receives that entry. At that point the entry's
+ * `options` are final, so this row can yield the slot first — the official
+ * `register()` then succeeds instead of throwing the "already registered"
+ * activation warning — and afterwards disable that row through the public
+ * `Entry.update` and take the slot back with its cadence mirrored.
+ * @param ctx - this row's context.
+ * @param module - the auxiliary-LLM package.
+ * @param seam - the slot owner.
+ * @returns Nothing; the listeners are effects of this row's fiber.
+ */
+function installTakeover(ctx: Context, module: TitleLlmModule, seam: NamingSeam): void {
+  /** Entries already handled, so a repeated patch-context does not loop. */
+  const handled = new Set<Entry>()
+  /** Entries with a reclaim cycle in flight, so two triggers cannot race. */
+  const reclaiming = new Set<Entry>()
+
+  /** After the yield, disable the official row and take the slot back. */
+  const reclaim = async (entry: Entry, plan: NamingPlan): Promise<void> => {
+    if (reclaiming.has(entry)) return
+    reclaiming.add(entry)
+    try {
+      for (let attempt = 0; attempt < TAKEOVER_MAX_ATTEMPTS; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, attempt === 0 ? 0 : TAKEOVER_RETRY_DELAY_MS))
+        try {
+          await entry.update({ disabled: true })
+        } catch (cause) {
+          // A profile layer may refuse the write; the in-memory disable stands and
+          // the next startup simply repeats this takeover.
+          ctx.logger.info('model-switch: the displaced naming row could not be persisted as disabled; the takeover repeats next startup')
+          ctx.logger.info(String(cause))
+        }
+        if (seam.claim(plan)) {
+          ctx.logger.info(`model-switch: displaced the official naming row ${String(leafId(entry) ?? 'unknown')}; its ${plan.cadence.automatic} cadence and policy are mirrored by the configurable naming route`)
+          return
+        }
+      }
+      ctx.logger.error(`model-switch: the official naming row ${String(leafId(entry) ?? 'unknown')} kept the session-title provider slot; the configurable naming route is unavailable this session`)
+    } finally {
+      reclaiming.delete(entry)
+    }
+  }
+
+  /**
+   * The row an event names.
+   *
+   * The loader hands the emitting entry as the event's `this`, but cordis does
+   * not rebind `this` for listeners added through `ctx.on`, so a listener can
+   * also receive the payload as its first argument. Both shapes are accepted;
+   * the real Host always provides one of them.
+   */
+  const entryOfEvent = (self: unknown, first: unknown): Entry | undefined => {
+    const candidate = self ?? first
+    return candidate !== null && typeof candidate === 'object' && 'options' in candidate ? candidate as Entry : undefined
+  }
+
+  const listeners: Array<() => void> = []
+  const listen = <T>(event: string, listener: T): void => {
+    const dispose = (ctx as unknown as {
+      on?(name: string, handler: T): (() => void) | undefined
+    }).on?.(event, listener)
+    if (dispose !== undefined) listeners.push(dispose)
+  }
+  listen('loader/patch-context', function (this: unknown, first: unknown, second?: unknown) {
+    // Waterfall listeners get only `next`; a plain emission carries the payload
+    // first. Accept both shapes.
+    const nextFn = (typeof first === 'function' ? first : second) as (() => unknown) | undefined
+    const entry = entryOfEvent(this, typeof first === 'function' ? undefined : first)
+    if (entry === undefined || typeof nextFn !== 'function' || !isOfficialTitleRow(entry) || handled.has(entry)) {
+      return nextFn === undefined ? undefined : nextFn()
+    }
+    handled.add(entry)
+    // The plan is resolved synchronously and the slot is yielded before `next()`
+    // returns, because the loader runs this entry's plugin `apply` - and with it
+    // the official `register()` - immediately after the waterfall completes.
+    const plan = planFor(ctx, module, entry)
+    if (plan !== undefined) {
+      seam.yieldSlot()
+      void reclaim(entry, plan)
+    }
+    return nextFn()
+  })
+  // A removed/disabled official row frees the slot; claim it again with the
+  // cadence that remains in the tree (first-prompt when the bundle is gone).
+  listen('loader/partial-dispose', function (this: unknown, first?: unknown) {
+    const entry = entryOfEvent(this, first)
+    if (entry === undefined || !isOfficialTitleRow(entry)) return
+    handled.delete(entry)
+    if (seam.claimed) return
+    const plan = planFor(ctx, module, officialTitleEntry(ctx.get('loader', false)))
+    if (plan !== undefined) seam.claim(plan)
+  })
+  // Rows that were composed before this row ran or are waiting to activate are
+  // swept once: an already-active row holds the slot (claim failed) and a
+  // pending one must not activate into a collision. Both end with the row
+  // disabled and this row serving its cadence.
+  const loader = ctx.get('loader', false) as { entries?(): Iterable<Entry> } | undefined
+  if (typeof loader?.entries === 'function') {
+    for (const candidate of loader.entries()) {
+      if (!isOfficialTitleRow(candidate)) continue
+      if ((candidate as { disabled?: boolean }).disabled === true) continue
+      const plan = planFor(ctx, module, candidate)
+      if (plan !== undefined) void reclaim(candidate, plan)
+    }
+  }
+  // The listeners are effects of this row's fiber on a real Host, so unloading
+  // the profile unregisters them; a structural context keeps the same lifetime.
+  const disposable = (): void => {
+    for (const dispose of listeners.splice(0)) dispose()
+  }
+  const effect = (ctx as unknown as { effect?: (body: () => unknown, label: string) => unknown }).effect
+  if (effect === undefined) return
+  const registration = effect(function* () {
+    yield disposable
+  }, 'model-switch: session-title takeover')
+  if (typeof registration === 'function') listeners.push(registration as () => void)
+}
+
 /**
  * Mount the Model Switch session-naming row for this profile.
  *
@@ -688,11 +943,7 @@ export async function apply(ctx: Context): Promise<void> {
   // shipped first-prompt default keeps model-backed naming alive in that case:
   // dropping the provider here would silently restore fallback titles, which is
   // exactly the capability this row exists to configure.
-  const cadence = titleCadence(entry === undefined ? undefined : officialTitlePackage(entry)) ?? TITLE_CADENCES[0]
-  if (cadence === undefined) return
   if (entry === undefined) ctx.logger.info('model-switch: no instantiated official session-title row to mirror; naming uses the first-prompt cadence')
-  /** The displaced row's naming policy, or the shipped defaults when it is absent. */
-  const forwarded: Record<string, unknown> = entry === undefined ? {} : forwardedConfig(entry)
   let module: TitleLlmModule
   try {
     module = await import(TITLE_LLM_PACKAGE)
@@ -701,25 +952,15 @@ export async function apply(ctx: Context): Promise<void> {
     ctx.logger.error(cause)
     return
   }
-  let policy: ResolvedNamingPolicy
-  try {
-    policy = resolveNamingPolicy(module, forwarded)
-  } catch (cause) {
-    ctx.logger.error('model-switch: the official session-title row has no valid naming policy; naming keeps the deterministic fallback')
-    ctx.logger.error(cause)
-    return
+  const plan = planFor(ctx, module, entry)
+  if (plan === undefined) return
+  const seam = new NamingSeam(ctx, module, plan)
+  if (!seam.claim()) {
+    // One provider per context: another row already owns the seam. Handing the
+    // slot over is the right outcome when that row is an official naming row —
+    // the takeover below still installs, so a later slide back to this row can
+    // succeed when the official row is removed.
+    ctx.logger.info('model-switch: another session-title provider already owns the seam; naming follows it while it is active')
   }
-  const plan: NamingPlan = { cadence, config: policy.config, targets: policy.targets }
-  try {
-    ctx.sessionTitle.register({
-      id: cadence.id,
-      automatic: cadence.automatic,
-      generate: request => generateTitle(ctx, module, plan, request),
-    })
-  } catch (cause) {
-    // One provider per context: another row already owns the seam, and this row
-    // must report that instead of silently replacing or racing it.
-    ctx.logger.error('model-switch: another session-title provider is already registered; the configurable naming route is unavailable')
-    ctx.logger.error(cause)
-  }
+  installTakeover(ctx, module, seam)
 }
