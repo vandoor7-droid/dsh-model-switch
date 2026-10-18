@@ -157,4 +157,21 @@ describe('session-title takeover', () => {
     // The takeover owns the slot now, so the official provider cannot take it back.
     expect(() => service.register({ id: 'session-title-all-prompts-llm', automatic: 'all-prompts' })).toThrow(/already registered/)
   })
+
+  it('reports the lost route and keeps the official provider when the slot never frees', async () => {
+    // The official row holds the slot and never disposes, so every reclaim
+    // attempt fails: the row must log the degradation and leave naming to the
+    // official provider instead of guessing a route or crashing.
+    const all = entryOf('optional-session-title-all-prompts', ALL_PROMPTS, { maxInputBytes: 4096, maxOutputTokens: 64, timeoutMs: 1000 })
+    const { ctx, service } = ctxOf([all])
+    service.register({ id: 'session-title-all-prompts-llm', automatic: 'all-prompts' })
+    const error = vi.spyOn(ctx.logger, 'error')
+
+    await apply(ctx)
+    await flush(TAKEOVER_MAX_ATTEMPTS + 3)
+
+    expect(error.mock.calls.some(call => String(call[0]).includes('kept the session-title provider slot'))).toBe(true)
+    expect(service.current()?.provider.id).toBe('session-title-all-prompts-llm')
+    expect(service.registered).toHaveLength(1)
+  })
 })
