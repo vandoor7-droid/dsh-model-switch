@@ -109,7 +109,7 @@ Plan Review 拥有独立于会话当前路由的执行模型草稿。**确认执
         summarizationModel: deepseek-reasoner
 ```
 
-路由如何到达压缩引擎取决于部署在哪一层组合 agent。Web 面把压缩放进每个 Agent 预设的隔离 `compaction` 组里，而 profile patch 无法寻址 preset `plugins` 列表内部的行——因此本插件整表替换各预设行（与 Web 预设编辑器保存修改用的是同一套 id 定位机制），把该组的官方 `compaction-basic` 换成 `model-switch-compaction`，由它在 `compactionScope` 下挂载**同一份官方 `BasicCompactionEngine`**。进程级组合 agent 的面（如 TUI）则走顶层行替换。两个后果：DSH 发布若改动这些预设，随包副本需要同步（本插件的逐版本核对覆盖这一步）；部署若用 Web 编辑器改预设，会写出自己的整表行、并从那之后自行负责合并。
+路由如何到达压缩引擎取决于部署在哪一层组合 agent。Web 面把压缩放进每个 Agent 预设的隔离 `compaction` 组里，而 profile patch 无法寻址 preset `plugins` 列表内部的行——因此 Host 在启动时桥接那一行（`src/preset-sync.ts`）：禁用该组的官方 `compaction-basic`，并在其后插入 `model-switch-compaction`，由它在 `compactionScope` 下挂载**同一份官方 `BasicCompactionEngine`**。其余预设行一律保持安装版 DSH（或部署在 Web 编辑器里保存的版本）的原样；插件不再随包携带预设副本，所以 DSH 改预设无需再同步副本，部署自己的预设修改也不会被覆盖。进程级组合 agent 的面（如 TUI）则走顶层行替换。
 
 已知问题（上游侧，见 `docs/seam-gap.md`）：当工作集持续超过官方引擎的压力阈值时，自动压缩可能每步触发，并反复重试摘要过不了官方「摘要必须更小」守卫的小片段——表现为"不停自动压缩"，本插件不控制该行为（已在同一会话做过插件开/关 A/B 对照）。可用的缓解（都在转发行配置上）：`auto: false`（保留 `/compact`）、调高 `thresholdRatio`、减少挂载的工具 schema，或固定一个摘要更精炼的压缩模型。
 
@@ -180,7 +180,7 @@ DeepSeek 薄适配器调用官方公开 `DeepSeekSearchProvider`，复用用户�
 
 DSH Host peer 和开发依赖接受 `>=0.1.7-alpha.2`，包括 rc.1 和后续版本。开发锁文件解析到 rc.2。Cordis 接受 `>=4.0.4 <5.0.0`。
 
-已验证版本：`0.1.7-alpha.2`、`0.1.7-rc.1`、`0.1.7-rc.2`、`0.2.0-rc.2`、`0.2.1-rc.2`。0.2.0 的声明覆盖三处差异：Host 改名的提问撤下动词（`cancel()` → `dismiss()`）、`session.selectModel` 不 await 的部署默认值写入、以返回值报出的 `ModelDirectory.select` 拒绝；三者均已在 lab（3082/3085）与真实桌面会话中逐一验证。0.2.1 的声明覆盖两处被替换的 seam：共享命名调用改为 provider 自备提示词与解析的 `executeSessionTitleLlm`（本插件按安装行在运行时适配，并镜像官方 0.2.1 的提示词、取最低 reasoning effort 与 `currentTitle` 锚定）；Subagent 运行时以 `startActivation` 取代 `start()`/`startContinuable()`，路由版运行时在新 Host 上不可用，本插件改为挂载未经改动的官方运行时并输出一条明确提示（记录于 `docs/seam-gap.md`）。0.2.1 的 lab 证据为：npm 安装的 0.2.1 运行时 + 打包后的 0.4.26 组合 `exit 0`、命名/压缩/自动审查/子代理四行均来自本插件、Web Host 在 3082 启动并服务需要鉴权的页面；该次未经浏览器调用 3082 能力 RPC，真实桌面的 0.2.1 命名差分在应用升级后复验。
+已验证版本：`0.1.7-alpha.2`、`0.1.7-rc.1`、`0.1.7-rc.2`、`0.2.0-rc.2`、`0.2.1-rc.2`。0.2.0 的声明覆盖三处差异：Host 改名的提问撤下动词（`cancel()` → `dismiss()`）、`session.selectModel` 不 await 的部署默认值写入、以返回值报出的 `ModelDirectory.select` 拒绝；三者均已在 lab（3082/3085）与真实桌面会话中逐一验证。0.2.1 的声明覆盖两处被替换的 seam：共享命名调用改为 provider 自备提示词与解析的 `executeSessionTitleLlm`（本插件按安装行在运行时适配，并镜像官方 0.2.1 的提示词、取最低 reasoning effort 与 `currentTitle` 锚定）；Subagent 运行时以 `startActivation` 取代 `start()`/`startContinuable()`，路由版运行时在新 Host 上不可用，本插件改为挂载未经改动的官方运行时并输出一条明确提示（记录于 `docs/seam-gap.md`）。0.2.1 的 lab 证据为：npm 安装的 0.2.1 运行时 + 打包后的 0.4.26 组合 `exit 0`、命名/压缩/自动审查/子代理四行均来自本插件、Web Host 在 3082 启动并服务需要鉴权的页面；该次未经浏览器调用 3082 能力 RPC，真实桌面的 0.2.1 命名差分在应用升级后复验。0.2.1 还暴露出一处预设层面的差异（0.2.1 校验提示词变量、只有 `provider`/`model`，且把 `time-context`/`tool-schedule` 移进预设）：0.4.26 的静态预设副本因此让每一轮都报 `unknown prompt variable "{{cwd}}"`，0.4.27 删除副本改为启动期运行时桥接，并在 lab 的 0.2.1 headless 真实回合中验证通过（展开见 CHANGELOG 0.4.27）。
 
 `package.json#dsh.compatibility.dshReleases` 中的已验证版本是证据，不是允许列表。新增验证声明前要审查公开 API 变化并测试新 Host 版本。
 

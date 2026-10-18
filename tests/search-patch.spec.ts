@@ -13,8 +13,8 @@ it('preserves existing global search and custom fetch pins through real patch co
     { id: 'session-title-llm', name: '@deepseek-ai/dsh-session-title-first-prompt-llm' },
     // DSH 0.2.1's optional session-titles bundle mounts its own all-prompts row.
     { id: 'optional-session-title-all-prompts', name: '@deepseek-ai/dsh-session-title-all-prompts-llm' },
-    // The shipped preset rows this patch replaces wholesale so the Web
-    // surface's preset-nested compaction group runs the routed engine.
+    // The shipped preset rows stay untouched by this patch: the Host bridges
+    // their nested compaction engine at startup instead (src/preset-sync.ts).
     { id: 'preset-standard', name: '@deepseek-ai/dsh-agent-preset' },
     { id: 'preset-ptc', name: '@deepseek-ai/dsh-agent-preset' },
     { id: 'preset-cordis', name: '@deepseek-ai/dsh-agent-preset' },

@@ -9,6 +9,7 @@ import { installGenerateImageTool } from './image-tool.js'
 import { installCapabilitiesRpc } from './capabilities-rpc.js'
 import { installDeepSeekSearchAdapter } from './deepseek-search-adapter.js'
 import { allowDshRuntime } from './compatibility.js'
+import { bridgeAgentPresets } from './preset-sync.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context { modelSwitch: ModelSwitchRuntime }
@@ -48,6 +49,11 @@ export class ModelSwitchRuntime extends Service {
       ctx.emit('model-switch/settings-update')
     })
     ctx.emit('model-switch/settings-update')
+    void bridgeAgentPresets(ctx)
+      .then(bridged => {
+        if (bridged.length > 0) ctx.logger.info(`model-switch: bridged agent preset compaction rows (${bridged.join(', ')})`)
+      })
+      .catch(error => ctx.logger.warn(`model-switch: agent preset bridge failed: ${String(error)}`))
   }
 
   currentSettings(): ModelSwitchSettings { return { ...this.source() } }
