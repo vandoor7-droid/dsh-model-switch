@@ -48,6 +48,16 @@ export declare function routeSubagentRequest<T extends RoutableSubagentRequest>(
  * @throws the fallback startup error when fallback startup fails.
  */
 export declare function mountWithStartupFallback<T>(candidate: (track: StartupCleanupTracker) => Promise<T>, fallback: (track: StartupCleanupTracker) => Promise<T>): Promise<MountedStartup<T>>;
+/**
+ * Operator-facing notice for a Host whose Subagent runtime cannot be routed.
+ *
+ * DSH 0.2.1 replaced `start()`/`startContinuable()` with the activation API, so
+ * this adapter's override point is gone; the row then mounts the untouched
+ * official runtime instead of guessing a new seam.
+ * @param error - the typed startup incompatibility that rejected the candidate.
+ * @returns The notice logged once at startup.
+ */
+export declare function routedRuntimeUnavailableNotice(error: StartupIncompatibilityError): string;
 /** Profile replacement that selects the routed runtime or the untouched official runtime. */
 export declare const profileSubagentRuntime: ((ctx: Context) => Promise<() => Promise<void>>) & {
     inject: string[];

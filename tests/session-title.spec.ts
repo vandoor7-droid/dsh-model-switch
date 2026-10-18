@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Entry, Loader } from '@deepseek-ai/cordis-plugin-loader'
 import type { SessionTitleProviderRequest } from '@deepseek-ai/dsh-session-title'
@@ -7,12 +7,25 @@ import {
   apply,
   composeTitleRoute,
   forwardedConfig,
+  frameTitleInput,
   inject,
+  isMaxTokensFailure,
+  isModernTitleModule,
   name,
+  normalizeTitleText,
   officialTitleEntry,
   officialTitlePackage,
+  resolveNamingPolicy,
   selectTitleMessages,
+  selectTitleReasoningEffort,
+  shouldTryNextCandidate,
+  splitTitlePolicy,
   titleCadence,
+  titleFromOutput,
+  titleFromResponse,
+  titleRouteCandidates,
+  titleSystemPrompt,
+  widerTitleBudget,
 } from '../src/session-title.ts'
 
 /** Every call into the official auxiliary-LLM implementation, in order. */
@@ -25,6 +38,23 @@ const llm = vi.hoisted(() => ({
   }>,
   /** Swappable policy validator so one test can feed an invalid stored policy. */
   resolve: { impl: (config: Record<string, unknown>): Record<string, unknown> => ({ ...config }) },
+  /** Swappable legacy call so one test can make a route fail. */
+  generate: { impl: async (_config: Record<string, unknown>): Promise<unknown> => ({ title: 'generated', messageSeqs: [] }) },
+  /** Every call into the 0.2.1+ provider-prepared call, in order. */
+  executed: [] as Array<{
+    config: Record<string, unknown>
+    titleProvider: string
+    prepared: { system: string; input: string; messageSeqs: readonly number[]; selectReasoningEffort: (model: unknown) => string | undefined }
+    request: unknown
+  }>,
+  /** The assembled response the 0.2.1+ call returns, swappable per test. */
+  execute: {
+    impl: async (): Promise<unknown> => ({
+      blocks: [{ type: 'text', text: 'Fresh title' }],
+      finish: { kind: 'stop' },
+      model: { provider: 'p', model: 'm' },
+    }),
+  },
 }))
 
 vi.mock('@deepseek-ai/dsh-session-title-llm', () => ({
@@ -37,13 +67,20 @@ vi.mock('@deepseek-ai/dsh-session-title-llm', () => ({
     titleProvider: string,
   ) => {
     llm.calls.push({ config, request, messages, titleProvider })
-    return { title: 'generated', messageSeqs: [] }
+    return llm.generate.impl(config)
   },
 }))
 
 beforeEach(() => {
   llm.calls.length = 0
+  llm.executed.length = 0
   llm.resolve.impl = config => ({ ...config })
+  llm.generate.impl = async () => ({ title: 'generated', messageSeqs: [] })
+  llm.execute.impl = async () => ({
+    blocks: [{ type: 'text', text: 'Fresh title' }],
+    finish: { kind: 'stop' },
+    model: { provider: 'p', model: 'm' },
+  })
 })
 
 afterEach(() => {
@@ -98,6 +135,7 @@ function bench(options: {
 } = {}) {
   const info: string[] = []
   const errors: string[] = []
+  const warns: string[] = []
   const registrations: RegisteredProvider[] = []
   const listeners: Array<{ event: string; listener: () => void; options?: unknown }> = []
   const settings: Record<string, unknown> = { ...options.settings }
@@ -110,6 +148,7 @@ function bench(options: {
     },
     logger: {
       info: (line: unknown) => { info.push(String(line)) },
+      warn: (line: unknown) => { warns.push(String(line)) },
       error: (line: unknown) => { errors.push(String(line)) },
     },
     sessionTitle: {
@@ -125,7 +164,7 @@ function bench(options: {
       listeners.push({ event, listener, options: listenerOptions })
     },
   }
-  return { ctx: ctx as unknown as Context, info, errors, registrations, listeners, settings }
+  return { ctx: ctx as unknown as Context, info, errors, warns, registrations, listeners, settings }
 }
 
 describe('session-title plugin identity', () => {
@@ -319,7 +358,7 @@ describe('apply', () => {
     expect(llm.calls[0]?.config).toEqual({ ...POLICY, provider: 'deepseek', model: 'deep-title' })
   })
 
-  it('keeps the row’s own policy when the session resolves no route', async () => {
+  it('keeps the row鈥檚 own policy when the session resolves no route', async () => {
     const { ctx, registrations } = bench()
     await apply(ctx)
     await registrations[0]!.generate(titleRequest(sessionOf(undefined), [message(1, 'only')]))
@@ -327,7 +366,7 @@ describe('apply', () => {
     expect(llm.calls[0]?.config).not.toHaveProperty('provider')
   })
 
-  it('keeps the row’s own policy when host settings are unavailable', async () => {
+  it('keeps the row鈥檚 own policy when host settings are unavailable', async () => {
     const { ctx, registrations } = bench({ host: false, settings: { titleProvider: 'deepseek', titleModel: 'deep-title' } })
     await apply(ctx)
     await registrations[0]!.generate(titleRequest(sessionOf('codex'), [message(1, 'only')]))
@@ -365,7 +404,216 @@ describe('apply', () => {
     for (const entry of listeners) entry.listener()
     expect(registrations).toHaveLength(1)
   })
+})
 
+/** Policy keys both official auxiliary-LLM lines validate. */
+const EXECUTION = Object.freeze({ maxInputBytes: 4096, maxOutputTokens: 24, timeoutMs: 3000 })
+
+describe('splitTitlePolicy', () => {
+  it('keeps execution keys and drops provider-owned targets from the shared half', () => {
+    const split = splitTitlePolicy({ ...POLICY, provider: 'p', model: 'm', extra: 'ignored' })
+    expect(split.execution).toEqual({ ...EXECUTION, provider: 'p', model: 'm' })
+    expect(split.targets).toEqual({ targetWords: 6, targetCjkCharacters: 12 })
+  })
+
+  it('fills absent execution controls with the shipped official defaults', () => {
+    expect(splitTitlePolicy({}).execution).toEqual({ maxInputBytes: 4096, maxOutputTokens: 64, timeoutMs: 60_000 })
+    expect(splitTitlePolicy({}).targets).toEqual({ targetWords: 5, targetCjkCharacters: 10 })
+  })
+
+  it('ignores invalid targets instead of forwarding them', () => {
+    expect(splitTitlePolicy({ targetWords: 0, targetCjkCharacters: 'x' }).targets)
+      .toEqual({ targetWords: 5, targetCjkCharacters: 10 })
+  })
+})
+
+describe('resolveNamingPolicy', () => {
+  /** A module shaped like the pre-0.2.1 line. */
+  const legacyShape = {
+    resolveSessionTitleLlmConfig: (config: Record<string, unknown>) => ({ ...config }),
+    generateSessionTitleWithLlm: async () => ({ title: 'x', messageSeqs: [] }),
+  } as never
+  /** A module shaped like the 0.2.1+ line. */
+  const modernShape = {
+    resolveSessionTitleLlmConfig: (config: Record<string, unknown>) => ({ ...config }),
+    executeSessionTitleLlm: async () => ({ blocks: [], finish: { kind: 'stop' }, model: { provider: 'p', model: 'm' } }),
+  } as never
+
+  it('feeds the title-length targets into the pre-0.2.1 shared policy', () => {
+    const policy = resolveNamingPolicy(legacyShape, { ...POLICY })
+    expect(policy.config).toMatchObject({ ...EXECUTION, targetWords: 6, targetCjkCharacters: 12 })
+    expect(policy.targets).toEqual({ targetWords: 6, targetCjkCharacters: 12 })
+  })
+
+  it('keeps the targets out of the 0.2.1 shared policy', () => {
+    const policy = resolveNamingPolicy(modernShape, { ...POLICY })
+    expect(policy.config).toEqual(EXECUTION)
+    expect(policy.targets).toEqual({ targetWords: 6, targetCjkCharacters: 12 })
+  })
+})
+
+describe('isModernTitleModule', () => {
+  it('selects the provider-prepared line by its call entry point', () => {
+    expect(isModernTitleModule({ executeSessionTitleLlm: async () => ({}) } as never)).toBe(true)
+    expect(isModernTitleModule({ generateSessionTitleWithLlm: async () => ({}) } as never)).toBe(false)
+    expect(isModernTitleModule({} as never)).toBe(false)
+  })
+})
+
+describe('titleRouteCandidates', () => {
+  const policy = { ...EXECUTION, provider: 'row', model: 'row-model' }
+  const settings = {
+    titleProvider: 'flat',
+    titleModel: 'flat-model',
+    providerGroups: { ark: { titleProvider: 'ark', titleModel: 'ark-model' } },
+  } as never
+
+  it('orders group, deployment, row, then the session route', () => {
+    expect(titleRouteCandidates(settings, 'ark', policy, { provider: 'session', model: 's' })).toEqual([
+      { provider: 'ark', model: 'ark-model' },
+      { provider: 'flat', model: 'flat-model' },
+      { provider: 'row', model: 'row-model' },
+      { provider: 'session', model: 's' },
+    ])
+  })
+
+  it('drops a candidate an earlier source already named', () => {
+    expect(titleRouteCandidates(settings, 'ark', { ...policy, provider: 'flat', model: 'flat-model' }, undefined))
+      .toEqual([{ provider: 'ark', model: 'ark-model' }, { provider: 'flat', model: 'flat-model' }])
+  })
+
+  it('returns no candidate when neither settings nor the row pin a route', () => {
+    expect(titleRouteCandidates(undefined, undefined, EXECUTION, undefined)).toEqual([])
+  })
+})
+
+describe('title interpretation helpers', () => {
+  it('normalizes controls and whitespace exactly like the official service', () => {
+    expect(normalizeTitleText('  hello\u001B[31m \u200Bworld \u001B[0m ')).toBe('hello world')
+  })
+
+  it('takes the first content line and unwraps whole-line emphasis', () => {
+    expect(titleFromOutput('**Real title**\nexplanation')).toBe('Real title')
+    expect(titleFromOutput('Plain title\nmore')).toBe('Plain title')
+    expect(titleFromOutput('   ')).toBe('')
+  })
+
+  it('accepts only a stopped, text-only, non-empty response', () => {
+    const response = (finish: string, blocks: readonly unknown[], model = { provider: 'p', model: 'm' }) => ({ finish: { kind: finish }, blocks, model }) as never
+    expect(titleFromResponse(response('stop', [{ type: 'text', text: '**Bold**' }]))).toBe('Bold')
+    expect(() => titleFromResponse(response('max-tokens', []))).toThrow('title output reached maxOutputTokens')
+    expect(() => titleFromResponse(response('tool-calls', []))).toThrow('must contain text only')
+    expect(() => titleFromResponse(response('stop', [{ type: 'tool-call' }]))).toThrow('must contain text only')
+    expect(() => titleFromResponse(response('stop', [{ type: 'text', text: '  ' }]))).toThrow('produced no text')
+    expect(() => titleFromResponse(response('weird', []))).toThrow('unsupported finish reason')
+  })
+
+  it('adds the current-title stability rules only when anchored', () => {
+    expect(titleSystemPrompt({ targetWords: 5, targetCjkCharacters: 10 }, true)).toContain('currentTitle')
+    expect(titleSystemPrompt({ targetWords: 5, targetCjkCharacters: 10 }, false)).not.toContain('currentTitle')
+  })
+
+  it('frames messages as JSON and the anchor as an update object', () => {
+    const messages = [message(1, 'first')]
+    expect(frameTitleInput(messages, undefined))
+      .toBe('Generate the session title from this JSON array of human messages:\n[{"seq":1,"text":"first"}]')
+    expect(frameTitleInput(messages, 'Existing'))
+      .toBe('Update the session title from this JSON object:\n{"currentTitle":"Existing","messages":[{"seq":1,"text":"first"}]}')
+  })
+
+  it('selects the least supported reasoning effort the model declares', () => {
+    expect(selectTitleReasoningEffort({ reasoning: { efforts: [{ id: 'off' }, { id: 'high' }] } })).toBe('off')
+    expect(selectTitleReasoningEffort({})).toBeUndefined()
+  })
+
+  it('recognizes only a max-token failure as budget-widenable', () => {
+    expect(isMaxTokensFailure(new Error('session-title-llm: title output reached maxOutputTokens'))).toBe(true)
+    expect(isMaxTokensFailure(new Error('429: Requests are too frequent'))).toBe(false)
+    expect(isMaxTokensFailure('max-tokens')).toBe(false)
+    expect(widerTitleBudget(24)).toBe(96)
+    expect(widerTitleBudget(2000)).toBe(4096)
+  })
+
+  it('stops the attempt loop for a cancelled request or an expired deadline', () => {
+    const request = { signal: new AbortController().signal } as unknown as SessionTitleProviderRequest
+    expect(shouldTryNextCandidate(new Error('boom'), request)).toBe(true)
+    const deadline = Object.assign(new Error('timeout'), { code: 'SESSION_TITLE_TIMEOUT' })
+    expect(shouldTryNextCandidate(deadline, request)).toBe(false)
+    const aborted = { signal: AbortSignal.abort() } as unknown as SessionTitleProviderRequest
+    expect(shouldTryNextCandidate(new Error('boom'), aborted)).toBe(false)
+  })
+})
+
+describe('naming route fallback', () => {
+  /** A session whose provider selects one saved group. */
+  const grouped = {
+    settings: {
+      titleProvider: 'apigoto',
+      titleModel: 'mimo',
+      providerGroups: { ark: { titleProvider: 'ark', titleModel: 'ark-code' } },
+    },
+  }
+
+  it('falls through to the deployment pair when the group pair fails', async () => {
+    const { ctx, registrations } = bench(grouped)
+    await apply(ctx)
+    let call = 0
+    llm.generate.impl = async () => {
+      call += 1
+      if (call === 1) throw new Error('429: Requests are too frequent')
+      return { title: 'fallback title', messageSeqs: [1] }
+    }
+    const result = await registrations[0]!.generate(titleRequest(sessionOf('ark'), [message(1, 'only')]))
+    expect(result).toEqual({ title: 'fallback title', messageSeqs: [1] })
+    expect(llm.calls.map(entry => entry.config)).toEqual([
+      { ...POLICY, provider: 'ark', model: 'ark-code' },
+      { ...POLICY, provider: 'apigoto', model: 'mimo' },
+    ])
+  })
+
+  it('retries the same route with a widened budget on a max-token failure', async () => {
+    const { ctx, registrations } = bench()
+    await apply(ctx)
+    let call = 0
+    llm.generate.impl = async () => {
+      call += 1
+      if (call === 1) throw new Error('session-title-llm: title output reached maxOutputTokens')
+      return { title: 'widened title', messageSeqs: [1] }
+    }
+    const result = await registrations[0]!.generate(titleRequest(sessionOf(undefined), [message(1, 'only')]))
+    expect(result).toEqual({ title: 'widened title', messageSeqs: [1] })
+    expect(llm.calls.map(entry => entry.config.maxOutputTokens)).toEqual([24, 96])
+  })
+
+  it('reports every candidate failure when no route works', async () => {
+    const { ctx, registrations, warns } = bench(grouped)
+    await apply(ctx)
+    llm.generate.impl = async () => { throw new Error('boom') }
+    await expect(registrations[0]!.generate(titleRequest(sessionOf('ark'), [message(1, 'only')])))
+      .rejects.toThrow('boom')
+    expect(warns.some(line => line.includes('failed on every candidate'))).toBe(true)
+    expect(warns[0]).toContain('ark/ark-code')
+    expect(warns[0]).toContain('apigoto/mimo')
+  })
+
+  it('keeps a cancelled request silent instead of falling through', async () => {
+    const { ctx, registrations, warns } = bench(grouped)
+    await apply(ctx)
+    llm.generate.impl = async () => { throw new Error('aborted') }
+    const controller = new AbortController()
+    controller.abort()
+    await expect(registrations[0]!.generate({
+      session: sessionOf('ark'),
+      messages: [message(1, 'only')],
+      signal: controller.signal,
+    } as unknown as SessionTitleProviderRequest)).rejects.toThrow('aborted')
+    expect(warns).toEqual([])
+    expect(llm.calls).toHaveLength(1)
+  })
+})
+
+
+describe('module availability', () => {
   it('reports an unavailable auxiliary package without registering', async () => {
     // The module layer is swapped for a factory that fails to evaluate,
     // reproducing a profile where the auxiliary-LLM package is not installed.

@@ -180,7 +180,7 @@ DeepSeek 薄适配器调用官方公开 `DeepSeekSearchProvider`，复用用户�
 
 DSH Host peer 和开发依赖接受 `>=0.1.7-alpha.2`，包括 rc.1 和后续版本。开发锁文件解析到 rc.2。Cordis 接受 `>=4.0.4 <5.0.0`。
 
-已验证版本：`0.1.7-alpha.2`、`0.1.7-rc.1`、`0.1.7-rc.2`、`0.2.0-rc.2`。0.2.0 的声明覆盖三处差异：Host 改名的提问撤下动词（`cancel()` → `dismiss()`）、`session.selectModel` 不 await 的部署默认值写入、以返回值报出的 `ModelDirectory.select` 拒绝；三者均已在 lab（3082/3085）与真实桌面会话中逐一验证。
+已验证版本：`0.1.7-alpha.2`、`0.1.7-rc.1`、`0.1.7-rc.2`、`0.2.0-rc.2`、`0.2.1-rc.2`。0.2.0 的声明覆盖三处差异：Host 改名的提问撤下动词（`cancel()` → `dismiss()`）、`session.selectModel` 不 await 的部署默认值写入、以返回值报出的 `ModelDirectory.select` 拒绝；三者均已在 lab（3082/3085）与真实桌面会话中逐一验证。0.2.1 的声明覆盖两处被替换的 seam：共享命名调用改为 provider 自备提示词与解析的 `executeSessionTitleLlm`（本插件按安装行在运行时适配，并镜像官方 0.2.1 的提示词、取最低 reasoning effort 与 `currentTitle` 锚定）；Subagent 运行时以 `startActivation` 取代 `start()`/`startContinuable()`，路由版运行时在新 Host 上不可用，本插件改为挂载未经改动的官方运行时并输出一条明确提示（记录于 `docs/seam-gap.md`）。0.2.1 的 lab 证据为：npm 安装的 0.2.1 运行时 + 打包后的 0.4.26 组合 `exit 0`、命名/压缩/自动审查/子代理四行均来自本插件、Web Host 在 3082 启动并服务需要鉴权的页面；该次未经浏览器调用 3082 能力 RPC，真实桌面的 0.2.1 命名差分在应用升级后复验。
 
 `package.json#dsh.compatibility.dshReleases` 中的已验证版本是证据，不是允许列表。新增验证声明前要审查公开 API 变化并测试新 Host 版本。
 

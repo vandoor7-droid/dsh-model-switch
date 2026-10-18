@@ -198,10 +198,40 @@ export async function mountWithStartupFallback<T>(
   }
 }
 
+/**
+ * Operator-facing notice for a Host whose Subagent runtime cannot be routed.
+ *
+ * DSH 0.2.1 replaced `start()`/`startContinuable()` with the activation API, so
+ * this adapter's override point is gone; the row then mounts the untouched
+ * official runtime instead of guessing a new seam.
+ * @param error - the typed startup incompatibility that rejected the candidate.
+ * @returns The notice logged once at startup.
+ */
+export function routedRuntimeUnavailableNotice(error: StartupIncompatibilityError): string {
+  return `model-switch: the routed Subagent runtime is unavailable on this DSH Host (${error.message}); delegation follows the official route instead`
+}
+
+/** Log one notice without letting a missing logger service fail the startup. */
+function reportNotice(ctx: Context, message: string): void {
+  try {
+    ctx.logger.warn(message)
+  } catch {
+    // A Host that exposes no logger service must still boot.
+  }
+}
+
 async function mountProfileRuntime(ctx: Context): Promise<() => Promise<void>> {
   const mounted = await mountWithStartupFallback(
     async track => {
-      assertOfficialRuntimeSurface()
+      try {
+        assertOfficialRuntimeSurface()
+      } catch (error) {
+        // DSH 0.2.1 replaced the start surface with the activation API. The row
+        // stays mounted on the official runtime (fail-closed); the operator sees
+        // exactly why the route override is not applied.
+        if (error instanceof StartupIncompatibilityError) reportNotice(ctx, routedRuntimeUnavailableNotice(error))
+        throw error
+      }
       assertRoutingSurface(ctx)
       const candidate = ctx.plugin(ModelSwitchSubagentRuntime)
       track(() => candidate.dispose())

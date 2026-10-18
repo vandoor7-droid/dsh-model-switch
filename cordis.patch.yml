@@ -34,6 +34,15 @@
   name: '@deepseek-ai/dsh-session-title-first-prompt-llm'
   disabled: true
 
+# DSH 0.2.1's optional experimental session-titles bundle disables the row above
+# and inserts its own all-prompts provider row. Model Switch owns this seam as
+# well, so that row is disabled by its id too; a profile that never enabled the
+# bundle has no such row and the non-insert target is skipped with a warning,
+# exactly like the optional auto-review row above.
+- id: optional-session-title-all-prompts
+  name: '@deepseek-ai/dsh-session-title-all-prompts-llm'
+  disabled: true
+
 # The Web surface moves the agent plane (tools, compaction, delegation) into
 # per-session agent presets: session /compact and official automatic compaction
 # run against the compaction service inside each preset's isolated `compaction`

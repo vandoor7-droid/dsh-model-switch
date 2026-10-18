@@ -6,6 +6,7 @@ import {
   StartupIncompatibilityError,
   mountWithStartupFallback,
   profileSubagentRuntime,
+  routedRuntimeUnavailableNotice,
 } from '../src/subagent-runtime.js'
 
 let context: Context | undefined
@@ -41,6 +42,17 @@ describe('Subagent profile startup selection', () => {
     await context.plugin(ThrowingModelSwitch)
     await expect(context.plugin(profileSubagentRuntime)).rejects.toThrow('broken model switch')
     expect(context.registry.has(OfficialSubagentRuntime)).toBe(false)
+  })
+})
+
+describe('replaced Subagent start surface', () => {
+  it('names the replaced surface in the operator notice', () => {
+    const notice = routedRuntimeUnavailableNotice(new StartupIncompatibilityError(
+      'OfficialSubagentRuntime',
+      'OfficialSubagentRuntime must expose public startContinuable()',
+    ))
+    expect(notice).toContain('the routed Subagent runtime is unavailable on this DSH Host')
+    expect(notice).toContain('must expose public startContinuable()')
   })
 })
 
