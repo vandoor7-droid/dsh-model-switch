@@ -100,9 +100,37 @@ export declare function bindAutoReviewSessionCorrelation(scope: Context, activeS
  * Build the scoped context the official gate runs under.
  * @param ctx - host context whose modelSwitch settings pin the reviewer route.
  * @param activeSession - optional AsyncLocalStorage correlating each `tools/pre-execute` call to its session.
- * @returns A child context shadowing only the llm service.
+ * @returns A child context shadowing the llm service and, when the permission
+ * preset service is reachable, that service too.
  */
 export declare function reviewScope(ctx: Context, activeSession?: AsyncLocalStorage<Session | undefined>): Context;
+/** The permission-preset face the official gate reads; structural so a missing package never breaks a build. */
+export interface PermissionPresetsFace {
+    current(session: Session): string;
+    set(session: Session, preset: string): unknown;
+    registerAuto(admit: () => void): unknown;
+}
+/**
+ * Wrap the permission-preset service so the official gate's per-call probe can
+ * never fail a tool call.
+ *
+ * DSH's Auto gate starts every `tools/pre-execute` with
+ * `permissionPresets.current(session)`, and that method resolves the presets
+ * service's own `sessionProjections` injection. When the presets fiber has
+ * turned inactive the probe throws `cannot get required service
+ * "sessionProjections" in inactive context` outside the gate's reviewer error
+ * wrapper, so every tool call dies. This wrapper degrades the probe to
+ * `custom` (the gate then skips review and calls `next()`), reports the lost
+ * capability once, and keeps the tool backend alive; the registration and
+ * teardown paths degrade the same way instead of throwing.
+ *
+ * @param real - the host's permission-preset service.
+ * @param log - the row logger used for the single degradation report.
+ * @returns A structurally compatible preset face.
+ */
+export declare function defensivePermissionPresets(real: PermissionPresetsFace, log: {
+    warn(line: string): void;
+}): PermissionPresetsFace;
 /**
  * Structural view of the official gate's plugin face.
  *

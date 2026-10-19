@@ -8,6 +8,7 @@ import {
   autoReviewGate,
   autoReviewRouteOf,
   bindAutoReviewSessionCorrelation,
+  defensivePermissionPresets,
   inject,
   name,
   resolveSessionAutoReviewRoute,
@@ -179,12 +180,16 @@ describe('reviewLlm', () => {
 })
 
 describe('reviewScope', () => {
-  it('shadows only llm on a child context and leaves the parent service untouched', () => {
+  it('shadows llm and the permission-preset service on a child context and leaves the parent services untouched', () => {
     const { ctx, stream, currentSettings } = bench({ settings: { autoReviewProvider: 'pin-p', autoReviewModel: 'pin-m' } })
     const parentLlm = ctx.llm
+    const parentPresets = ctx.permissionPresets
     const scope = reviewScope(ctx)
     expect(scope.llm).not.toBe(parentLlm)
     expect(ctx.llm).toBe(parentLlm)
+    // The preset face is wrapped so a broken service cannot fail a tool call.
+    expect(scope.permissionPresets).not.toBe(parentPresets)
+    expect(scope.permissionPresets.current({} as never)).toBe('safe')
     // Inherited services still resolve to the real instances.
     expect(scope.modelSwitch).toBe(ctx.modelSwitch)
 
@@ -263,6 +268,57 @@ describe('reviewScope', () => {
     await scope.waterfall('tools/pre-execute', { agent: { session: sessionUngrouped } } as never, async () => ({ kind: 'allow' as const }))
     expect(stream).toHaveBeenLastCalledWith(expect.objectContaining({ provider: 'global-p', model: 'global-m' }))
     expect(resolveSessionAutoReviewRoute(ctx, sessionUngrouped)).toEqual({ provider: 'global-p', model: 'global-m' })
+  })
+})
+
+describe('defensivePermissionPresets', () => {
+  it('degrades a failing preset probe to custom so a tool call still runs', () => {
+    const warn = vi.fn()
+    const failure = new Error('cannot get required service "sessionProjections" in inactive context')
+    const face = defensivePermissionPresets({
+      current: () => { throw failure },
+      set: () => undefined,
+      registerAuto: () => () => undefined,
+    }, { warn })
+    expect(face.current({} as never)).toBe('custom')
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]?.[0])).toContain('inactive context')
+    // The degradation report is one line, not one per tool call.
+    expect(face.current({} as never)).toBe('custom')
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a healthy service transparent', () => {
+    const preset = { current: vi.fn(() => 'auto'), set: vi.fn(() => true), registerAuto: vi.fn(() => () => undefined) }
+    const face = defensivePermissionPresets(preset, { warn: vi.fn() })
+    expect(face.current({} as never)).toBe('auto')
+    const disposer = face.registerAuto(() => undefined)
+    expect(preset.registerAuto).toHaveBeenCalledOnce()
+    expect(typeof disposer).toBe('function')
+  })
+
+  it('reports a single-registration conflict instead of failing the gate', async () => {
+    const warn = vi.fn()
+    const face = defensivePermissionPresets({
+      current: () => 'safe',
+      set: () => undefined,
+      registerAuto: () => { throw new Error('permission: preset "auto" is already registered') },
+    }, { warn })
+    const disposer = face.registerAuto(() => undefined)
+    expect(typeof disposer).toBe('function')
+    await expect((disposer as () => Promise<void>)()).resolves.toBeUndefined()
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('swallows a failing preset write during teardown', () => {
+    const warn = vi.fn()
+    const face = defensivePermissionPresets({
+      current: () => 'safe',
+      set: () => { throw new Error('no session') },
+      registerAuto: () => () => undefined,
+    }, { warn })
+    expect(face.set({} as never, 'danger-full-access')).toBeUndefined()
+    expect(warn).toHaveBeenCalledTimes(1)
   })
 })
 

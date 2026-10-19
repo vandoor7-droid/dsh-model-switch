@@ -279,7 +279,13 @@ export declare function frameTitleInput(messages: readonly SessionTitleUserMessa
 export declare const TAKEOVER_RETRY_DELAY_MS = 10;
 /** How many times the takeover re-checks after disabling the official row. */
 export declare const TAKEOVER_MAX_ATTEMPTS = 20;
-/** Whether one loader entry declares an official naming provider this row supersedes. */
+/**
+ * Whether one loader entry declares an official naming provider this row supersedes.
+ *
+ * The package name is the authoritative identity: the takeover disables the
+ * matched entry, which disposes its fiber, so an id-only match could reach a
+ * group or an unrelated plugin's row with a recycled id.
+ */
 export declare function isOfficialTitleRow(entry: Entry | undefined): boolean;
 /**
  * Mount the Model Switch session-naming row for this profile.

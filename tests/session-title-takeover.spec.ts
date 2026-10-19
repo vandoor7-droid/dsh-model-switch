@@ -89,6 +89,13 @@ describe('isOfficialTitleRow', () => {
     expect(isOfficialTitleRow(entryOf('web', '@deepseek-ai/dsh-web'))).toBe(false)
     expect(isOfficialTitleRow(undefined)).toBe(false)
   })
+
+  it('refuses an id-only match, because matching a row leads to disposing it', () => {
+    // A recycled id on another plugin's row (or a group) must never be treated
+    // as the official naming provider: the takeover disables the matched entry.
+    expect(isOfficialTitleRow(entryOf('session-title-llm', '@deepseek-ai/dsh-web'))).toBe(false)
+    expect(isOfficialTitleRow(entryOf('optional-session-title-all-prompts', 'custom-title-provider'))).toBe(false)
+  })
 })
 
 describe('session-title takeover', () => {
@@ -156,6 +163,17 @@ describe('session-title takeover', () => {
     expect(service.current()?.provider.id).toBe('session-title-all-prompts-llm')
     // The takeover owns the slot now, so the official provider cannot take it back.
     expect(() => service.register({ id: 'session-title-all-prompts-llm', automatic: 'all-prompts' })).toThrow(/already registered/)
+  })
+
+  it('never disables a lookalike row that only reuses the official id', async () => {
+    // The takeover disposes a matched entry, so an id-only lookalike (another
+    // package reusing `session-title-llm`) must be left alone entirely.
+    const lookalike = entryOf('session-title-llm', '@deepseek-ai/dsh-web')
+    const { ctx } = ctxOf([lookalike])
+    await apply(ctx)
+    await ctx.waterfall('loader/patch-context', lookalike, () => undefined)
+    await flush(TAKEOVER_MAX_ATTEMPTS)
+    expect(lookalike.updates).not.toContainEqual({ disabled: true })
   })
 
   it('reports the lost route and keeps the official provider when the slot never frees', async () => {

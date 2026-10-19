@@ -48,6 +48,7 @@ export declare const zh: {
     readonly providerGroupPick: "选择供应商以编辑其配置组。";
     readonly providerGroupDelete: "删除该组";
     readonly saveTimeout: "保存超时，请重试";
+    readonly saveRejected: "保存被拒绝，请重试";
     readonly 'reason.central-subagent-routing': "Alpha.4 没有全局子代理启动路由接口。";
     readonly 'reason.packaged-preset-roots': "Alpha.4 不支持插件提供额外 preset root。";
     readonly 'reason.tool-owner-suppression': "Alpha.4 没有工具所有者或来源抑制接口。";

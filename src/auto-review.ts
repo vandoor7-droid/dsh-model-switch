@@ -151,15 +151,98 @@ export function bindAutoReviewSessionCorrelation(
  * Build the scoped context the official gate runs under.
  * @param ctx - host context whose modelSwitch settings pin the reviewer route.
  * @param activeSession - optional AsyncLocalStorage correlating each `tools/pre-execute` call to its session.
- * @returns A child context shadowing only the llm service.
+ * @returns A child context shadowing the llm service and, when the permission
+ * preset service is reachable, that service too.
  */
 export function reviewScope(
   ctx: Context,
   activeSession: AsyncLocalStorage<Session | undefined> = new AsyncLocalStorage<Session | undefined>(),
 ): Context {
-  return ctx.extend({
+  const permissionPresets = permissionPresetsOf(ctx)
+  const shadows: Record<string, unknown> = {
     llm: reviewLlm(ctx.llm, () => resolveSessionAutoReviewRoute(ctx, activeSession.getStore())),
-  })
+  }
+  if (permissionPresets !== undefined) shadows.permissionPresets = defensivePermissionPresets(permissionPresets, ctx.logger)
+  return ctx.extend(shadows as never)
+}
+
+/** The preset name the service reports when no configured preset matches. */
+const CUSTOM_PRESET = 'custom'
+
+/** The permission-preset face the official gate reads; structural so a missing package never breaks a build. */
+export interface PermissionPresetsFace {
+  current(session: Session): string
+  set(session: Session, preset: string): unknown
+  registerAuto(admit: () => void): unknown
+}
+
+/** Read the live permission-preset service without requiring an injection. */
+function permissionPresetsOf(ctx: Context): PermissionPresetsFace | undefined {
+  try {
+    const face = (ctx as unknown as { get(name: string, strict: boolean): unknown }).get('permissionPresets', false)
+    return face !== null && typeof face === 'object' ? face as PermissionPresetsFace : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Wrap the permission-preset service so the official gate's per-call probe can
+ * never fail a tool call.
+ *
+ * DSH's Auto gate starts every `tools/pre-execute` with
+ * `permissionPresets.current(session)`, and that method resolves the presets
+ * service's own `sessionProjections` injection. When the presets fiber has
+ * turned inactive the probe throws `cannot get required service
+ * "sessionProjections" in inactive context` outside the gate's reviewer error
+ * wrapper, so every tool call dies. This wrapper degrades the probe to
+ * `custom` (the gate then skips review and calls `next()`), reports the lost
+ * capability once, and keeps the tool backend alive; the registration and
+ * teardown paths degrade the same way instead of throwing.
+ *
+ * @param real - the host's permission-preset service.
+ * @param log - the row logger used for the single degradation report.
+ * @returns A structurally compatible preset face.
+ */
+export function defensivePermissionPresets(
+  real: PermissionPresetsFace,
+  log: { warn(line: string): void },
+): PermissionPresetsFace {
+  let reported = false
+  const degrade = (operation: string, error: unknown): void => {
+    if (reported) return
+    reported = true
+    log.warn(`model-switch: the permission-preset service refused ${operation} (${String(error)}); the Auto reviewer passes tool calls through instead of blocking them`)
+  }
+  return {
+    current(session) {
+      try {
+        return real.current(session)
+      } catch (error) {
+        degrade('current()', error)
+        return CUSTOM_PRESET
+      }
+    },
+    set(session, preset) {
+      try {
+        return real.set(session, preset)
+      } catch (error) {
+        degrade('set()', error)
+        return undefined
+      }
+    },
+    registerAuto(admit) {
+      try {
+        return real.registerAuto(admit)
+      } catch (error) {
+        // A live registration elsewhere owns Auto; this gate still reviews
+        // through it. A torn registration reads the same way, and the
+        // defensively wrapped `current()` above keeps tool calls running.
+        log.warn(`model-switch: the Auto preset integration was not registered (${String(error)}); review keeps the existing integration`)
+        return () => Promise.resolve()
+      }
+    },
+  }
 }
 
 /** Structural read of launcher-provided profile facts (the app-boot seam). */
@@ -228,6 +311,22 @@ export function autoReviewGate(
   }
 }
 
+/** The fiber face this row keeps so a re-applied row can unload its gate first. */
+interface GateFiber {
+  readonly dispose: () => Promise<void>
+}
+
+/**
+ * The gate fiber mounted by the current row instance.
+ *
+ * `registerAuto` is a single live registration owned by the gate's effect
+ * lifetime, and its disposer is what clears the Auto preset. A re-applied row
+ * must await the previous gate's unloading before the next registration runs,
+ * otherwise the new `registerAuto` throws `already registered` and its effect
+ * cleanup leaves the catalog without Auto.
+ */
+let lastGateFiber: GateFiber | undefined
+
 /**
  * Mount the official gate under the reviewer-route scope.
  *
@@ -247,6 +346,16 @@ export async function apply(ctx: Context): Promise<void> {
     ctx.logger.error('model-switch: @deepseek-ai/dsh-experimental-auto-review is unavailable; the Auto reviewer cannot run at all')
     ctx.logger.error(cause)
     return
+  }
+  const previous = lastGateFiber
+  lastGateFiber = undefined
+  if (previous !== undefined) {
+    try {
+      await previous.dispose()
+    } catch (cause) {
+      ctx.logger.info('model-switch: the previous auto-review gate had already unloaded; continuing with the new one')
+      ctx.logger.info(String(cause))
+    }
   }
   const activeSession = new AsyncLocalStorage<Session | undefined>()
   const scope = reviewScope(ctx, activeSession)
@@ -274,5 +383,6 @@ export async function apply(ctx: Context): Promise<void> {
     ctx.logger.info('model-switch: the official auto-review gate is waiting for its host services; the reviewer route override is not bound yet')
     return
   }
+  lastGateFiber = fiber as unknown as GateFiber
   bindAutoReviewSessionCorrelation(scope, activeSession)
 }

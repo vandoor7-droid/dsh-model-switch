@@ -791,10 +791,15 @@ class NamingSeam {
   }
 }
 
-/** Whether one loader entry declares an official naming provider this row supersedes. */
+/**
+ * Whether one loader entry declares an official naming provider this row supersedes.
+ *
+ * The package name is the authoritative identity: the takeover disables the
+ * matched entry, which disposes its fiber, so an id-only match could reach a
+ * group or an unrelated plugin's row with a recycled id.
+ */
 export function isOfficialTitleRow(entry: Entry | undefined): boolean {
   if (entry === undefined) return false
-  if (entry.id === OFFICIAL_TITLE_ROW || entry.id === ALL_PROMPTS_ROW) return true
   const pkg = entry.options?.name
   return typeof pkg === 'string' && TITLE_CADENCES.some(cadence => cadence.pkg === pkg)
 }
@@ -827,6 +832,16 @@ function installTakeover(ctx: Context, module: TitleLlmModule, seam: NamingSeam)
 
   /** After the yield, disable the official row and take the slot back. */
   const reclaim = async (entry: Entry, plan: NamingPlan): Promise<void> => {
+    // Disabling a loader entry disposes its fiber, so the target has to be the
+    // official naming provider itself: an id-only match could reach a group or
+    // another plugin's row. The package name is the authoritative identity here
+    // and is final by the time this runs.
+    const pkg = entry.options?.name
+    const official = typeof pkg === 'string' && TITLE_CADENCES.some(cadence => cadence.pkg === pkg)
+    if (!official) {
+      ctx.logger.info(`model-switch: skipped a naming-row candidate without an official cadence package (${String(leafId(entry) ?? 'unknown')})`)
+      return
+    }
     if (reclaiming.has(entry)) return
     reclaiming.add(entry)
     try {
@@ -834,6 +849,7 @@ function installTakeover(ctx: Context, module: TitleLlmModule, seam: NamingSeam)
         await new Promise(resolve => setTimeout(resolve, attempt === 0 ? 0 : TAKEOVER_RETRY_DELAY_MS))
         try {
           await entry.update({ disabled: true })
+          ctx.logger.info(`model-switch: disabled the official naming row ${String(leafId(entry) ?? 'unknown')} (${pkg}) so the naming provider slot stays configurable`)
         } catch (cause) {
           // A profile layer may refuse the write; the in-memory disable stands and
           // the next startup simply repeats this takeover.

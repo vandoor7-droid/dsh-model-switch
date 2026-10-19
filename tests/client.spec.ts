@@ -25,18 +25,19 @@ function form<T>(value: T, revision = 7) {
   const listeners = new Set<() => void>()
   const set = vi.fn(async (_field: string, _value: unknown) => true)
   const unset = vi.fn(async (_field: string) => true)
+  const mutate = vi.fn(async (..._args: Parameters<ConfigForm<T>['mutate']>) => {
+    snapshot = { ...snapshot, revision: (snapshot.revision ?? 0) + 1 }
+    for (const listener of listeners) listener()
+    return true
+  })
   const result: ConfigForm<T> = {
     getSnapshot: () => snapshot,
     subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener) } },
     set,
     unset,
-    async mutate(...args: Parameters<ConfigForm<T>['mutate']>) {
-      snapshot = { ...snapshot, revision: (snapshot.revision ?? 0) + 1 }
-      for (const listener of listeners) listener()
-      return true
-    },
+    mutate,
   }
-  return { form: result, set, unset }
+  return { form: result, set, unset, mutate }
 }
 
 function ctxWith(ownedValue: ModelSwitchSettingsView = { subagentMode: 'follow-main' }) {
@@ -140,19 +141,24 @@ describe('Client ConfigForms surface', () => {
     expect(subagentModeForEnabled(false)).toBe('follow-main')
   })
 
-  it('writes a provider group through the owned ConfigForm and maps refusal', async () => {
+  it('writes a provider group through one fenced ConfigForm mutate and maps refusal', async () => {
     const { registration, owned } = ctxWith()
     const face = (registration?.inject as () => {
       saveProviderGroup(provider: string, group: ProviderGroupConfig | undefined): Promise<void>
     })()
     const group: ProviderGroupConfig = { compactProvider: 'codex', compactModel: 'gpt' }
     await expect(face.saveProviderGroup('codex', group)).resolves.toBeUndefined()
-    expect(owned.set).toHaveBeenCalledWith('providerGroups', [entryOf('codex', group)])
-    owned.set.mockResolvedValue(false)
+    expect(owned.mutate).toHaveBeenCalledTimes(1)
+    expect(owned.mutate.mock.calls[0]?.[0]).toEqual([{ op: 'set', path: ['providerGroups'], value: [entryOf('codex', group)] }])
+    expect(owned.mutate.mock.calls[0]?.[1]).toBe(7)
+    expect(owned.set).not.toHaveBeenCalled()
+    owned.mutate.mockResolvedValue(false)
     await expect(face.saveProviderGroup('codex', group)).rejects.toThrow('settings-rejected')
+    // One refusal costs a retry, not a lost save: every attempt re-reads the fence.
+    expect(owned.mutate).toHaveBeenCalledTimes(4)
   })
 
-  it('unsets the storage when the last group is removed and no-ops without stored groups', async () => {
+  it('clears the storage when the last group is removed and no-ops without stored groups', async () => {
     const { registration, owned } = ctxWith({
       subagentMode: 'follow-main',
       providerGroups: [entryOf('codex', { compactProvider: 'codex', compactModel: 'gpt' })],
@@ -161,13 +167,16 @@ describe('Client ConfigForms surface', () => {
       saveProviderGroup(provider: string, group: ProviderGroupConfig | undefined): Promise<void>
     })()
     await expect(face.saveProviderGroup('codex', undefined)).resolves.toBeUndefined()
-    expect(owned.unset).toHaveBeenCalledWith('providerGroups')
+    expect(owned.mutate).toHaveBeenCalledTimes(1)
+    expect(owned.mutate.mock.calls[0]?.[0]).toEqual([{ op: 'unset', path: ['providerGroups'] }])
+    expect(owned.unset).not.toHaveBeenCalled()
 
     const pristine = ctxWith()
     const pristineFace = (pristine.registration?.inject as () => {
       saveProviderGroup(provider: string, group: ProviderGroupConfig | undefined): Promise<void>
     })()
     await expect(pristineFace.saveProviderGroup('codex', undefined)).resolves.toBeUndefined()
+    expect(pristine.owned.mutate).not.toHaveBeenCalled()
     expect(pristine.owned.set).not.toHaveBeenCalled()
     expect(pristine.owned.unset).not.toHaveBeenCalled()
   })

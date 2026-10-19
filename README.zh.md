@@ -121,6 +121,9 @@ DSH 会自动为新会话起名；命名的触发节奏由 profile 的官方命�
 
 0.4.29 起与实验包「随对话更新的标题」（`dsh-experimental-session-titles-bundle`，插入 all-prompts 命名行）兼容：启用该实验包时，本插件接管同一个命名 provider 槽位并镜像 all-prompts 节奏，标题随对话更新，同时命名模型路由与供应商组路由继续生效（`session/title` 记录中的 provider id 为 `session-title-all-prompts-llm`，与官方行一致）；禁用实验包即回到首条提示节奏与同样的路由覆写。实现只使用 loader 已发布的缝（`loader/patch-context` 瀑布、`Entry.update`、`sessionTitle.register` 及其 disposer），让官方行先成功注册、再被停用并由本行重占槽位，因此启用时不再出现 `already registered` 激活失败弹窗。
 
+0.4.30 起 Auto 审查行还能在许可服务降级时保住工具调用：DSH 的 Auto gate 在每次工具调用前读取 `permissionPresets.current(session)`，一旦该服务失活，这次读取会在 gate 自己的审查错误包装之外抛出 `cannot get required service "sessionProjections" in inactive context`，导致每个工具调用都在执行前失败。本行现在在审查作用域内遮蔽该服务：探测失败即按「不在 Auto」处理，工具调用照常执行，并只记一行日志说明审查被跳过。配置重载后重新挂载的 gate 会先卸载上一个注册，因此 `auto` 预设不会再从许可选择器里消失。
+
+
 ## 供应商配置组（Provider groups）
 
 「供应商配置组」卡片为每个供应商保存一组路由——压缩、自动审查、会话命名与子代理四条路由一起存；为供应商 X 保存的组，作用于自身供应商就是 X 的会话。组是**推导出来的，而不是写进去的**：切换某个会话的供应商不写任何东西，因此不同供应商上的多个会话并行时再也不会互相覆盖、互相改写对方的辅助路由。

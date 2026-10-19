@@ -1,4 +1,3 @@
-import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { ModelSwitchSettingsView } from '../client-contract.js'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -7,7 +6,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { AUTO_REVIEW_SETTINGS_FIELDS, deriveAutoReviewSettings, deriveCompactionSettings, deriveImageSettings, deriveSearchSettings, deriveSubagentSettings, deriveTitleSettings, COMPACTION_SETTINGS_FIELDS, IMAGE_SETTINGS_FIELDS, MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, SEARCH_SETTINGS_FIELDS, SUBAGENT_SETTINGS_FIELDS, TITLE_SETTINGS_FIELDS } from '../client-contract.js'
-import { withProviderGroup, type ProviderGroupConfig } from '../provider-group.js'
+import { type ProviderGroupConfig } from '../provider-group.js'
 import { deriveConfigForm } from './derived-config-form.js'
 import { RUNTIME_CAPABILITIES } from '../runtime-capabilities.js'
 import { decodeCapabilitiesSnapshot, type CapabilitiesSnapshot } from './search-capabilities.js'
@@ -16,6 +15,7 @@ import { en, zh, type ModelSwitchLocaleKey } from './locales.js'
 import { callPluginRpc, type PluginRpcClient } from './plugin-rpc.ts'
 import { fetchAntigravityCatalogGroups, readProviderRole, withAntigravityCatalog } from './antigravity-catalog.ts'
 import { installComposerPicker, providerOrderStore } from './picker/install.tsx'
+import { saveProviderGroupFenced } from './provider-group-save.js'
 import type { ProviderOrderSettings } from 'dsh-llm-providers-ui/order'
 import { readCatalogRoutes, sortCatalogGroupsWithRoutes, type ProviderDirectoryFace } from './provider-directory.ts'
 import { installModelSwitchNavIcon } from './nav-icon.ts'
@@ -69,14 +69,9 @@ export function apply(ctx: ClientContext): void {
     name: 'settings.section', id: 'model-switch', order: 9, label: () => t('nav'), locale: localeNamespace,
     inject: (): ModelSwitchSettingsFace => ({ t, hooks: { subagentSettings: subagent, searchSettings: search, imageSettings: image, autoReviewSettings: autoReview, compactionSettings: compaction, titleSettings: sessionTitle, switchSettings: owned }, capabilities: RUNTIME_CAPABILITIES, saveSubagent: ops => subagent.mutate(ops), saveCapability: (route, ops) => { const scope = route === 'search' ? search : route === 'image' ? image : route === 'compaction' ? compaction : route === 'title' ? sessionTitle : autoReview; return scope.mutate(ops) },
       saveProviderGroup: async (provider: string, group: ProviderGroupConfig | undefined) => {
-        const current = owned.getSnapshot().value?.providerGroups
-        const next = withProviderGroup(current, provider, group)
-        if (next.length === 0) {
-          if (current === undefined) return
-          if (!await owned.unset('providerGroups')) throw new Error('settings-rejected')
-          return
-        }
-        if (!await owned.set('providerGroups', next)) throw new Error('settings-rejected')
+        // Revision-fenced and retried: see saveProviderGroupFenced for why one
+        // refused write must not surface as a lost save.
+        await saveProviderGroupFenced(owned, provider, group)
       }, providerRoleOf, loadCatalog: async () => {
       const response = await remote.session.modelCatalog()
       if (!response.ok || response.value === undefined) throw new Error(t('catalogFailed'))

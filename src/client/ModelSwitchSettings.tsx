@@ -324,7 +324,10 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
       setMessage({ route, text: props.t('saved') })
       return true
     } catch (error) {
-      setMessage({ route, text: error instanceof Error ? error.message : props.t('requestFailed') })
+      // The host refuses a write whose revision fence moved; that sentinel is
+      // an implementation detail, so the page shows the localized retry hint.
+      const raw = error instanceof Error ? error.message : String(error)
+      setMessage({ route, text: raw === 'settings-rejected' ? props.t('saveRejected') : raw })
       return false
     } finally {
       if (timer !== undefined) clearTimeout(timer)
