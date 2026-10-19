@@ -30,8 +30,9 @@ export declare const zh: {
     readonly catalogFailed: "无法加载模型目录。";
     readonly autoReview: "自动审查模型";
     readonly autoReviewFollow: "跟随会话模型";
-    readonly autoReviewHelp: "为官方 auto-review（Auto 权限预设的逐调用审查）指定审查模型；需启用官方 auto-review 能力包。关闭时审查跟随当前会话模型。";
+    readonly autoReviewHelp: "为官方 auto-review（Auto 权限预设的逐调用审查）指定审查模型；需启用官方 auto-review 能力包。关闭时审查跟随当前会话模型。本插件启用时，官方「自动审查」组件由本插件接管。";
     readonly autoReviewRouteHelp: "审查请求固定使用这里的 Provider/模型，与会话模型无关；保存后对下一次审查立即生效。";
+    readonly autoReviewTakeoverNote: "官方「自动审查」组件已由本插件接管（提供可配置审查路由）；在插件管理里把它重新打开会被再次关闭，并在日志里留下一条记录。";
     readonly compaction: "压缩模型";
     readonly compactionFollow: "跟随会话模型";
     readonly compactionHelp: "为官方压缩（/compact 与官方自动压缩）指定摘要模型；关闭（两个字段都留空）时使用官方默认，即当前会话的目标模型。";

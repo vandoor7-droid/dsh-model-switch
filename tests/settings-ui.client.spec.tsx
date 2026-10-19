@@ -238,6 +238,9 @@ describe('Model Switch settings menu', () => {
     const labels = renderer.root.findAllByType('span').map(node => instanceText(node))
     expect(labels).toContain('provider')
     expect(labels).toContain('model')
+    // The expanded body carries the takeover note (official component replaced
+    // and re-disabled when toggled).
+    expect(JSON.stringify(renderer.toJSON())).toContain('autoReviewTakeoverNote')
     const selects = renderer.root.findAllByType('select')
     expect(selects.some(select => String(select.props.value) === 'codex')).toBe(true)
   })
@@ -274,6 +277,12 @@ describe('Model Switch settings menu', () => {
     expect(en.autoReviewFollow).toContain('session model')
     expect(zh.autoReviewHelp).toContain('auto-review')
     expect(en.autoReviewHelp).toContain('Auto permission preset')
+    // The card says the official component is taken over, both in the always
+    // visible hint and in the expanded body note about the re-disable.
+    expect(zh.autoReviewHelp).toContain('接管')
+    expect(en.autoReviewHelp).toContain('taken over')
+    expect(zh.autoReviewTakeoverNote).toContain('插件管理')
+    expect(en.autoReviewTakeoverNote).toContain('plugin manager')
   })
 
   it('shows the Compaction card collapsed and following the conversation model by default', () => {

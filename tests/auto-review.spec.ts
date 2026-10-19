@@ -55,8 +55,9 @@ describe('auto-review plugin identity', () => {
     expect(name).toBe('model-switch-auto-review')
     // The official gate's own dependency list (including 0.2.1's
     // `workingDirectory`) is resolved by cordis when the gate is mounted as a
-    // plugin; mirroring it here is what broke every tool call on 0.2.1.
-    expect(inject).toEqual(['llm', 'modelSwitch'])
+    // plugin; mirroring it here is what broke every tool call on 0.2.1. The
+    // loader drives the official-row takeover.
+    expect(inject).toEqual(['llm', 'modelSwitch', 'loader'])
   })
 })
 
@@ -275,48 +276,80 @@ describe('defensivePermissionPresets', () => {
   it('degrades a failing preset probe to custom so a tool call still runs', () => {
     const warn = vi.fn()
     const failure = new Error('cannot get required service "sessionProjections" in inactive context')
-    const face = defensivePermissionPresets({
+    const face = defensivePermissionPresets(() => ({
       current: () => { throw failure },
       set: () => undefined,
       registerAuto: () => () => undefined,
-    }, { warn })
+    }), { warn }, () => 'uid=7 state=4 name=permission inject=[shell|approval|sessions|sessionProjections]')
     expect(face.current({} as never)).toBe('custom')
     expect(warn).toHaveBeenCalledTimes(1)
     expect(String(warn.mock.calls[0]?.[0])).toContain('inactive context')
+    // The report names the fiber chain a resolution walks.
+    expect(String(warn.mock.calls[0]?.[0])).toContain('uid=7')
     // The degradation report is one line, not one per tool call.
     expect(face.current({} as never)).toBe('custom')
     expect(warn).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps a healthy service transparent', () => {
-    const preset = { current: vi.fn(() => 'auto'), set: vi.fn(() => true), registerAuto: vi.fn(() => () => undefined) }
-    const face = defensivePermissionPresets(preset, { warn: vi.fn() })
-    expect(face.current({} as never)).toBe('auto')
-    const disposer = face.registerAuto(() => undefined)
-    expect(preset.registerAuto).toHaveBeenCalledOnce()
-    expect(typeof disposer).toBe('function')
+  it('stays protective while the service is not resolvable yet (lazy shadow)', () => {
+    const warn = vi.fn()
+    let resolvable = true
+    const preset = { current: vi.fn(() => 'safe'), set: vi.fn(), registerAuto: vi.fn(() => () => undefined) }
+    const face = defensivePermissionPresets(() => (resolvable ? preset : undefined), { warn })
+    resolvable = false
+    expect(face.current({} as never)).toBe('custom')
+    // Registration must fail loudly: the Auto preset must never be silently absent.
+    expect(() => face.registerAuto(() => undefined)).toThrow(/unavailable/)
+    resolvable = true
+    expect(face.current({} as never)).toBe('safe')
   })
 
-  it('reports a single-registration conflict instead of failing the gate', async () => {
-    const warn = vi.fn()
-    const face = defensivePermissionPresets({
-      current: () => 'safe',
-      set: () => undefined,
-      registerAuto: () => { throw new Error('permission: preset "auto" is already registered') },
-    }, { warn })
-    const disposer = face.registerAuto(() => undefined)
-    expect(typeof disposer).toBe('function')
-    await expect((disposer as () => Promise<void>)()).resolves.toBeUndefined()
-    expect(warn).toHaveBeenCalledTimes(1)
+  it('brokers the Auto registration so the takeover can yield and reclaim it', () => {
+    const disposed = vi.fn()
+    const preset = { current: vi.fn(() => 'auto'), set: vi.fn(() => true), registerAuto: vi.fn(() => disposed) }
+    const face = defensivePermissionPresets(() => preset, { warn: vi.fn() })
+    const admit = vi.fn()
+    const disposer = face.registerAuto(admit)
+    expect(preset.registerAuto).toHaveBeenCalledOnce()
+    expect(face.registered).toBe(true)
+
+    // The takeover hands the single registration over synchronously ...
+    face.releaseForTakeover()
+    expect(disposed).toHaveBeenCalledTimes(1)
+    expect(face.registered).toBe(false)
+
+    // ... and takes it back with the same admit callback.
+    expect(face.reclaimRegistration()).toBe(true)
+    expect(preset.registerAuto).toHaveBeenNthCalledWith(2, admit)
+    expect(face.registered).toBe(true)
+
+    // The gate's own teardown still releases the live registration.
+    void disposer()
+    expect(disposed).toHaveBeenCalledTimes(2)
+    expect(face.registered).toBe(false)
+  })
+
+  it('reports reclaim conflicts as false so the takeover loop retries', () => {
+    const preset = {
+      current: vi.fn(() => 'safe'),
+      set: vi.fn(),
+      registerAuto: vi.fn(() => () => undefined),
+    }
+    const face = defensivePermissionPresets(() => preset, { warn: vi.fn() })
+    face.registerAuto(() => undefined)
+    face.releaseForTakeover()
+    preset.registerAuto.mockImplementation(() => { throw new Error('permission: preset "auto" is already registered') })
+    expect(face.reclaimRegistration()).toBe(false)
+    expect(face.registered).toBe(false)
   })
 
   it('swallows a failing preset write during teardown', () => {
     const warn = vi.fn()
-    const face = defensivePermissionPresets({
+    const face = defensivePermissionPresets(() => ({
       current: () => 'safe',
       set: () => { throw new Error('no session') },
       registerAuto: () => () => undefined,
-    }, { warn })
+    }), { warn })
     expect(face.set({} as never, 'danger-full-access')).toBeUndefined()
     expect(warn).toHaveBeenCalledTimes(1)
   })
@@ -342,9 +375,57 @@ describe('apply', () => {
     expect(registerAuto).not.toHaveBeenCalled()
   })
 
-  it('reports an already-active official row instead of failing the fiber', async () => {
+  it('reports a held Auto registration instead of failing the fiber', async () => {
     const { ctx, registerAuto } = bench({ startedBundles: [BUNDLE], auto: true })
     await expect(apply(ctx)).resolves.toBeUndefined()
     expect(registerAuto).toHaveBeenCalledOnce()
+  })
+
+  it('takes the seam over from a live official row and keeps sessions on Auto', async () => {
+    const ctx = new Context()
+    let preset = 'auto'
+    const writes: string[] = []
+    const session = { id: 's1' }
+    const presets = {
+      current: vi.fn(() => preset),
+      set: vi.fn((_session: unknown, value: string) => { preset = value; writes.push(value) }),
+      registerAuto: vi.fn(() => () => { preset = 'custom' }),
+    }
+    ctx.provide('modelSwitch', { currentSettings: () => ({}) } as never)
+    ctx.provide('llm', { stream: vi.fn() } as never)
+    ctx.provide('permissionPresets', presets as never)
+    ctx.provide('approval', { overrideOf: () => 'never' } as never)
+    ctx.provide('sessions', { list: () => [session] } as never)
+    ctx.provide('tools', {} as never)
+    ctx.provide('profileContext', { name: 'lab', startedBundles: [BUNDLE] } as never)
+    // A live official row whose disposal flips Auto sessions off Auto: that is
+    // the official gate teardown, and the takeover must put them back.
+    const entry = {
+      id: 'auto-review',
+      options: { id: 'auto-review', name: '@deepseek-ai/dsh-experimental-auto-review', config: {} },
+      disabled: false,
+      updates: [] as unknown[],
+      async update(options: Record<string, unknown>) {
+        entry.updates.push(options)
+        if (options.disabled === true) {
+          entry.disabled = true
+          if (preset === 'auto') {
+            preset = 'danger-full-access'
+            writes.push('danger-full-access')
+          }
+        }
+      },
+    }
+    ctx.provide('loader', { entries: () => [entry][Symbol.iterator]() } as never)
+
+    await apply(ctx)
+
+    // The official row is displaced and this row owns the single registration.
+    expect(entry.updates).toContainEqual({ disabled: true })
+    expect(presets.registerAuto).toHaveBeenCalledOnce()
+    // The displacement flipped the session (the official teardown) and the
+    // takeover restored its Auto selection.
+    expect(writes).toContain('danger-full-access')
+    expect(preset).toBe('auto')
   })
 })

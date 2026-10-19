@@ -90,7 +90,9 @@ Plan Review 拥有独立于会话当前路由的执行模型草稿。**确认执
 
 ## 自动审查模型（Auto review）
 
-官方 `@deepseek-ai/dsh-experimental-auto-review`（Auto 权限预设的逐调用审查）把审查请求固定在会话自身的路由上。本插件通过 `cordis.patch.yml` 的行替换接管这一行：官方行被禁用，改挂 `dsh-model-switch/auto-review`，它在作用域子上下文里运行**同一份官方 `apply`**，把 `llm.stream` 的 `provider/model` 改写为该会话解析出的审查模型（供应商配置组 → 全局审查卡片 → 会话自身模型）。在 `official.apply(scope)` 之后，本行立即在同一作用域注册 `{ prepend: true }` 的 `tools/pre-execute` 监听器（在 Cordis 瀑布流中排在官方监听器之前），用 `AsyncLocalStorage` 将 `exec.agent.session` 绑定到审查调用链上，因此不同供应商的多个会话并行时互不干扰，会话中途切换供应商也会在下一次审查立即生效。设置页「自动审查模型」默认关闭 = 审查跟随当前会话模型；打开时以目录首位模型作为可再改的固定起点，保存后对下一次审查立即生效。审查未配置官方能力包（`@deepseek-ai/dsh-experimental-auto-review` 未随 profile 启动）时本行不挂载，Auto 预设保持官方的关闭状态；官方行若已在别处注册，本行明确报错而不产生第二个 `registerAuto`。
+官方 `@deepseek-ai/dsh-experimental-auto-review`（Auto 权限预设的逐调用审查）把审查请求固定在会话自身的路由上。本插件通过 `cordis.patch.yml` 的行替换接管这一行：官方行被禁用，改挂 `dsh-model-switch/auto-review`，它在作用域子上下文里运行**同一份官方 `apply`**，把 `llm.stream` 的 `provider/model` 改写为该会话解析出的审查模型（供应商配置组 → 全局审查卡片 → 会话自身模型）。在 `official.apply(scope)` 之后，本行立即在同一作用域注册 `{ prepend: true }` 的 `tools/pre-execute` 监听器（在 Cordis 瀑布流中排在官方监听器之前），用 `AsyncLocalStorage` 将 `exec.agent.session` 绑定到审查调用链上，因此不同供应商的多个会话并行时互不干扰，会话中途切换供应商也会在下一次审查立即生效。设置页「自动审查模型」默认关闭 = 审查跟随当前会话模型；打开时以目录首位模型作为可再改的固定起点，保存后对下一次审查立即生效。审查未配置官方能力包（`@deepseek-ai/dsh-experimental-auto-review` 未随 profile 启动）时本行不挂载，Auto 预设保持官方的关闭状态。
+
+0.4.31 起本行还在运行时接管这条缝，而不仅靠补丁文件：插件管理器会把组件开关写进"在所有 bundle 层之后生效"的层，手动把官方「自动审查」组件重新打开曾会让无防护的官方 gate 回来——而 `permissionPresets.registerAuto` 是单注册的，同一条缝上的两行最终杀掉每个工具调用。现在本行按接管会话命名槽位的同一手法接管：官方行将要 apply 时**先同步交出** Auto 注册（让官方行干净应用而不是撞车），再通过公开的 `Entry.update` 停用官方行，并以有界重试收回注册——整个位移过程保留会话的 Auto 选择。因此在插件管理器里把官方组件再打开只是一次会记日志、自愈的空操作；设置页「自动审查」卡片里也写明了这一点。
 
 ## 压缩模型（Compaction model）
 
@@ -121,7 +123,7 @@ DSH 会自动为新会话起名；命名的触发节奏由 profile 的官方命�
 
 0.4.29 起与实验包「随对话更新的标题」（`dsh-experimental-session-titles-bundle`，插入 all-prompts 命名行）兼容：启用该实验包时，本插件接管同一个命名 provider 槽位并镜像 all-prompts 节奏，标题随对话更新，同时命名模型路由与供应商组路由继续生效（`session/title` 记录中的 provider id 为 `session-title-all-prompts-llm`，与官方行一致）；禁用实验包即回到首条提示节奏与同样的路由覆写。实现只使用 loader 已发布的缝（`loader/patch-context` 瀑布、`Entry.update`、`sessionTitle.register` 及其 disposer），让官方行先成功注册、再被停用并由本行重占槽位，因此启用时不再出现 `already registered` 激活失败弹窗。
 
-0.4.30 起 Auto 审查行还能在许可服务降级时保住工具调用：DSH 的 Auto gate 在每次工具调用前读取 `permissionPresets.current(session)`，一旦该服务失活，这次读取会在 gate 自己的审查错误包装之外抛出 `cannot get required service "sessionProjections" in inactive context`，导致每个工具调用都在执行前失败。本行现在在审查作用域内遮蔽该服务：探测失败即按「不在 Auto」处理，工具调用照常执行，并只记一行日志说明审查被跳过。配置重载后重新挂载的 gate 会先卸载上一个注册，因此 `auto` 预设不会再从许可选择器里消失。
+0.4.30 起 Auto 审查行还能在许可服务降级时保住工具调用：DSH 的 Auto gate 在每次工具调用前读取 `permissionPresets.current(session)`，一旦该服务失活，这次读取会在 gate 自己的审查错误包装之外抛出 `cannot get required service "sessionProjections" in inactive context`，导致每个工具调用都在执行前失败。本行在审查作用域内遮蔽该服务：探测失败即按「不在 Auto」处理，工具调用照常执行，并只记一行日志说明审查被跳过。0.4.31 起该遮蔽**常开**且按调用惰性解析服务（服务尚未激活时也受保护），并把失败的解析链（每级 fiber 的 `uid/state/name/inject`）记进唯一那行降级日志——因为上游成因是 loader 生命周期窗口：`internal/get` 会沿调用方 fiber 链整链查找，而有 24 个已发布行在 `inject` 里声明了 `sessionProjections`，其中任何一行处于重载中都可能打断无防护的探测（连同上游建议一并记录在 `docs/seam-gap.md`）。Auto 注册本身改为**托管**：位移时同步交出、事后收回而不卸载 gate（卸载会把在用 `auto` 的会话翻成 `danger-full-access`）；配置重载后重新挂载的 gate 会先卸载上一个注册，因此 `auto` 预设不会再从许可选择器里消失。
 
 
 ## 供应商配置组（Provider groups）

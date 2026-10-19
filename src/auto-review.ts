@@ -21,9 +21,14 @@
  * interference when multiple sessions review tool calls concurrently.
  *
  * The official gate stays an opt-in capability: the row mounts it only when
- * the profile actually started with the experimental-auto-review bundle.
- * `cordis.patch.yml` disables the official row (one `registerAuto` per
- * context), so this row is its replacement rather than a second registration.
+ * the profile actually started with the experimental-auto-review bundle. Two
+ * rows cannot share the seam — `permissionPresets.registerAuto` is a single
+ * registration and the official probe is unshielded — so this row also
+ * **takes the seam over** (see `./auto-review-takeover.ts`): a composed or
+ * re-enabled official row is displaced through the released loader seams, the
+ * registration is handed over and reclaimed around that displacement, and the
+ * gate this row mounts keeps the defensive `permissionPresets` shadow so a
+ * degraded preset service can never fail a tool call again.
  *
  * @module dsh-model-switch/auto-review
  */
@@ -35,6 +40,11 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-tools'
 import type { ModelSwitchSettings } from './host-settings.js'
 import { resolveCapabilityRoute, sessionProviderOf } from './session-route.js'
+import {
+  installAutoReviewTakeover,
+  officialAutoReviewEntry,
+  type AutoReviewSeam,
+} from './auto-review-takeover.js'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'model-switch-auto-review'
@@ -47,12 +57,16 @@ export const name = 'model-switch-auto-review'
  * every tool call fail with `cannot get property "workingDirectory" without
  * inject`. The gate is now mounted as its own plugin (see {@link autoReviewGate}),
  * so cordis resolves the official dependency list — including future additions —
- * and this row declares only what it reads itself.
+ * and this row declares only what it reads itself (`loader` drives the
+ * takeover).
  */
-export const inject = ['llm', 'modelSwitch']
+export const inject = ['llm', 'modelSwitch', 'loader']
 
 /** Optional bundle whose composition opts a profile into Auto review. */
 const AUTO_REVIEW_BUNDLE = '@deepseek-ai/dsh-experimental-auto-review'
+
+/** The Auto preset name; `registerAuto` is what publishes it. */
+const AUTO_PRESET = 'auto'
 
 /** Pinned reviewer route; both identifiers are non-empty. */
 export interface AutoReviewRoute {
@@ -147,25 +161,6 @@ export function bindAutoReviewSessionCorrelation(
   }, 'model-switch: auto-review session correlation')
 }
 
-/**
- * Build the scoped context the official gate runs under.
- * @param ctx - host context whose modelSwitch settings pin the reviewer route.
- * @param activeSession - optional AsyncLocalStorage correlating each `tools/pre-execute` call to its session.
- * @returns A child context shadowing the llm service and, when the permission
- * preset service is reachable, that service too.
- */
-export function reviewScope(
-  ctx: Context,
-  activeSession: AsyncLocalStorage<Session | undefined> = new AsyncLocalStorage<Session | undefined>(),
-): Context {
-  const permissionPresets = permissionPresetsOf(ctx)
-  const shadows: Record<string, unknown> = {
-    llm: reviewLlm(ctx.llm, () => resolveSessionAutoReviewRoute(ctx, activeSession.getStore())),
-  }
-  if (permissionPresets !== undefined) shadows.permissionPresets = defensivePermissionPresets(permissionPresets, ctx.logger)
-  return ctx.extend(shadows as never)
-}
-
 /** The preset name the service reports when no configured preset matches. */
 const CUSTOM_PRESET = 'custom'
 
@@ -174,6 +169,19 @@ export interface PermissionPresetsFace {
   current(session: Session): string
   set(session: Session, preset: string): unknown
   registerAuto(admit: () => void): unknown
+}
+
+/**
+ * The managed face: what the gate sees, plus the registration handle the
+ * takeover drives.
+ */
+export interface ManagedPermissionPresetsFace extends PermissionPresetsFace {
+  /** Synchronously release the live Auto registration, keeping the admit callback. */
+  releaseForTakeover(): void
+  /** Take the Auto registration back; true once it is live. */
+  reclaimRegistration(): boolean
+  /** Whether this face currently holds the Auto registration. */
+  readonly registered: boolean
 }
 
 /** Read the live permission-preset service without requiring an injection. */
@@ -186,38 +194,84 @@ function permissionPresetsOf(ctx: Context): PermissionPresetsFace | undefined {
   }
 }
 
+/** The fiber facts a diagnostic chain dump reads. */
+interface FiberFacts {
+  readonly uid?: number | null
+  readonly state?: number
+  readonly name?: string
+  readonly inject?: Record<string, unknown>
+  readonly parent?: unknown
+}
+
+/**
+ * A compact dump of the fiber chain a service resolution walks.
+ *
+ * `cannot get required service "sessionProjections" in inactive context` is
+ * thrown by the first fiber in the caller's chain that declares the service
+ * without a resolved snapshot; the chain names that fiber directly.
+ * @param ctx - the context whose chain is walked.
+ * @returns One `uid/state/name/inject` segment per fiber, outermost last.
+ */
+function fiberChainOf(ctx: Context): string {
+  const parts: string[] = []
+  let node: unknown = ctx
+  for (let step = 0; step < 8; step += 1) {
+    const fiber = (node as { fiber?: FiberFacts } | undefined)?.fiber
+    if (fiber === undefined) break
+    const injects = Object.keys(fiber.inject ?? {}).join('|')
+    parts.push(`uid=${String(fiber.uid)} state=${String(fiber.state)} name=${String(fiber.name)} inject=[${injects}]`)
+    node = fiber.parent
+  }
+  return parts.length === 0 ? 'no fiber chain' : parts.join(' -> ')
+}
+
 /**
  * Wrap the permission-preset service so the official gate's per-call probe can
- * never fail a tool call.
+ * never fail a tool call, and broker its single Auto registration.
  *
  * DSH's Auto gate starts every `tools/pre-execute` with
  * `permissionPresets.current(session)`, and that method resolves the presets
  * service's own `sessionProjections` injection. When the presets fiber has
  * turned inactive the probe throws `cannot get required service
  * "sessionProjections" in inactive context` outside the gate's reviewer error
- * wrapper, so every tool call dies. This wrapper degrades the probe to
- * `custom` (the gate then skips review and calls `next()`), reports the lost
- * capability once, and keeps the tool backend alive; the registration and
- * teardown paths degrade the same way instead of throwing.
+ * wrapper, so every tool call dies. This wrapper resolves the service lazily
+ * (so the shadow is in place even while the service is still activating),
+ * degrades the probe to `custom` (the gate then skips review and calls
+ * `next()`), and reports the lost capability once — with the fiber chain that
+ * failed resolution, so the next occurrence names the inactive fiber.
  *
- * @param real - the host's permission-preset service.
+ * `registerAuto` is **brokered**: the gate yields the disposer into its own
+ * effect, but the takeover must be able to hand the single registration to a
+ * displacing row and take it back without unmounting the gate (the gate's
+ * disposal would move live `auto` sessions to `danger-full-access`).
+ *
+ * @param resolve - resolves the host's permission-preset service per call.
  * @param log - the row logger used for the single degradation report.
- * @returns A structurally compatible preset face.
+ * @param chain - diagnostic dump of the resolution chain; defaults to empty.
+ * @returns A managed preset face.
  */
 export function defensivePermissionPresets(
-  real: PermissionPresetsFace,
+  resolve: () => PermissionPresetsFace | undefined,
   log: { warn(line: string): void },
-): PermissionPresetsFace {
+  chain: () => string = () => '',
+): ManagedPermissionPresetsFace {
   let reported = false
+  let admit: (() => void) | undefined
+  let release: (() => unknown) | undefined
   const degrade = (operation: string, error: unknown): void => {
     if (reported) return
     reported = true
-    log.warn(`model-switch: the permission-preset service refused ${operation} (${String(error)}); the Auto reviewer passes tool calls through instead of blocking them`)
+    log.warn(`model-switch: the permission-preset service refused ${operation} (${String(error)}); the Auto reviewer passes tool calls through instead of blocking them [chain: ${chain()}]`)
+  }
+  const requireService = (): PermissionPresetsFace => {
+    const face = resolve()
+    if (face === undefined) throw new Error('permission: the permission-preset service is unavailable')
+    return face
   }
   return {
     current(session) {
       try {
-        return real.current(session)
+        return requireService().current(session)
       } catch (error) {
         degrade('current()', error)
         return CUSTOM_PRESET
@@ -225,24 +279,61 @@ export function defensivePermissionPresets(
     },
     set(session, preset) {
       try {
-        return real.set(session, preset)
+        return requireService().set(session, preset)
       } catch (error) {
         degrade('set()', error)
         return undefined
       }
     },
-    registerAuto(admit) {
-      try {
-        return real.registerAuto(admit)
-      } catch (error) {
-        // A live registration elsewhere owns Auto; this gate still reviews
-        // through it. A torn registration reads the same way, and the
-        // defensively wrapped `current()` above keeps tool calls running.
-        log.warn(`model-switch: the Auto preset integration was not registered (${String(error)}); review keeps the existing integration`)
-        return () => Promise.resolve()
+    registerAuto(next) {
+      admit = next
+      release = requireService().registerAuto(next) as (() => unknown) | undefined
+      return () => {
+        admit = undefined
+        const dispose = release
+        release = undefined
+        return dispose?.()
       }
     },
+    releaseForTakeover() {
+      const dispose = release
+      release = undefined
+      dispose?.()
+    },
+    reclaimRegistration() {
+      if (release !== undefined) return true
+      if (admit === undefined) return false
+      try {
+        release = requireService().registerAuto(admit) as (() => unknown) | undefined
+        return true
+      } catch {
+        // Still held by the displaced row; the takeover loop retries until its
+        // fiber unloads. A broken service reads the same way and is reported by
+        // the takeover's final error line.
+        return false
+      }
+    },
+    get registered() { return release !== undefined },
   }
+}
+
+/**
+ * Build the scoped context the official gate runs under.
+ * @param ctx - host context whose modelSwitch settings pin the reviewer route.
+ * @param activeSession - optional AsyncLocalStorage correlating each `tools/pre-execute` call to its session.
+ * @param presets - optional managed preset face shared with the row's takeover.
+ * @returns A child context shadowing the llm service and the permission-preset
+ * service (always: a gate that sees the raw service can fail a tool call).
+ */
+export function reviewScope(
+  ctx: Context,
+  activeSession: AsyncLocalStorage<Session | undefined> = new AsyncLocalStorage<Session | undefined>(),
+  presets: ManagedPermissionPresetsFace = defensivePermissionPresets(() => permissionPresetsOf(ctx), ctx.logger, () => fiberChainOf(ctx)),
+): Context {
+  return ctx.extend({
+    llm: reviewLlm(ctx.llm, () => resolveSessionAutoReviewRoute(ctx, activeSession.getStore())),
+    permissionPresets: presets,
+  } as never)
 }
 
 /** Structural read of launcher-provided profile facts (the app-boot seam). */
@@ -256,6 +347,16 @@ function autoReviewBundleActive(ctx: Context): boolean {
   if (profile === null || typeof profile !== 'object') return false
   const bundles = (profile as { readonly startedBundles?: unknown }).startedBundles
   return Array.isArray(bundles) && bundles.includes(AUTO_REVIEW_BUNDLE)
+}
+
+/** Structural read of the loader service the takeover drives. */
+function loaderOf(ctx: Context): Parameters<typeof officialAutoReviewEntry>[0] {
+  try {
+    const loader = (ctx as unknown as { get(name: string, strict: boolean): unknown }).get('loader', false)
+    return loader !== null && typeof loader === 'object' ? loader as Parameters<typeof officialAutoReviewEntry>[0] : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -328,11 +429,14 @@ interface GateFiber {
 let lastGateFiber: GateFiber | undefined
 
 /**
- * Mount the official gate under the reviewer-route scope.
+ * Mount the official gate under the reviewer-route scope and own the seam.
  *
  * A profile that never enabled the optional bundle keeps no Auto preset and no
  * reviewer; a deployment missing the official package reports the lost
- * capability explicitly instead of guessing another path.
+ * capability explicitly instead of guessing another path. A composed (or
+ * plugin-manager re-enabled) official row is displaced first — see
+ * `./auto-review-takeover.ts` for the choreography and why the yield is
+ * synchronous.
  */
 export async function apply(ctx: Context): Promise<void> {
   if (!autoReviewBundleActive(ctx)) {
@@ -347,42 +451,125 @@ export async function apply(ctx: Context): Promise<void> {
     ctx.logger.error(cause)
     return
   }
-  const previous = lastGateFiber
-  lastGateFiber = undefined
-  if (previous !== undefined) {
+
+  const presets = defensivePermissionPresets(() => permissionPresetsOf(ctx), ctx.logger, () => fiberChainOf(ctx))
+  const activeSession = new AsyncLocalStorage<Session | undefined>()
+  const scope = reviewScope(ctx, activeSession, presets)
+  let gateReady = false
+  let mountInFlight: Promise<'applied' | 'waiting' | 'failed'> | undefined
+
+  /** Sessions currently on the Auto preset (best-effort). */
+  const rememberAuto = (): Session[] => {
+    const remembered: Session[] = []
     try {
-      await previous.dispose()
-    } catch (cause) {
-      ctx.logger.info('model-switch: the previous auto-review gate had already unloaded; continuing with the new one')
-      ctx.logger.info(String(cause))
+      const sessions = (ctx as unknown as { get(name: string, strict: boolean): unknown }).get('sessions', false) as { list?(): Iterable<Session> } | undefined
+      for (const session of sessions?.list?.() ?? []) {
+        if (presets.current(session) === AUTO_PRESET) remembered.push(session)
+      }
+    } catch { /* best-effort */ }
+    return remembered
+  }
+  const restoreAuto = (remembered: readonly Session[]): void => {
+    for (const session of remembered) {
+      try {
+        presets.set(session, AUTO_PRESET)
+      } catch { /* best-effort */ }
     }
   }
-  const activeSession = new AsyncLocalStorage<Session | undefined>()
-  const scope = reviewScope(ctx, activeSession)
-  let failure: unknown
-  let applied = false
-  const fiber = scope.plugin(autoReviewGate(official, {
-    onApplied: () => { applied = true },
-    onFailure: error => { failure = error },
-  }))
-  try {
-    await fiber
-  } catch (cause) {
-    failure ??= cause
+  /**
+   * Run one displacement step without losing the sessions' Auto selection.
+   *
+   * Disposing a gate moves live `auto` sessions to `danger-full-access` by
+   * design (the official teardown runs on both the displaced row and this
+   * row's own re-mounts); the remembered selection is restored afterwards.
+   */
+  const preserveAuto = async (action: () => Promise<void>): Promise<void> => {
+    const remembered = rememberAuto()
+    await action()
+    restoreAuto(remembered)
   }
-  if (failure !== undefined) {
-    // registerAuto is single-registration: an already-active official row owns
-    // the gate, and a second one must fail loudly without tearing it down.
-    ctx.logger.error('model-switch: the official auto-review row is already active; the reviewer route override is unavailable')
-    ctx.logger.error(failure)
-    return
+
+  /** Mount this row's shielded gate exactly once; failures dispose and report. */
+  const mountGate = (): Promise<'applied' | 'waiting' | 'failed'> => {
+    mountInFlight ??= (async () => {
+      let outcome: 'applied' | 'waiting' | 'failed' = 'failed'
+      await preserveAuto(async () => {
+        const previous = lastGateFiber
+        lastGateFiber = undefined
+        gateReady = false
+        if (previous !== undefined) {
+          try {
+            await previous.dispose()
+          } catch (cause) {
+            ctx.logger.info('model-switch: the previous auto-review gate had already unloaded; continuing with the new one')
+            ctx.logger.info(String(cause))
+          }
+        }
+        let failure: unknown
+        let applied = false
+        const fiber = scope.plugin(autoReviewGate(official, {
+          onApplied: () => {
+            applied = true
+            // Bound from inside the gate's own apply, which has just registered
+            // the review probe: the prepend order keeps this correlation ahead
+            // of it even when the gate activates late.
+            bindAutoReviewSessionCorrelation(scope, activeSession)
+          },
+          onFailure: error => { failure = error },
+        }))
+        try {
+          await fiber
+        } catch (cause) {
+          failure ??= cause
+        }
+        if (failure !== undefined) {
+          try {
+            await (fiber as unknown as GateFiber).dispose()
+          } catch { /* the failed fiber is already gone */ }
+          ctx.logger.warn(`model-switch: the Auto reviewer gate did not mount (${String(failure)}); the displaced registration may still be releasing`)
+          outcome = 'failed'
+          return
+        }
+        if (!applied) {
+          // The fiber waits for the official dependency list; the correlation
+          // binds whenever the gate's apply actually runs.
+          ctx.logger.info('model-switch: the official auto-review gate is waiting for its host services; the reviewer route override is not bound yet')
+          outcome = 'waiting'
+          return
+        }
+        lastGateFiber = fiber as unknown as GateFiber
+        gateReady = true
+        outcome = 'applied'
+      })
+      return outcome
+    })().finally(() => { mountInFlight = undefined })
+    return mountInFlight
   }
-  if (!applied) {
-    // The fiber waits for the official dependency list; binding the correlation
-    // listener first would put it behind a gate that mounts later.
-    ctx.logger.info('model-switch: the official auto-review gate is waiting for its host services; the reviewer route override is not bound yet')
-    return
+
+  /** Make this row's Auto registration live; true once it is held. */
+  const claim = async (): Promise<boolean> => {
+    if (presets.registered) return true
+    if (gateReady) return presets.reclaimRegistration()
+    return await mountGate() !== 'failed'
   }
-  lastGateFiber = fiber as unknown as GateFiber
-  bindAutoReviewSessionCorrelation(scope, activeSession)
+
+  const seam: AutoReviewSeam = {
+    yieldRegistration: () => presets.releaseForTakeover(),
+    claim,
+    preserveAuto,
+  }
+
+  // Listeners first (a mid-flight official row is caught), then the startup
+  // takeover: an instantiated official row is displaced and this row claims the
+  // registration; without one the seam is claimed directly.
+  const reclaim = installAutoReviewTakeover(ctx, seam)
+  const entry = officialAutoReviewEntry(loaderOf(ctx))
+  if (entry !== undefined && (entry as { readonly disabled?: boolean }).disabled !== true) {
+    await reclaim(entry)
+  } else {
+    await claim()
+  }
+  if (!presets.registered) {
+    ctx.logger.error('model-switch: the Auto registration is not held by this row; Auto review runs without the configurable reviewer route')
+  }
 }

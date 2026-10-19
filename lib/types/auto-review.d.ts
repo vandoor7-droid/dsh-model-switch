@@ -21,9 +21,14 @@
  * interference when multiple sessions review tool calls concurrently.
  *
  * The official gate stays an opt-in capability: the row mounts it only when
- * the profile actually started with the experimental-auto-review bundle.
- * `cordis.patch.yml` disables the official row (one `registerAuto` per
- * context), so this row is its replacement rather than a second registration.
+ * the profile actually started with the experimental-auto-review bundle. Two
+ * rows cannot share the seam — `permissionPresets.registerAuto` is a single
+ * registration and the official probe is unshielded — so this row also
+ * **takes the seam over** (see `./auto-review-takeover.ts`): a composed or
+ * re-enabled official row is displaced through the released loader seams, the
+ * registration is handed over and reclaimed around that displacement, and the
+ * gate this row mounts keeps the defensive `permissionPresets` shadow so a
+ * degraded preset service can never fail a tool call again.
  *
  * @module dsh-model-switch/auto-review
  */
@@ -42,7 +47,8 @@ export declare const name = "model-switch-auto-review";
  * every tool call fail with `cannot get property "workingDirectory" without
  * inject`. The gate is now mounted as its own plugin (see {@link autoReviewGate}),
  * so cordis resolves the official dependency list — including future additions —
- * and this row declares only what it reads itself.
+ * and this row declares only what it reads itself (`loader` drives the
+ * takeover).
  */
 export declare const inject: string[];
 /** Pinned reviewer route; both identifiers are non-empty. */
@@ -96,14 +102,6 @@ export declare function resolveSessionAutoReviewRoute(ctx: Context, session?: Se
  * @param activeSession - AsyncLocalStorage holding the session under review.
  */
 export declare function bindAutoReviewSessionCorrelation(scope: Context, activeSession: AsyncLocalStorage<Session | undefined>): void;
-/**
- * Build the scoped context the official gate runs under.
- * @param ctx - host context whose modelSwitch settings pin the reviewer route.
- * @param activeSession - optional AsyncLocalStorage correlating each `tools/pre-execute` call to its session.
- * @returns A child context shadowing the llm service and, when the permission
- * preset service is reachable, that service too.
- */
-export declare function reviewScope(ctx: Context, activeSession?: AsyncLocalStorage<Session | undefined>): Context;
 /** The permission-preset face the official gate reads; structural so a missing package never breaks a build. */
 export interface PermissionPresetsFace {
     current(session: Session): string;
@@ -111,26 +109,54 @@ export interface PermissionPresetsFace {
     registerAuto(admit: () => void): unknown;
 }
 /**
+ * The managed face: what the gate sees, plus the registration handle the
+ * takeover drives.
+ */
+export interface ManagedPermissionPresetsFace extends PermissionPresetsFace {
+    /** Synchronously release the live Auto registration, keeping the admit callback. */
+    releaseForTakeover(): void;
+    /** Take the Auto registration back; true once it is live. */
+    reclaimRegistration(): boolean;
+    /** Whether this face currently holds the Auto registration. */
+    readonly registered: boolean;
+}
+/**
  * Wrap the permission-preset service so the official gate's per-call probe can
- * never fail a tool call.
+ * never fail a tool call, and broker its single Auto registration.
  *
  * DSH's Auto gate starts every `tools/pre-execute` with
  * `permissionPresets.current(session)`, and that method resolves the presets
  * service's own `sessionProjections` injection. When the presets fiber has
  * turned inactive the probe throws `cannot get required service
  * "sessionProjections" in inactive context` outside the gate's reviewer error
- * wrapper, so every tool call dies. This wrapper degrades the probe to
- * `custom` (the gate then skips review and calls `next()`), reports the lost
- * capability once, and keeps the tool backend alive; the registration and
- * teardown paths degrade the same way instead of throwing.
+ * wrapper, so every tool call dies. This wrapper resolves the service lazily
+ * (so the shadow is in place even while the service is still activating),
+ * degrades the probe to `custom` (the gate then skips review and calls
+ * `next()`), and reports the lost capability once — with the fiber chain that
+ * failed resolution, so the next occurrence names the inactive fiber.
  *
- * @param real - the host's permission-preset service.
+ * `registerAuto` is **brokered**: the gate yields the disposer into its own
+ * effect, but the takeover must be able to hand the single registration to a
+ * displacing row and take it back without unmounting the gate (the gate's
+ * disposal would move live `auto` sessions to `danger-full-access`).
+ *
+ * @param resolve - resolves the host's permission-preset service per call.
  * @param log - the row logger used for the single degradation report.
- * @returns A structurally compatible preset face.
+ * @param chain - diagnostic dump of the resolution chain; defaults to empty.
+ * @returns A managed preset face.
  */
-export declare function defensivePermissionPresets(real: PermissionPresetsFace, log: {
+export declare function defensivePermissionPresets(resolve: () => PermissionPresetsFace | undefined, log: {
     warn(line: string): void;
-}): PermissionPresetsFace;
+}, chain?: () => string): ManagedPermissionPresetsFace;
+/**
+ * Build the scoped context the official gate runs under.
+ * @param ctx - host context whose modelSwitch settings pin the reviewer route.
+ * @param activeSession - optional AsyncLocalStorage correlating each `tools/pre-execute` call to its session.
+ * @param presets - optional managed preset face shared with the row's takeover.
+ * @returns A child context shadowing the llm service and the permission-preset
+ * service (always: a gate that sees the raw service can fail a tool call).
+ */
+export declare function reviewScope(ctx: Context, activeSession?: AsyncLocalStorage<Session | undefined>, presets?: ManagedPermissionPresetsFace): Context;
 /**
  * Structural view of the official gate's plugin face.
  *
@@ -168,10 +194,13 @@ export declare function autoReviewGate(gate: OfficialAutoReviewGate, hooks?: {
     readonly onFailure?: (error: unknown) => void;
 }): MountedAutoReviewGate;
 /**
- * Mount the official gate under the reviewer-route scope.
+ * Mount the official gate under the reviewer-route scope and own the seam.
  *
  * A profile that never enabled the optional bundle keeps no Auto preset and no
  * reviewer; a deployment missing the official package reports the lost
- * capability explicitly instead of guessing another path.
+ * capability explicitly instead of guessing another path. A composed (or
+ * plugin-manager re-enabled) official row is displaced first — see
+ * `./auto-review-takeover.ts` for the choreography and why the yield is
+ * synchronous.
  */
 export declare function apply(ctx: Context): Promise<void>;
