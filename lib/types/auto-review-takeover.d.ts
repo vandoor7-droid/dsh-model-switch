@@ -36,9 +36,19 @@ export declare const OFFICIAL_AUTO_REVIEW_ROW = "auto-review";
  */
 export declare const OFFICIAL_AUTO_REVIEW_PACKAGE = "@deepseek-ai/dsh-experimental-auto-review";
 /** Bounded takeover attempts before the seam is reported lost. */
-export declare const TAKEOVER_MAX_ATTEMPTS = 20;
+export declare const TAKEOVER_MAX_ATTEMPTS = 60;
 /** Delay between takeover attempts; the first attempt is immediate. */
-export declare const TAKEOVER_RETRY_DELAY_MS = 10;
+export declare const TAKEOVER_RETRY_DELAY_MS = 50;
+/**
+ * Delays for the late re-claims after the attempt loop gave up (ms).
+ *
+ * `Entry.update({ disabled: true })` starts the displaced fiber's disposal but
+ * the loader does not await it, and a disposal that tears down a mounted gate,
+ * restores permission presets and unwinds fibers can take longer than the
+ * attempt loop's budget. These re-claims keep trying for a few more seconds so a
+ * hot-swapped install converges instead of needing a restart.
+ */
+export declare const TAKEOVER_LATE_RETRY_DELAYS_MS: readonly [500, 1000, 1500];
 /** The seam this row's gate owns; the takeover drives it around the official row. */
 export interface AutoReviewSeam {
     /**

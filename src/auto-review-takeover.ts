@@ -39,9 +39,19 @@ export const OFFICIAL_AUTO_REVIEW_ROW = 'auto-review'
 export const OFFICIAL_AUTO_REVIEW_PACKAGE = '@deepseek-ai/dsh-experimental-auto-review'
 
 /** Bounded takeover attempts before the seam is reported lost. */
-export const TAKEOVER_MAX_ATTEMPTS = 20
+export const TAKEOVER_MAX_ATTEMPTS = 60
 /** Delay between takeover attempts; the first attempt is immediate. */
-export const TAKEOVER_RETRY_DELAY_MS = 10
+export const TAKEOVER_RETRY_DELAY_MS = 50
+/**
+ * Delays for the late re-claims after the attempt loop gave up (ms).
+ *
+ * `Entry.update({ disabled: true })` starts the displaced fiber's disposal but
+ * the loader does not await it, and a disposal that tears down a mounted gate,
+ * restores permission presets and unwinds fibers can take longer than the
+ * attempt loop's budget. These re-claims keep trying for a few more seconds so a
+ * hot-swapped install converges instead of needing a restart.
+ */
+export const TAKEOVER_LATE_RETRY_DELAYS_MS = [500, 1_000, 1_500] as const
 
 /** The seam this row's gate owns; the takeover drives it around the official row. */
 export interface AutoReviewSeam {
@@ -100,25 +110,72 @@ function alreadyDisabled(entry: Entry): boolean {
  * @returns a promise settling once the takeover attempt loop finished.
  */
 export async function reclaimOfficialAutoReviewRow(ctx: Context, entry: Entry, seam: AutoReviewSeam): Promise<void> {
+  const label = String(leafId(entry) ?? OFFICIAL_AUTO_REVIEW_ROW)
+  /** One disable-then-claim step; true once this row holds the registration. */
+  const attempt = async (): Promise<boolean> => {
+    try {
+      await entry.update({ disabled: true })
+      ctx.logger.info(`model-switch: disabled the official auto-review row ${label} (${OFFICIAL_AUTO_REVIEW_PACKAGE}); Model Switch's auto-review row owns the reviewer seam (configurable reviewer route)`)
+    } catch (cause) {
+      // A profile layer may refuse the write; the in-memory disable stands and
+      // the next startup simply repeats this takeover.
+      ctx.logger.info('model-switch: the displaced auto-review row could not be persisted as disabled; the takeover repeats next startup')
+      ctx.logger.info(String(cause))
+    }
+    return await seam.claim()
+  }
   await seam.preserveAuto(async () => {
-    for (let attempt = 0; attempt < TAKEOVER_MAX_ATTEMPTS; attempt += 1) {
-      await new Promise(resolve => setTimeout(resolve, attempt === 0 ? 0 : TAKEOVER_RETRY_DELAY_MS))
-      try {
-        await entry.update({ disabled: true })
-        ctx.logger.info(`model-switch: disabled the official auto-review row ${String(leafId(entry) ?? OFFICIAL_AUTO_REVIEW_ROW)} (${OFFICIAL_AUTO_REVIEW_PACKAGE}); Model Switch's auto-review row owns the reviewer seam (configurable reviewer route)`)
-      } catch (cause) {
-        // A profile layer may refuse the write; the in-memory disable stands and
-        // the next startup simply repeats this takeover.
-        ctx.logger.info('model-switch: the displaced auto-review row could not be persisted as disabled; the takeover repeats next startup')
-        ctx.logger.info(String(cause))
-      }
-      if (await seam.claim()) {
-        ctx.logger.info(`model-switch: displaced the official auto-review row ${String(leafId(entry) ?? OFFICIAL_AUTO_REVIEW_ROW)}; Auto review runs under the configurable reviewer route`)
+    for (let index = 0; index < TAKEOVER_MAX_ATTEMPTS; index += 1) {
+      await new Promise(resolve => setTimeout(resolve, index === 0 ? 0 : TAKEOVER_RETRY_DELAY_MS))
+      if (await attempt()) {
+        ctx.logger.info(`model-switch: displaced the official auto-review row ${label}; Auto review runs under the configurable reviewer route`)
         return
       }
     }
-    ctx.logger.error(`model-switch: the official auto-review row ${String(leafId(entry) ?? OFFICIAL_AUTO_REVIEW_ROW)} kept the Auto registration; the reviewer route override is unavailable this session`)
+    ctx.logger.error(`model-switch: the official auto-review row ${label} kept the Auto registration; the reviewer route override is unavailable this session`)
   })
+  scheduleLateReclaims(ctx, label, seam)
+}
+
+/**
+ * Keep re-claiming for a few seconds after the attempt loop gave up.
+ *
+ * The displaced fiber's disposal starts on `Entry.update` but is not awaited by
+ * the loader, so it can outlast the attempt loop — which is exactly the hot-swap
+ * window where the official (unshielded) gate keeps serving. These bounded
+ * re-claims converge that window instead of leaving it to a restart. Timers are
+ * cleared when this row unloads.
+ *
+ * @param ctx - this row's context, used for logging and timer disposal.
+ * @param label - the official row's id, for diagnostics.
+ * @param seam - the Auto-registration seam to reclaim.
+ */
+function scheduleLateReclaims(ctx: Context, label: string, seam: AutoReviewSeam): void {
+  let stopped = false
+  const timers: Array<ReturnType<typeof setTimeout>> = []
+  const stop = (): void => {
+    stopped = true
+    for (const timer of timers.splice(0)) clearTimeout(timer)
+  }
+  ctx.effect(function* () {
+    yield stop
+  }, 'model-switch: auto-review late takeover retries')
+  const run = (index: number): void => {
+    if (stopped || index >= TAKEOVER_LATE_RETRY_DELAYS_MS.length) return
+    const timer = setTimeout(() => {
+      void (async () => {
+        if (stopped) return
+        if (await seam.claim()) {
+          ctx.logger.info(`model-switch: reclaimed the Auto registration late from the official auto-review row ${label}; Auto review runs under the configurable reviewer route`)
+          stop()
+          return
+        }
+        run(index + 1)
+      })()
+    }, TAKEOVER_LATE_RETRY_DELAYS_MS[index])
+    timers.push(timer)
+  }
+  run(0)
 }
 
 /**

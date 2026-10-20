@@ -102,6 +102,41 @@ export declare function resolveSessionAutoReviewRoute(ctx: Context, session?: Se
  * @param activeSession - AsyncLocalStorage holding the session under review.
  */
 export declare function bindAutoReviewSessionCorrelation(scope: Context, activeSession: AsyncLocalStorage<Session | undefined>): void;
+/**
+ * Whether a reviewer-path throw is a broken seam rather than a real decision.
+ * @param cause - whatever the waterfall threw.
+ * @returns true when the reviewer itself could not run.
+ */
+export declare function isReviewerInfrastructureFailure(cause: unknown): boolean;
+/**
+ * Keep a broken reviewer seam from failing tool calls.
+ *
+ * Registered on this row's own context through `{ prepend: true }`, so it sits
+ * ahead of the official gate's listener and stays live even when the gate could
+ * not be mounted (the takeover lost `registerAuto`, or the displaced row has
+ * not released it yet). That is the one window the defensive
+ * `permissionPresets` shadow cannot cover: the shadow lives in this row's review
+ * scope, while the serving gate resolves the real service from the profile.
+ *
+ * The waterfall only decides whether the body runs; the body dispatches after
+ * it returns, so allowing here never masks a tool failure. Reviewer transport
+ * and quota errors keep failing closed — only seam breakage is allowed through.
+ *
+ * @param ctx - this row's context (the listener lives and dies with the plugin).
+ * @param options - diagnostics plus the degraded-state predicate.
+ */
+export declare function installToolCallSafetyNet(ctx: Context, options?: {
+    /** Diagnostic fiber dump appended to the first report. */
+    fiberChain?: (() => string) | undefined;
+    /**
+     * Whether this row currently knows the reviewer route is not held.
+     *
+     * The net only fails open in that state: another plugin's broken listener
+     * must keep failing closed, and a held route already has the defensive
+     * shadow in front of it. Defaults to always degraded (direct callers).
+     */
+    isDegraded?: (() => boolean) | undefined;
+}): void;
 /** The permission-preset face the official gate reads; structural so a missing package never breaks a build. */
 export interface PermissionPresetsFace {
     current(session: Session): string;

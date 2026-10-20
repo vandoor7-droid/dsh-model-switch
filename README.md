@@ -183,7 +183,7 @@ Release-aligned search regression: `DSH_RELEASE_ANCHOR=/path/to/official/install
 
 If `dsh-composer-picker` is installed, remove it from the profile before enabling Model Switch. Model Switch already owns the Composer Picker and Plan Review seat; two owners produce duplicate or competing UI.
 
-Production profiles must use a released registry version or GitHub tag rather than workspace-local dependencies. Restart the selected DSH profile after installation or route changes.
+Production profiles must use a released registry version or GitHub tag rather than workspace-local dependencies. Restart the selected DSH profile after installation or route changes. **Restart once after installing, updating, enabling or disabling this plugin**: it owns Host rows and takes the official Auto-review row over at runtime (`permissionPresets.registerAuto` is a single registration slot); when a hot enable skips the restart, the official row may still be serving, so the takeover only shields the reviewer path — tools keep running, that call's review is skipped with one log line — and the seam converges on the next start.
 
 ## Compatibility
 

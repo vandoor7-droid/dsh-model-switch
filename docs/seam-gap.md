@@ -2,6 +2,14 @@
 
 Official DSH is a read-only dependency. This plugin degrades on a clean tag when a seam is absent.
 
+## Replacing a bundled capability row at runtime
+
+- **Needed for:** handing the single `permissionPresets.registerAuto` slot over without a Host restart when the official `auto-review` row is already active — the hot-install window (disable → remove → install → enable) that 0.4.31's takeover cannot always close inside its retry budget.
+- **Where used:** `src/auto-review-takeover.ts` (`reclaimOfficialAutoReviewRow`, `scheduleLateReclaims`), `src/auto-review.ts` (`installToolCallSafetyNet`).
+- **What exists:** `loader/patch-context` (a synchronous waterfall), `Entry.update({ disabled: true })`, `loader/partial-dispose`, and the single-registration `registerAuto`. Disabling a row *starts* its fiber's disposal; the loader does not await it, so a reclaim either retries (now ~3 s plus three late re-claims) or leaves the official row serving unguarded until the next loader cycle.
+- **Handling:** retry as above, and shield the call: a prepended `tools/pre-execute` listener on this row's own context returns `{ kind: 'allow' }` for **seam** failures only, and only while this row knows it does not hold the route. Reviewer transport/quota errors stay fail-closed.
+- **Upstream:** a public "supersede this bundled row" declaration (or a `registerAuto` that reports and waits for its predecessor's release) would remove the window entirely; a loader API that can address rows nested in a preset's `config.plugins` would let a plugin displace a nested official row instead of only reporting it. Until then the shield plus the actionable restart log is the documented behavior.
+
 ## Goal creation from a client slot
 
 - **Needed for:** arming a reviewed Plan as the session's goal before its review is answered, so `dsh-goal-round-driver` carries the Plan after plan mode exits.

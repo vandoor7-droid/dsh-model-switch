@@ -37,7 +37,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-tools'
+import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { ModelSwitchSettings } from './host-settings.js'
 import { resolveCapabilityRoute, sessionProviderOf } from './session-route.js'
 import {
@@ -159,6 +159,86 @@ export function bindAutoReviewSessionCorrelation(
   scope.effect(function* () {
     yield scope.on('tools/pre-execute', (exec, next) => activeSession.run(exec.agent?.session, next), { prepend: true })
   }, 'model-switch: auto-review session correlation')
+}
+
+/**
+ * Signatures of a broken reviewer seam, never of a real denial.
+ *
+ * The official gate's `tools/pre-execute` probe resolves its own
+ * `sessionProjections` injection before anything can catch it; when that fiber
+ * chain breaks it throws `cannot get required service ... in inactive context`
+ * (or, on older lines, `cannot get property ... without inject`) straight into
+ * the tool call. `TRANSPORT` covers a reviewer that cannot reach its route at
+ * all. A denial is a *return* (`{ kind: 'deny' }`), so it never matches.
+ */
+const REVIEWER_INFRA_FAILURE_SIGNATURES = [
+  'inactive context',
+  'cannot get required service',
+  'cannot get property',
+  'without inject',
+  'TRANSPORT',
+] as const
+
+/**
+ * Whether a reviewer-path throw is a broken seam rather than a real decision.
+ * @param cause - whatever the waterfall threw.
+ * @returns true when the reviewer itself could not run.
+ */
+export function isReviewerInfrastructureFailure(cause: unknown): boolean {
+  const text = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)
+  return REVIEWER_INFRA_FAILURE_SIGNATURES.some(signature => text.includes(signature))
+}
+
+/**
+ * Keep a broken reviewer seam from failing tool calls.
+ *
+ * Registered on this row's own context through `{ prepend: true }`, so it sits
+ * ahead of the official gate's listener and stays live even when the gate could
+ * not be mounted (the takeover lost `registerAuto`, or the displaced row has
+ * not released it yet). That is the one window the defensive
+ * `permissionPresets` shadow cannot cover: the shadow lives in this row's review
+ * scope, while the serving gate resolves the real service from the profile.
+ *
+ * The waterfall only decides whether the body runs; the body dispatches after
+ * it returns, so allowing here never masks a tool failure. Reviewer transport
+ * and quota errors keep failing closed — only seam breakage is allowed through.
+ *
+ * @param ctx - this row's context (the listener lives and dies with the plugin).
+ * @param options - diagnostics plus the degraded-state predicate.
+ */
+export function installToolCallSafetyNet(
+  ctx: Context,
+  options: {
+    /** Diagnostic fiber dump appended to the first report. */
+    fiberChain?: (() => string) | undefined
+    /**
+     * Whether this row currently knows the reviewer route is not held.
+     *
+     * The net only fails open in that state: another plugin's broken listener
+     * must keep failing closed, and a held route already has the defensive
+     * shadow in front of it. Defaults to always degraded (direct callers).
+     */
+    isDegraded?: (() => boolean) | undefined
+  } = {},
+): void {
+  let reported = false
+  const handler = async (_exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> => {
+    try {
+      return await next()
+    } catch (cause) {
+      if (!isReviewerInfrastructureFailure(cause)) throw cause
+      if (options.isDegraded !== undefined && !options.isDegraded()) throw cause
+      if (!reported) {
+        reported = true
+        const detail = options.fiberChain === undefined ? '' : `; fiber chain: ${options.fiberChain()}`
+        ctx.logger.warn(`model-switch: the Auto reviewer path is broken (${String(cause)}); tool calls run unreviewed instead of failing${detail}`)
+      }
+      return { kind: 'allow' }
+    }
+  }
+  ctx.effect(function* () {
+    yield ctx.on('tools/pre-execute', handler, { prepend: true })
+  }, 'model-switch: reviewer-path safety net')
 }
 
 /** The preset name the service reports when no configured preset matches. */
@@ -455,6 +535,13 @@ export async function apply(ctx: Context): Promise<void> {
   const presets = defensivePermissionPresets(() => permissionPresetsOf(ctx), ctx.logger, () => fiberChainOf(ctx))
   const activeSession = new AsyncLocalStorage<Session | undefined>()
   const scope = reviewScope(ctx, activeSession, presets)
+  // Live from the first tool call, before the takeover runs: a lost
+  // `registerAuto` leaves the official (unshielded) gate serving, and its probe
+  // must not be able to fail the tool body.
+  installToolCallSafetyNet(ctx, {
+    fiberChain: () => fiberChainOf(ctx),
+    isDegraded: () => !presets.registered,
+  })
   let gateReady = false
   let mountInFlight: Promise<'applied' | 'waiting' | 'failed'> | undefined
 
@@ -570,6 +657,6 @@ export async function apply(ctx: Context): Promise<void> {
     await claim()
   }
   if (!presets.registered) {
-    ctx.logger.error('model-switch: the Auto registration is not held by this row; Auto review runs without the configurable reviewer route')
+    ctx.logger.error('model-switch: the Auto registration is not held by this row, so Auto review runs without the configurable reviewer route; the reviewer path is shielded instead of failing tool calls. Restart DSH to converge the reviewer row — a hot install cannot always displace the official row in time')
   }
 }

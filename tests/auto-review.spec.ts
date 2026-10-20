@@ -10,6 +10,8 @@ import {
   bindAutoReviewSessionCorrelation,
   defensivePermissionPresets,
   inject,
+  installToolCallSafetyNet,
+  isReviewerInfrastructureFailure,
   name,
   resolveSessionAutoReviewRoute,
   reviewLlm,
@@ -427,5 +429,51 @@ describe('apply', () => {
     // takeover restored its Auto selection.
     expect(writes).toContain('danger-full-access')
     expect(preset).toBe('auto')
+  })
+})
+
+describe('reviewer-path safety net', () => {
+  /** Terminal that fails like the official gate's unshielded probe. */
+  const brokenProbe = async (): Promise<never> => {
+    throw new Error('cannot get required service "sessionProjections" in inactive context')
+  }
+
+  it('allows the call and reports once when the reviewer seam is broken', async () => {
+    const { ctx } = bench()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    installToolCallSafetyNet(ctx)
+
+    const first = await ctx.waterfall('tools/pre-execute', { agent: { session: {} } } as never, brokenProbe)
+    expect(first).toEqual({ kind: 'allow' })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]?.[0])).toContain('run unreviewed instead of failing')
+
+    // A second broken call still runs the tool but does not spam the log.
+    const second = await ctx.waterfall('tools/pre-execute', { agent: { session: {} } } as never, brokenProbe)
+    expect(second).toEqual({ kind: 'allow' })
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a reviewer transport or quota failure failing closed', async () => {
+    const { ctx } = bench()
+    vi.spyOn(ctx.logger, 'warn').mockImplementation(() => undefined)
+    installToolCallSafetyNet(ctx)
+
+    await expect(ctx.waterfall('tools/pre-execute', { agent: { session: {} } } as never, async () => {
+      throw new Error('Auto review of tool "pwsh" failed; its body was not executed: RATE_LIMIT: 429 AccountQuotaExceeded')
+    })).rejects.toThrow(/AccountQuotaExceeded/)
+  })
+
+  it('stays inert while this row still holds the reviewer route', async () => {
+    const { ctx } = bench()
+    installToolCallSafetyNet(ctx, { isDegraded: () => false })
+    await expect(ctx.waterfall('tools/pre-execute', { agent: { session: {} } } as never, brokenProbe))
+      .rejects.toThrow(/inactive context/)
+  })
+
+  it('tells an inject failure apart from a denial', () => {
+    expect(isReviewerInfrastructureFailure(new Error('cannot get property "workingDirectory" without inject'))).toBe(true)
+    expect(isReviewerInfrastructureFailure(new Error('permission: "auto" is already registered'))).toBe(false)
+    expect(isReviewerInfrastructureFailure({ kind: 'deny', reason: 'high risk' })).toBe(false)
   })
 })

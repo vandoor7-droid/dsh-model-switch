@@ -181,7 +181,7 @@ DeepSeek 薄适配器调用官方公开 `DeepSeekSearchProvider`，复用用户�
 
 如果 profile 已安装 `dsh-composer-picker`，请先移除它。Model Switch 已经拥有 Composer Picker 和 Plan Review 席位；同时安装会产生重复或竞争 UI。
 
-生产 profile 必须使用已发布的注册表版本或 GitHub tag，不能使用工作区本地依赖。安装或修改路由后重启对应的 DSH profile。
+生产 profile 必须使用已发布的注册表版本或 GitHub tag，不能使用工作区本地依赖。安装或修改路由后重启对应的 DSH profile。**安装、更新、启用或禁用本插件后都要重启一次**：它持有 Host 侧的行，并在运行时接管官方的自动审查行（`permissionPresets.registerAuto` 只有一个注册位）；不重启直接热启用时，官方行可能仍在服务，接管只能先把审查路径屏蔽掉——工具照常运行、本次审查跳过并留一条日志——重启后才会真正收敛。
 
 ## 兼容性
 
