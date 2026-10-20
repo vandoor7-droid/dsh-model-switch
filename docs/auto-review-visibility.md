@@ -27,10 +27,13 @@ logging:
 2. Updated in `apply()` after the takeover settles and again from the shield's
    catch (incrementing `allowedCalls`), plus after `claim()` succeeds in the
    late re-claims (`src/auto-review-takeover.ts`).
-3. Exposed through the plugin's existing capabilities RPC (`src/capabilities.ts`
-   + `lib/types/capabilities-rpc.d.ts`), i.e. one new field next to the other
-   runtime capabilities — **not** through `ModelSwitchSettings`, which is a
-   settings payload and must stay stable/serialisable across revisions.
+3. Exposed through the plugin's **existing runtime-capability channel**
+   (`src/runtime-capabilities.ts` and the client's `src/client/plugin-rpc.ts` —
+   *not* `src/capabilities.ts`, which is the model-capability catalog), i.e. one
+   new field next to the other runtime capabilities — **not** through
+   `ModelSwitchSettings`, which is a settings payload and must stay
+   stable/serialisable across revisions. Confirm the exact surface at
+   implementation time.
 
 ## Where it renders (client side)
 
