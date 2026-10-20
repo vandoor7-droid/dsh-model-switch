@@ -194,8 +194,6 @@ function scheduleLateReclaims(ctx: Context, label: string, seam: AutoReviewSeam)
  * the listeners share one in-flight guard per entry.
  */
 export function installAutoReviewTakeover(ctx: Context, seam: AutoReviewSeam): (entry: Entry) => Promise<void> {
-  /** Entries already handled, so a repeated patch-context does not loop. */
-  const handled = new Set<Entry>()
   /** Reclaims in flight, shared so two triggers for one entry join one cycle. */
   const reclaiming = new Map<Entry, Promise<void>>()
 
@@ -235,13 +233,19 @@ export function installAutoReviewTakeover(ctx: Context, seam: AutoReviewSeam): (
     // first. Accept both shapes.
     const nextFn = (typeof first === 'function' ? first : second) as (() => unknown) | undefined
     const entry = entryOfEvent(this, typeof first === 'function' ? undefined : first)
-    if (entry === undefined || typeof nextFn !== 'function' || !isOfficialAutoReviewRow(entry) || handled.has(entry)) {
+    if (entry === undefined || typeof nextFn !== 'function' || !isOfficialAutoReviewRow(entry)) {
       return nextFn === undefined ? undefined : nextFn()
     }
-    handled.add(entry)
     // The yield must land before `next()` returns: the loader runs this entry's
     // plugin `apply` — and with it the official `registerAuto` — immediately
-    // after the waterfall completes.
+    // after the waterfall completes. **Every** activation yields again: the
+    // loader calls `_patchContext([])` right before each `registry.plugin`
+    // mount, including the `Entry.update({ disabled: false }) → init()` path a
+    // plugin-manager enable takes — and a skipped yield there is exactly the
+    // `preset "auto" is already registered` activation failure that surfaces as
+    // 「停用失败」. `releaseForTakeover` is synchronous and idempotent, and the
+    // reclaim single-flight below keeps repeated triggers on one cycle, so
+    // yielding on every patch-context cannot loop.
     seam.yieldRegistration()
     void reclaim(entry)
     return nextFn()
@@ -250,7 +254,6 @@ export function installAutoReviewTakeover(ctx: Context, seam: AutoReviewSeam): (
   listen('loader/partial-dispose', function (this: unknown, first?: unknown) {
     const entry = entryOfEvent(this, first)
     if (entry === undefined || !isOfficialAutoReviewRow(entry)) return
-    handled.delete(entry)
     void seam.claim()
   })
   // Rows composed before this row ran are swept once: an already-active row

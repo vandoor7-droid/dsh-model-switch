@@ -19,6 +19,7 @@ import {
   reviewScope,
   type ReviewLlm,
 } from '../src/auto-review.ts'
+import { installAutoReviewTakeover } from '../src/auto-review-takeover.ts'
 
 const BUNDLE = '@deepseek-ai/dsh-experimental-auto-review'
 
@@ -430,6 +431,89 @@ describe('apply', () => {
     // takeover restored its Auto selection.
     expect(writes).toContain('danger-full-access')
     expect(preset).toBe('auto')
+  })
+})
+
+describe('takeover choreography', () => {
+  it('yields the Auto registration on every official activation, not only the first', async () => {
+    // Regression behind 「停用失败: permission: preset "auto" is already registered」.
+    // A plugin-manager enable runs `Entry.update({ disabled: false }) → init()`,
+    // and the loader calls `_patchContext([])` right before that row's plugin
+    // apply. A one-shot `handled` guard skipped the yield from the second
+    // activation on, so the official `registerAuto` collided with this row's
+    // live registration and the whole operation reported as failed.
+    const listeners = new Map<string, (...args: unknown[]) => unknown>()
+    const ctx = {
+      on: (event: string, listener: (...args: unknown[]) => unknown) => {
+        listeners.set(event, listener)
+        return () => { listeners.delete(event) }
+      },
+      effect: (body: () => unknown) => {
+        const generator = body() as Generator<unknown>
+        for (let step = generator.next(); !step.done; step = generator.next()) { /* disposer collected */ }
+        return () => undefined
+      },
+      get: () => undefined,
+      logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+    }
+    const entry = {
+      options: { id: 'auto-review', name: '@deepseek-ai/dsh-experimental-auto-review', config: {} },
+      disabled: false,
+      update: vi.fn(async (options: Record<string, unknown>) => {
+        if (options.disabled === true) entry.disabled = true
+      }),
+    }
+    const yieldRegistration = vi.fn()
+    const claim = vi.fn(async () => true)
+    installAutoReviewTakeover(ctx as never, {
+      yieldRegistration,
+      claim,
+      preserveAuto: async action => { await action() },
+    })
+
+    const listener = listeners.get('loader/patch-context')
+    expect(listener).toBeTypeOf('function')
+    const next = vi.fn(() => undefined)
+    // Startup activation, then the plugin manager's re-enable: both must yield
+    // before the loader runs the official apply.
+    listener!.call(entry, next)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    listener!.call(entry, next)
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(yieldRegistration).toHaveBeenCalledTimes(2)
+    expect(next).toHaveBeenCalledTimes(2)
+    // The reclaim is single-flight per entry: one cycle at a time, so yielding
+    // on every activation cannot loop.
+    expect(claim).toHaveBeenCalled()
+    expect(entry.update).toHaveBeenCalledWith({ disabled: true })
+  })
+
+  it('keeps the yield away from rows that are not the official auto-review entry', () => {
+    const listeners = new Map<string, (...args: unknown[]) => unknown>()
+    const ctx = {
+      on: (event: string, listener: (...args: unknown[]) => unknown) => {
+        listeners.set(event, listener)
+        return () => { listeners.delete(event) }
+      },
+      effect: (body: () => unknown) => {
+        const generator = body() as Generator<unknown>
+        for (let step = generator.next(); !step.done; step = generator.next()) { /* disposer collected */ }
+        return () => undefined
+      },
+      get: () => undefined,
+      logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+    }
+    const yieldRegistration = vi.fn()
+    installAutoReviewTakeover(ctx as never, {
+      yieldRegistration,
+      claim: async () => true,
+      preserveAuto: async action => { await action() },
+    })
+    const next = vi.fn(() => undefined)
+    listeners.get('loader/patch-context')!.call({ options: { id: 'other', name: 'dsh-model-switch', config: {} } }, next)
+    expect(yieldRegistration).not.toHaveBeenCalled()
+    expect(next).toHaveBeenCalledOnce()
   })
 })
 

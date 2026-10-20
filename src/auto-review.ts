@@ -636,7 +636,19 @@ export async function apply(ctx: Context): Promise<void> {
           outcome = 'waiting'
           return
         }
-        lastGateFiber = fiber as unknown as GateFiber
+        const gate = fiber as unknown as GateFiber
+        // Disposing the gate must release the Auto registration in its first
+        // synchronous step: the loader does not await fiber disposal, and the
+        // official row's re-activation during the same recompose must find the
+        // slot free — otherwise its `registerAuto` fails with
+        // `preset "auto" is already registered` and the plugin manager reports
+        // the whole operation as 「停用失败」.
+        const disposeGate = gate.dispose.bind(gate)
+        ;(gate as unknown as { dispose: () => Promise<void> }).dispose = () => {
+          presets.releaseForTakeover()
+          return disposeGate()
+        }
+        lastGateFiber = gate
         gateReady = true
         outcome = 'applied'
       })
@@ -675,4 +687,13 @@ export async function apply(ctx: Context): Promise<void> {
     autoReviewStatus.held = false
     ctx.logger.error('model-switch: the Auto registration is not held by this row, so Auto review runs without the configurable reviewer route; the reviewer path is shielded instead of failing tool calls. Restart DSH to converge the reviewer row — a hot install cannot always displace the official row in time')
   }
+  // Belt-and-braces for the release. Registered last, so the reverse-order
+  // teardown runs it first; the registration can also outlive the gate fiber
+  // (a direct `reclaimRegistration()` claim), and its release must still land
+  // in the synchronous prefix of this row's disposal — the official row's
+  // re-activation in the same recompose must find the slot free, or its
+  // `registerAuto` fails and the plugin manager reports 「停用失败」.
+  ctx.effect(function* () {
+    yield () => { presets.releaseForTakeover() }
+  }, 'model-switch: release the Auto registration before anything else')
 }
