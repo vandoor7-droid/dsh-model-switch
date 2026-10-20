@@ -34,12 +34,16 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { ModelSwitchSettings } from './host-settings.js'
 import { resolveCapabilityRoute, sessionProviderOf } from './session-route.js'
+import { decodeAutoSessionState, encodeAutoSessionState } from './auto-sessions-state.js'
 import {
   installAutoReviewTakeover,
   officialAutoReviewEntry,
@@ -588,6 +592,72 @@ export async function apply(ctx: Context): Promise<void> {
     restoreAuto(remembered)
   }
 
+  /** Where the pre-release Auto snapshot lives (host-wide, not per profile). */
+  const autoStatePath = (): string =>
+    join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'model-switch', 'auto-sessions.json')
+
+  /**
+   * Snapshot the Auto selection to disk *before* the registration is released.
+   *
+   * A release can dispose the gate during a hot recompose — exactly when this
+   * row is torn down and can no longer restore anything in memory. The next
+   * mount replays the file (see `flushAutoSnapshot`), so the user does not have
+   * to re-select 「自动审查」 after every reload.
+   */
+  const persistAutoSnapshot = (): void => {
+    const ids: string[] = []
+    for (const session of rememberAuto()) {
+      const id = (session as unknown as { id?: unknown }).id
+      if (typeof id === 'string' && id !== '') ids.push(id)
+    }
+    try {
+      const file = autoStatePath()
+      if (ids.length === 0) {
+        rmSync(file, { force: true })
+        return
+      }
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, encodeAutoSessionState(ids, Date.now()), 'utf8')
+    } catch {
+      /* best-effort: a read-only DSH_HOME must never block the release */
+    }
+  }
+
+  /** Replay (and consume) the snapshot written by a previous release. */
+  const flushAutoSnapshot = (): void => {
+    try {
+      const file = autoStatePath()
+      let raw: string
+      try {
+        raw = readFileSync(file, 'utf8')
+      } catch {
+        return
+      }
+      const ids = decodeAutoSessionState(raw, Date.now())
+      if (ids.length === 0) {
+        rmSync(file, { force: true })
+        return
+      }
+      const sessions = (ctx as unknown as { get(name: string, strict: boolean): unknown }).get('sessions', false) as { list?(): Iterable<Session> } | undefined
+      // An early claim can run before the session service exists: keep the file
+      // so a later claim (or the next start) can still replay it.
+      if (sessions?.list === undefined) return
+      rmSync(file, { force: true })
+      const wanted = new Set(ids)
+      for (const session of sessions.list()) {
+        const id = (session as unknown as { id?: unknown }).id
+        if (typeof id !== 'string' || !wanted.has(id)) continue
+        try {
+          if (presets.current(session) !== AUTO_PRESET) presets.set(session, AUTO_PRESET)
+        } catch {
+          /* best-effort */
+        }
+      }
+    } catch {
+      /* no snapshot, or a session raced away */
+    }
+  }
+
   /** Mount this row's shielded gate exactly once; failures dispose and report. */
   const mountGate = (): Promise<'applied' | 'waiting' | 'failed'> => {
     mountInFlight ??= (async () => {
@@ -664,11 +734,20 @@ export async function apply(ctx: Context): Promise<void> {
     else if (gateReady) held = presets.reclaimRegistration()
     else held = await mountGate() !== 'failed'
     autoReviewStatus.held = held
+    // Replay the selection a previous release had to give up (hot recompose,
+    // row unload). Runs only once the registration is held again, so the
+    // preset is actually resolvable when the sessions are moved back.
+    if (held) flushAutoSnapshot()
     return held
   }
 
   const seam: AutoReviewSeam = {
-    yieldRegistration: () => presets.releaseForTakeover(),
+    yieldRegistration: () => {
+      // Snapshot before releasing: the release itself is what moves the
+      // sessions off Auto, and the reclaim that follows is asynchronous.
+      persistAutoSnapshot()
+      presets.releaseForTakeover()
+    },
     claim,
     preserveAuto,
   }
@@ -694,6 +773,12 @@ export async function apply(ctx: Context): Promise<void> {
   // re-activation in the same recompose must find the slot free, or its
   // `registerAuto` fails and the plugin manager reports 「停用失败」.
   ctx.effect(function* () {
-    yield () => { presets.releaseForTakeover() }
+    yield () => {
+      // This row is being torn down (hot recompose, disable). Snapshot the Auto
+      // selection first: the release below moves those sessions to the fallback
+      // preset, and nothing of ours is left mounted to restore them in memory.
+      persistAutoSnapshot()
+      presets.releaseForTakeover()
+    }
   }, 'model-switch: release the Auto registration before anything else')
 }
