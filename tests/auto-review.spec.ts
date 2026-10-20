@@ -7,6 +7,7 @@ import {
   apply,
   autoReviewGate,
   autoReviewRouteOf,
+  autoReviewStatus,
   bindAutoReviewSessionCorrelation,
   defensivePermissionPresets,
   inject,
@@ -448,10 +449,13 @@ describe('reviewer-path safety net', () => {
     expect(warn).toHaveBeenCalledTimes(1)
     expect(String(warn.mock.calls[0]?.[0])).toContain('run unreviewed instead of failing')
 
-    // A second broken call still runs the tool but does not spam the log.
+    // The runtime-capability snapshot reads this store: a call allowed by the
+    // net must be counted so the settings card can report skipped reviews.
+    const allowedBefore = autoReviewStatus.allowedCalls
     const second = await ctx.waterfall('tools/pre-execute', { agent: { session: {} } } as never, brokenProbe)
     expect(second).toEqual({ kind: 'allow' })
     expect(warn).toHaveBeenCalledTimes(1)
+    expect(autoReviewStatus.allowedCalls).toBe(allowedBefore + 1)
   })
 
   it('keeps a reviewer transport or quota failure failing closed', async () => {

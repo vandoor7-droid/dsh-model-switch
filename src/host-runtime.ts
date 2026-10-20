@@ -3,6 +3,7 @@ import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import { Config, readConfig, type Config as ModelSwitchSettingsConfig, type ModelSwitchSettings } from './host-settings.js'
 import { RUNTIME_CAPABILITIES } from './runtime-capabilities.js'
+import { autoReviewStatus } from './auto-review.js'
 import { ModelSwitchAdapterRegistry } from './adapter-registry.js'
 import { installModelSwitchSearchProvider } from './search-provider.js'
 import { installGenerateImageTool } from './image-tool.js'
@@ -24,7 +25,11 @@ export class ModelSwitchRuntime extends Service {
   static Config = Config
   get capabilities() {
     const catalog = this.adapters.searchCatalog()
-    return { ...RUNTIME_CAPABILITIES, searchProviderAdapters: { available: true, providers: catalog.map(provider => provider.id), catalog } }
+    return {
+      ...RUNTIME_CAPABILITIES,
+      searchProviderAdapters: { available: true, providers: catalog.map(provider => provider.id), catalog },
+      autoReview: autoReviewStatus.held ? { available: true } : { available: false, reason: 'auto-review-takeover' as const },
+    }
   }
   readonly adapters = new ModelSwitchAdapterRegistry()
   private source: () => ModelSwitchSettings

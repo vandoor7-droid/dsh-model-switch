@@ -32,6 +32,7 @@ export declare const zh: {
     readonly autoReviewFollow: "跟随会话模型";
     readonly autoReviewHelp: "为官方 auto-review（Auto 权限预设的逐调用审查）指定审查模型；需启用官方 auto-review 能力包。关闭时审查跟随当前会话模型。本插件启用时，官方「自动审查」组件由本插件接管。";
     readonly autoReviewRouteHelp: "审查请求固定使用这里的 Provider/模型，与会话模型无关；保存后对下一次审查立即生效。";
+    readonly autoReviewTakeoverWarning: "审查路由当前未接管（官方「自动审查」行仍占着唯一注册位）：工具调用会照常执行，但这些调用未经审查。重启 DSH 即可收敛；若重启后仍显示此提示，请把日志里的 fiber 链反馈给上游。";
     readonly autoReviewTakeoverNote: "官方「自动审查」组件已由本插件接管（提供可配置审查路由）；在插件管理里把它重新打开会被再次关闭，并在日志里留下一条记录。";
     readonly compaction: "压缩模型";
     readonly compactionFollow: "跟随会话模型";

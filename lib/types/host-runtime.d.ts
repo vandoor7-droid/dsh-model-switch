@@ -19,6 +19,13 @@ export declare class ModelSwitchRuntime extends Service {
             providers: string[];
             catalog: readonly import("./adapter-registry.js").SearchProviderMetadata[];
         };
+        autoReview: {
+            available: boolean;
+            reason?: never;
+        } | {
+            available: boolean;
+            reason: "auto-review-takeover";
+        };
         mainDefaults: Readonly<{
             available: true;
         }>;

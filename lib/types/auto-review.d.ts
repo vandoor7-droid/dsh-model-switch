@@ -51,6 +51,19 @@ export declare const name = "model-switch-auto-review";
  * takeover).
  */
 export declare const inject: string[];
+/**
+ * Live Auto-reviewer takeover status, read by the runtime-capability snapshot.
+ *
+ * `held: false` means the official row kept the single `registerAuto` slot (or
+ * has not released it yet): the reviewer route is not configurable and the
+ * tool-call safety net allows unreviewed calls instead of failing them.
+ * `allowedCalls` counts the calls the net let through in that state, so the
+ * settings card can tell the human how much review was skipped.
+ */
+export declare const autoReviewStatus: {
+    held: boolean;
+    allowedCalls: number;
+};
 /** Pinned reviewer route; both identifiers are non-empty. */
 export interface AutoReviewRoute {
     readonly provider: string;

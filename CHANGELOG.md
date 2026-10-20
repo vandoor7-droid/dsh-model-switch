@@ -1,3 +1,11 @@
+## v0.4.33
+
+The reviewer takeover now reports its own health to the settings page instead of only writing a Host log line.
+
+- **Runtime-capability field (`src/runtime-capabilities.ts`, `src/host-runtime.ts`).** `autoReview` joins the capability snapshot: `{ available: true }` while this row holds the official reviewer route, `{ available: false, reason: 'auto-review-takeover' }` once it does not. The value comes from a live record (`autoReviewStatus` in `src/auto-review.ts`) updated on every claim, on the lost-seam path, and by the tool-call safety net — which also counts the calls it allowed unreviewed, so the card can say how much review was skipped.
+- **Settings card warning (`src/client/ModelSwitchSettings.tsx`, `src/client/locales.ts`).** The「自动审查」section renders `autoReviewTakeoverNote` while the route is held and `autoReviewTakeoverWarning` otherwise (zh + en: tool calls keep running, those calls are unreviewed, restart DSH to converge). What used to be a Host-only log line is now visible where the human configures the route.
+- **Verification.** `pnpm run check` green (55 test files / 494 tests + pack gate). The safety net's test now also asserts the allowed-call counter the snapshot reads, so the card's data path is covered end to end (host record → capability snapshot → card text selected by `available`).
+
 ## v0.4.32
 
 A hot install could still break every tool call: replacing the plugin (disable → remove → install → enable, **without a DSH restart**) leaves the official `auto-review` row serving while this row's takeover is still trying to displace it, and its unshielded probe fails each call. This release makes that window non-fatal and shortens it.

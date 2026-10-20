@@ -1,9 +1,11 @@
-# Auto-review takeover visibility (planned, not implemented)
+# Auto-review takeover visibility
 
-Status: **design only**. v0.4.32 ships the behaviour (the reviewer path is
-shielded instead of failing tool calls) but the only signal a human gets is one
-`logger.warn` on the Host console. This note fixes the shape of the missing
-piece so it can be implemented without re-deriving it.
+Status: **implemented in v0.4.33** (runtime-capability field `autoReview` +
+`autoReviewTakeoverWarning` in the settings card). This note keeps the design
+rationale and the states the card distinguishes.
+
+v0.4.32 shipped the behaviour (the reviewer path is shielded instead of failing
+tool calls); v0.4.33 makes that state visible where the route is configured.
 
 ## What the human needs to see
 

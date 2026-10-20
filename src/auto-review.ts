@@ -68,6 +68,17 @@ const AUTO_REVIEW_BUNDLE = '@deepseek-ai/dsh-experimental-auto-review'
 /** The Auto preset name; `registerAuto` is what publishes it. */
 const AUTO_PRESET = 'auto'
 
+/**
+ * Live Auto-reviewer takeover status, read by the runtime-capability snapshot.
+ *
+ * `held: false` means the official row kept the single `registerAuto` slot (or
+ * has not released it yet): the reviewer route is not configurable and the
+ * tool-call safety net allows unreviewed calls instead of failing them.
+ * `allowedCalls` counts the calls the net let through in that state, so the
+ * settings card can tell the human how much review was skipped.
+ */
+export const autoReviewStatus = { held: false, allowedCalls: 0 }
+
 /** Pinned reviewer route; both identifiers are non-empty. */
 export interface AutoReviewRoute {
   readonly provider: string
@@ -233,6 +244,7 @@ export function installToolCallSafetyNet(
         const detail = options.fiberChain === undefined ? '' : `; fiber chain: ${options.fiberChain()}`
         ctx.logger.warn(`model-switch: the Auto reviewer path is broken (${String(cause)}); tool calls run unreviewed instead of failing${detail}`)
       }
+      autoReviewStatus.allowedCalls += 1
       return { kind: 'allow' }
     }
   }
@@ -635,9 +647,12 @@ export async function apply(ctx: Context): Promise<void> {
 
   /** Make this row's Auto registration live; true once it is held. */
   const claim = async (): Promise<boolean> => {
-    if (presets.registered) return true
-    if (gateReady) return presets.reclaimRegistration()
-    return await mountGate() !== 'failed'
+    let held: boolean
+    if (presets.registered) held = true
+    else if (gateReady) held = presets.reclaimRegistration()
+    else held = await mountGate() !== 'failed'
+    autoReviewStatus.held = held
+    return held
   }
 
   const seam: AutoReviewSeam = {
@@ -657,6 +672,7 @@ export async function apply(ctx: Context): Promise<void> {
     await claim()
   }
   if (!presets.registered) {
+    autoReviewStatus.held = false
     ctx.logger.error('model-switch: the Auto registration is not held by this row, so Auto review runs without the configurable reviewer route; the reviewer path is shielded instead of failing tool calls. Restart DSH to converge the reviewer row — a hot install cannot always displace the official row in time')
   }
 }
