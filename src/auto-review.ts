@@ -43,7 +43,12 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { ModelSwitchSettings } from './host-settings.js'
 import { resolveCapabilityRoute, sessionProviderOf } from './session-route.js'
-import { decodeAutoSessionState, encodeAutoSessionState } from './auto-sessions-state.js'
+import {
+  decodeAutoSessionStatePayload,
+  encodeAutoSessionState,
+  mergeAutoSessionIds,
+  planAutoSnapshotReplay,
+} from './auto-sessions-state.js'
 import {
   installAutoReviewTakeover,
   officialAutoReviewEntry,
@@ -561,15 +566,38 @@ export async function apply(ctx: Context): Promise<void> {
   let gateReady = false
   let mountInFlight: Promise<'applied' | 'waiting' | 'failed'> | undefined
 
-  /** Sessions currently on the Auto preset (best-effort). */
-  const rememberAuto = (): Session[] => {
+  /** The live session service, or `undefined` while it is not reachable. */
+  const sessionsOf = (): { list?(): Iterable<Session> } | undefined => {
+    try {
+      return (ctx as unknown as { get(name: string, strict: boolean): unknown }).get('sessions', false) as { list?(): Iterable<Session> } | undefined
+    } catch {
+      return undefined
+    }
+  }
+  const sessionIdOf = (session: Session): string => {
+    const id = (session as unknown as { id?: unknown }).id
+    return typeof id === 'string' ? id : ''
+  }
+  /**
+   * Sessions currently on the Auto preset (best-effort).
+   *
+   * Returns `undefined` when the session service cannot be read at all, which
+   * callers must treat as "unknown", never as "nothing is on Auto": an empty
+   * result from an unreadable store is exactly how the pre-release snapshot
+   * used to be destroyed (and the selection with it).
+   */
+  const rememberAuto = (): Session[] | undefined => {
+    const sessions = sessionsOf()
+    if (sessions?.list === undefined) return undefined
     const remembered: Session[] = []
     try {
-      const sessions = (ctx as unknown as { get(name: string, strict: boolean): unknown }).get('sessions', false) as { list?(): Iterable<Session> } | undefined
-      for (const session of sessions?.list?.() ?? []) {
+      for (const session of sessions.list()) {
         if (presets.current(session) === AUTO_PRESET) remembered.push(session)
       }
-    } catch { /* best-effort */ }
+    } catch {
+      return undefined
+    }
+    subscribePresetTracking()
     return remembered
   }
   const restoreAuto = (remembered: readonly Session[]): void => {
@@ -589,12 +617,109 @@ export async function apply(ctx: Context): Promise<void> {
   const preserveAuto = async (action: () => Promise<void>): Promise<void> => {
     const remembered = rememberAuto()
     await action()
-    restoreAuto(remembered)
+    restoreAuto(remembered ?? [])
   }
 
   /** Where the pre-release Auto snapshot lives (host-wide, not per profile). */
   const autoStatePath = (): string =>
     join(process.env.DSH_HOME ?? join(homedir(), '.dsh'), 'model-switch', 'auto-sessions.json')
+
+  /** Read the recorded Auto ids; an absent, malformed or stale file is empty. */
+  const readAutoState = (): { savedAt: number; ids: string[] } => {
+    let raw: string | undefined
+    try {
+      raw = readFileSync(autoStatePath(), 'utf8')
+    } catch {
+      raw = undefined
+    }
+    return decodeAutoSessionStatePayload(raw, Date.now()) ?? { savedAt: Date.now(), ids: [] }
+  }
+  /** Write the recorded Auto ids; an empty list removes the file. */
+  const writeAutoState = (ids: readonly string[], savedAt: number): void => {
+    try {
+      const file = autoStatePath()
+      if (ids.length === 0) {
+        rmSync(file, { force: true })
+        return
+      }
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, encodeAutoSessionState(ids, savedAt), 'utf8')
+    } catch {
+      /* best-effort: a read-only DSH_HOME must never block the release */
+    }
+  }
+
+  /** Sessions whose preset feed has already been wired to the record. */
+  const tracked = new WeakSet<object>()
+  /**
+   * Record one preset change in the file.
+   *
+   * A change that lands while this row has released the Auto registration is
+   * the official teardown flip — the gate moves `auto` sessions to the fallback
+   * preset by design — and is not a user choice, so those ids must stay
+   * recorded for the next claim. Anything else is the user's decision and wins:
+   * the id leaves the record. This is what makes the record independent of the
+   * teardown ordering that a plugin install's recompose reorders.
+   */
+  const trackAutoSelection = (id: string, on: boolean): void => {
+    if (id === '') return
+    const state = readAutoState()
+    const ids = on
+      ? mergeAutoSessionIds(state.ids, [id])
+      : presets.registered
+        ? state.ids.filter(existing => existing !== id)
+        : state.ids
+    writeAutoState(ids, Date.now())
+  }
+  /** Wire every live session's preset feed to {@link trackAutoSelection}. */
+  const subscribePresetTracking = (): void => {
+    const sessions = sessionsOf()
+    if (sessions?.list === undefined) return
+    let list: Iterable<Session>
+    try {
+      list = sessions.list()
+    } catch {
+      return
+    }
+    const pending = readAutoState()
+    for (const session of list) {
+      replayPendingFor(session, pending)
+      const key = session as unknown as object
+      if (tracked.has(key)) continue
+      const emitter = session as unknown as { on?: (event: string, listener: (data: { preset?: unknown }) => void) => unknown }
+      if (typeof emitter.on !== 'function') continue
+      tracked.add(key)
+      try {
+        emitter.on('permission/preset', data => {
+          if (typeof data?.preset !== 'string') return
+          trackAutoSelection(sessionIdOf(session), data.preset === AUTO_PRESET)
+        })
+      } catch {
+        tracked.delete(key)
+      }
+    }
+  }
+
+  /**
+   * Move a newly observed session back onto Auto while its id is recorded.
+   *
+   * A claim can run before the session service has loaded the session (the
+   * web Host loads them lazily), which is exactly why a replay may leave ids
+   * behind. Whenever a session then shows up — through the same observation
+   * pass that wires its preset feed — its recorded selection is applied and
+   * the id is consumed. A failed `set` keeps the id for a later pass.
+   */
+  const replayPendingFor = (session: Session, pending: { savedAt: number; ids: string[] }): void => {
+    if (!presets.registered) return
+    const id = sessionIdOf(session)
+    if (id === '' || !pending.ids.includes(id)) return
+    try {
+      if (presets.current(session) !== AUTO_PRESET) presets.set(session, AUTO_PRESET)
+    } catch {
+      return
+    }
+    writeAutoState(pending.ids.filter(existing => existing !== id), pending.savedAt)
+  }
 
   /**
    * Snapshot the Auto selection to disk *before* the registration is released.
@@ -603,56 +728,62 @@ export async function apply(ctx: Context): Promise<void> {
    * row is torn down and can no longer restore anything in memory. The next
    * mount replays the file (see `flushAutoSnapshot`), so the user does not have
    * to re-select 「自动审查」 after every reload.
+   *
+   * The live read merges into the continuous record instead of replacing it:
+   * by the time a teardown runs, the official flip may already have moved the
+   * sessions off Auto — or the session service may be unreadable from a fiber
+   * that is going away — and an empty read must never destroy the recorded
+   * selection (that deletion is what left `auto-sessions.json` absent and the
+   * preset stuck on 完全权限 after a plugin install).
    */
   const persistAutoSnapshot = (): void => {
-    const ids: string[] = []
-    for (const session of rememberAuto()) {
-      const id = (session as unknown as { id?: unknown }).id
-      if (typeof id === 'string' && id !== '') ids.push(id)
-    }
-    try {
-      const file = autoStatePath()
-      if (ids.length === 0) {
-        rmSync(file, { force: true })
-        return
-      }
-      mkdirSync(dirname(file), { recursive: true })
-      writeFileSync(file, encodeAutoSessionState(ids, Date.now()), 'utf8')
-    } catch {
-      /* best-effort: a read-only DSH_HOME must never block the release */
-    }
+    const remembered = rememberAuto()
+    const ids = mergeAutoSessionIds(
+      (remembered ?? []).map(sessionIdOf).filter(id => id !== ''),
+      readAutoState().ids,
+    )
+    writeAutoState(ids, Date.now())
   }
 
-  /** Replay (and consume) the snapshot written by a previous release. */
+  /**
+   * Replay (and consume) the snapshot written by a previous release.
+   *
+   * Only the ids a live session actually claims are consumed; anything else
+   * stays in the file, with its original expiry, so an early claim cannot eat
+   * the selection of sessions that load later (or that are still archived).
+   */
   const flushAutoSnapshot = (): void => {
     try {
-      const file = autoStatePath()
-      let raw: string
-      try {
-        raw = readFileSync(file, 'utf8')
-      } catch {
+      const state = readAutoState()
+      if (state.ids.length === 0) {
+        writeAutoState([], state.savedAt)
         return
       }
-      const ids = decodeAutoSessionState(raw, Date.now())
-      if (ids.length === 0) {
-        rmSync(file, { force: true })
-        return
-      }
-      const sessions = (ctx as unknown as { get(name: string, strict: boolean): unknown }).get('sessions', false) as { list?(): Iterable<Session> } | undefined
+      const sessions = sessionsOf()
       // An early claim can run before the session service exists: keep the file
       // so a later claim (or the next start) can still replay it.
       if (sessions?.list === undefined) return
-      rmSync(file, { force: true })
-      const wanted = new Set(ids)
-      for (const session of sessions.list()) {
-        const id = (session as unknown as { id?: unknown }).id
-        if (typeof id !== 'string' || !wanted.has(id)) continue
+      subscribePresetTracking()
+      const live: Session[] = []
+      try {
+        for (const session of sessions.list()) live.push(session)
+      } catch {
+        return
+      }
+      const { restore, remaining } = planAutoSnapshotReplay(
+        state.ids,
+        live.map(session => ({ id: sessionIdOf(session) })),
+      )
+      const wanted = new Set(restore)
+      for (const session of live) {
+        if (!wanted.has(sessionIdOf(session))) continue
         try {
           if (presets.current(session) !== AUTO_PRESET) presets.set(session, AUTO_PRESET)
         } catch {
           /* best-effort */
         }
       }
+      writeAutoState(remaining, state.savedAt)
     } catch {
       /* no snapshot, or a session raced away */
     }
@@ -734,9 +865,12 @@ export async function apply(ctx: Context): Promise<void> {
     else if (gateReady) held = presets.reclaimRegistration()
     else held = await mountGate() !== 'failed'
     autoReviewStatus.held = held
-    // Replay the selection a previous release had to give up (hot recompose,
-    // row unload). Runs only once the registration is held again, so the
-    // preset is actually resolvable when the sessions are moved back.
+    // Keep the continuous record in step with the user's own preset changes
+    // from here on, then replay the selection a previous release had to give up
+    // (hot recompose, row unload). The replay runs only once the registration
+    // is held again, so the preset is actually resolvable when the sessions are
+    // moved back.
+    subscribePresetTracking()
     if (held) flushAutoSnapshot()
     return held
   }
@@ -772,6 +906,31 @@ export async function apply(ctx: Context): Promise<void> {
   // in the synchronous prefix of this row's disposal — the official row's
   // re-activation in the same recompose must find the slot free, or its
   // `registerAuto` fails and the plugin manager reports 「停用失败」.
+  // The web Host loads sessions lazily, so a claim-time replay can miss a
+  // session that has not been opened yet. Retry the observation pass while
+  // this row is alive: every tool call is proof that both the registration and
+  // the session service are up, and a late-loading session gets its recorded
+  // selection applied then (and its id consumed).
+  ctx.effect(function* () {
+    yield ctx.on('tools/pre-execute', async (_exec, next) => {
+      subscribePresetTracking()
+      return next()
+    })
+  }, 'model-switch: replay pending Auto selections as sessions appear')
+
+  // No session-load event exists on the public `sessions` face, so a web-Host
+  // session that is opened lazily (and never runs a tool) would keep its
+  // recorded selection un-replayed. A bounded sweep closes that gap: while the
+  // record still holds ids it retries the observation pass every 10 seconds,
+  // and once the record is consumed the sweep is a single file read per tick.
+  const sweep = setInterval(() => {
+    if (readAutoState().ids.length === 0) return
+    subscribePresetTracking()
+  }, 10_000)
+  ctx.effect(function* () {
+    yield () => clearInterval(sweep)
+  }, 'model-switch: sweep pending Auto selections until the record is empty')
+
   ctx.effect(function* () {
     yield () => {
       // This row is being torn down (hot recompose, disable). Snapshot the Auto
