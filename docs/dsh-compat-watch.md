@@ -10,7 +10,7 @@ update this plugin for the new line **without dropping older lines**.
 | Last check | 2026-10-21 (Asia/Shanghai) |
 | `@deepseek-ai/dsh` dist-tags | `latest` = `0.2.1-rc.2`, `next` = `0.2.1-rc.2`, `alpha` = `0.2.1-alpha.5` |
 | Last verified line | `0.2.1-rc.2` |
-| Plugin version at that check | 0.4.33 |
+| Plugin version at that check | 0.4.36 |
 
 `latest` moving is the trigger. `next`/`alpha` are early signal only — record
 them, do not update the plugin for them unless the same API change is already on
