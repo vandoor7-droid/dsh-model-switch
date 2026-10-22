@@ -49,6 +49,8 @@ export declare const zh: {
     readonly providerGroupsBodyHelp: "每个供应商保存一组压缩、自动审查、会话命名与子代理路由。会话自身的供应商与该组一致时，这四项能力按组实时解析，未固定项回落到上方卡片里的全局设置。切换某个会话的模型不会写入任何全局设置，因此不同供应商的多个会话并行时互不影响，会话中切换供应商后下一次调用也会立即跟随新供应商的配置组。";
     readonly providerGroupPick: "选择供应商以编辑其配置组。";
     readonly providerGroupDelete: "删除该组";
+    readonly groupOverridesLabel: "组覆盖：{pins}；无组时用上方默认值";
+    readonly groupOverridesMore: "组覆盖：{listed} 等 {count} 个组；无组时用上方默认值";
     readonly saveTimeout: "保存超时，请重试";
     readonly saveRejected: "保存被拒绝，请重试";
     readonly 'reason.central-subagent-routing': "Alpha.4 没有全局子代理启动路由接口。";

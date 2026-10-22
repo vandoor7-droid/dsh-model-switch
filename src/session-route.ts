@@ -132,6 +132,41 @@ export function groupRoute(
 }
 
 /**
+ * One provider group's pin for one capability, as the settings page shows it.
+ */
+export interface CapabilityGroupPin {
+  /** The provider whose sessions this group applies to. */
+  readonly provider: string
+  /** The pinned route. */
+  readonly route: CapabilityRoute
+  /** A subagent spawn's effort; only meaningful for `subagent`. */
+  readonly reasoningEffort?: string
+}
+
+/**
+ * Every provider group that overrides one capability, provider-sorted.
+ *
+ * Reads the stored table only and never attributes a session, so a caller can
+ * describe the layering ("this is the default; these groups override it")
+ * without claiming which layer a given session receives.
+ * @param groups - the normalized provider → group map.
+ * @param capability - capability whose group pins are collected.
+ * @returns The complete pins, ordered by provider id; empty when no group pins it.
+ */
+export function capabilityGroupPins(groups: ProviderGroups | undefined, capability: CapabilityId): readonly CapabilityGroupPin[] {
+  const pins: CapabilityGroupPin[] = []
+  if (groups === undefined) return pins
+  for (const provider of Object.keys(groups).sort()) {
+    const group = groups[provider]
+    const route = pairOf(group, CAPABILITY_FIELDS[capability])
+    if (route === undefined) continue
+    const effort = capability === 'subagent' ? group?.subagentReasoningEffort : undefined
+    pins.push(present(effort) ? { provider, route, reasoningEffort: effort } : { provider, route })
+  }
+  return pins
+}
+
+/**
  * The route one capability should use for one session.
  *
  * A saved provider group for the session's provider wins; otherwise the flat

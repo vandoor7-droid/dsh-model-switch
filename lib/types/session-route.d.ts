@@ -78,6 +78,28 @@ export declare function subagentRouteOf(settings: RouteBearingSettings | undefin
  */
 export declare function groupRoute(settings: RouteBearingSettings | undefined, provider: string | undefined, capability: CapabilityId): CapabilityRoute | undefined;
 /**
+ * One provider group's pin for one capability, as the settings page shows it.
+ */
+export interface CapabilityGroupPin {
+    /** The provider whose sessions this group applies to. */
+    readonly provider: string;
+    /** The pinned route. */
+    readonly route: CapabilityRoute;
+    /** A subagent spawn's effort; only meaningful for `subagent`. */
+    readonly reasoningEffort?: string;
+}
+/**
+ * Every provider group that overrides one capability, provider-sorted.
+ *
+ * Reads the stored table only and never attributes a session, so a caller can
+ * describe the layering ("this is the default; these groups override it")
+ * without claiming which layer a given session receives.
+ * @param groups - the normalized provider → group map.
+ * @param capability - capability whose group pins are collected.
+ * @returns The complete pins, ordered by provider id; empty when no group pins it.
+ */
+export declare function capabilityGroupPins(groups: ProviderGroups | undefined, capability: CapabilityId): readonly CapabilityGroupPin[];
+/**
  * The route one capability should use for one session.
  *
  * A saved provider group for the session's provider wins; otherwise the flat

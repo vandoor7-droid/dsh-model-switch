@@ -1,3 +1,14 @@
+## v0.4.37
+
+「能力路由」四张卡片现在说明自己的层级：摘要行是**默认（无组时）**的值，另起一行列出所有覆盖它的供应商配置组，改完组不再看起来像"没生效"。
+
+- **纯展示改动，解析行为不变。** `resolveCapabilityRoute` 仍是「组 ?? 默认」（`src/session-route.ts`）：压缩 / 自动审查 / 子代理是单次静态解析、不做失败回落，会话命名仍走既有候选链（组对 → 默认对 → 行自身对）。
+- **新增 `capabilityGroupPins(groups, capability)`（`src/session-route.ts`）**：按 provider 排序收集"固定了该能力"的组；组内空串或半对一律视为未固定，因此 `titleProvider: ""`（跟随会话模型）不会被误当成固定值。
+- **卡片新增一行 `note`（`src/client/ModelSwitchSettings.tsx`）**：子代理、自动审查、压缩、会话命名四处；≤3 个组时全列（`组覆盖：apigoto → apigoto · gpt-6-luna；…`），超过 3 个折叠为「… 等 N 个组」；无组覆盖时**不渲染**，与旧版输出一致。子代理行额外带上组里的 `subagentReasoningEffort`。
+- **文案**：`src/client/locales.ts` 新增 `groupOverridesLabel` / `groupOverridesMore`（zh + en）。
+- **测试**：`tests/capability-group-pins.spec.ts` 四例（provider 排序 / 子代理 effort / 空串跳过 / 无组表）。`pnpm run check` 绿（57 文件 / **508** 测试 + pack 闸门）。
+- **Lab 验证（正式版 0.2.1-rc.2，`DSH_HOME=~/.dsh-lab`，3082，released artifact）**：注入一个 `deepseek-account` 组后打开「设置 → 模型切换」，子代理/自动审查/压缩三张卡片出现 `组覆盖：deepseek-account → deepseek-account · deepseek-flash；无组时用上方默认值`，会话命名因组内留空**不出现**；随后把组里自动审查与子代理两项清空，重载后组覆盖行从 3 条降为 1 条（只剩压缩）。改动在运行时重组后立即反映，无需重启。
+
 ## v0.4.36
 
 「自动审查」不再在插件安装类重组后停在「完全权限」：Auto 选择改为**持续记录**，回放只消费真正恢复掉的会话。
