@@ -20,6 +20,14 @@ This repository inherits `../AGENTS.md`; read it before changing this checkout.
 - 参考检出放在 git-ignored 的 `reference/` 目录或 `%TEMP%` 下，不进入本仓库、不参与构建；DSH Core 与任何官方 tag/检出一律只读，修改只发生在本插件仓库。
 - 拉取或检索失败时按全局搜索回退规则处理（原生 `web_search` ↔ `web_search_pro`）；仍不可用时直接核对已安装的官方包实现（node_modules 或运行时安装目录）。
 
+## 运行时 UI 验证：用 dsh-browser-cdp，禁止另起可见窗口
+
+- 需要在运行时验证 Web UI（设置页、会话面板、插件卡片、热更新后的界面）时，**用已安装的 `dsh-browser-cdp` 插件提供的 `bcdp_*` 工具**（`bcdp_status` / `bcdp_navigate` / `bcdp_snapshot` / `bcdp_script` / `bcdp_space`），在独立 task space 里操作。
+- **不要**用 `Start-Process msedge.exe --remote-debugging-port …` 另开可见浏览器：会反复弹窗、抢占前台、打断用户的工作。
+- 标准流程：`bcdp_navigate` 打开 `http://127.0.0.1:3082/?token=<token>`（lab）→ `bcdp_snapshot` 取语义树与 `loc=` → `bcdp_script` 一次脚本完成多步交互与断言。表单提交要点击页面上的「发送消息」按钮，只发 Enter 不会提交。
+- 元素定位优先用 snapshot 的 `loc=`（跨调用稳定），不要用每次重排都会变的 `ref=`。
+- 只有 `bcdp_*` 确实不可用（插件未装 / `bcdp_status` 探测失败 / 浏览器起不来）时才回退到自起浏览器，且**回退前先说明原因**；验证结束必须清理：关闭 task space、停掉 host、杀掉自起进程、还原改动过的 profile patch。
+
 ## 发布：npm 自动发包（每次版本更新必走）
 
 - 每次对外发布（版本更新）必须走 `.github/workflows/release.yml` 的自动发包流程：推 `vX.Y.Z` 标签触发，工作流跑完发布闸门后用 npm trusted publishing（OIDC）发布到 npm 并创建 GitHub Release。禁止手动 `npm publish`，不使用 npm token / 2FA 发布路径，也不在任何机器或 GitHub secrets 存放 npm 凭据。
