@@ -7,6 +7,7 @@
 - **Fix 2: transport failures no longer escape.** `create` / `get` / `clear` 全部经 `guarded()`：被 reject 的调用转成 `{ code: 'GOAL_TRANSPORT', message }` 的拒绝信封，不再冒泡成未处理异常（否则卡片丢掉错误态、计划停在待审却没有解释）。
 - **Fix 3: readable messages.** `normalizeHostMessage()` 剥掉 `gateway/xxx:` 前缀，`failure()` 丢弃传输层码，卡片不会再出现双重前缀；失败信息在源头就干净，卡片无需改动。
 - **Tests.** `tests/picker/plan-goal.spec.ts` 新增 6 例：网关形状的 paused / blocked 替换、非冲突网关拒绝不清目标、create / get / clear 三处 reject。`pnpm run check` 全绿（56 测试文件 / **510** 测试 + pack 闸门）。
+- **Lab verification（0.2.1-rc.2，`DSH_HOME=~/.dsh-lab`，端口 3082，`mimo-v2.6-flash`）——端到端跑通了修复后的路径。** 在装了 0.4.38 的 lab Host 里用真实计划卡走完两轮：第一轮会话无目标，点「设置为目标并执行」→ `21:35:05 goal/change create goal-720a677c active`，计划执行完后自动 `complete`；随后用 `create_goal` 造了一个**未完成**的旧目标（`21:36:04 create goal-95e79b84 active`），再提交第二个计划、点同一个按钮 → 会话日志记录 **`21:39:54 goal/change clear`** 紧跟 **`21:39:54 goal/change create goal-358a71b2 active`**，卡片没有任何报错。也就是说 get→clear→create 的替换分支在真实 Host 上确实跑起来了。说明：本次没有做 0.4.37 的 A/B 对照（修复前该分支不可达，用户桌面上报出的 `gateway/internal: … already exists with phase "paused"` 就是它失败的现场）；另外 lab 宿主本身有两处损坏，先修好才跑通：`session-query-sqlite@0.2.1-alpha.2` 与运行时 0.2.1-rc.2 不兼容导致 `sessionController` 不可用（升级 `dsh-experimental-session-search` 到 rc.2 解决），以及工作区注册表为空导致无法新建会话。
 
 ## v0.4.37
 
