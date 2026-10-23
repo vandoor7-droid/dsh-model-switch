@@ -148,4 +148,87 @@ describe('setPlanAsGoal', () => {
 
     expect(create).not.toHaveBeenCalled()
   })
+
+  it('replaces the goal when the gateway relays the refusal as gateway/internal', async () => {
+    // The Host throws GoalError; the RPC gateway answers
+    // `{ code: 'gateway/internal', message: <thrown text> }` instead of the
+    // domain code, so the text is the only conflict signal a client ever sees.
+    const { remote, create, clear } = bench({
+      create: [
+        refuse('gateway/internal', 'goal "goal-1" already exists with phase "paused"'),
+        ok({ ref: { id: 'goal-2', revision: 1 } }),
+      ],
+      get: ok({ id: 'goal-1', revision: 7, phase: 'paused', activation: 'disarmed' }),
+    })
+
+    await expect(setPlanAsGoal(remote, SESSION, PLAN, DOC_REF)).resolves.toEqual({ kind: 'replaced' })
+
+    expect(clear).toHaveBeenCalledExactlyOnceWith(SESSION, { id: 'goal-1', revision: 7 })
+    expect(create).toHaveBeenCalledTimes(2)
+  })
+
+  it('replaces a blocked goal the same way', async () => {
+    const { remote, clear } = bench({
+      create: [refuse('gateway/internal', 'goal "goal-1" already exists with phase "blocked"'), ok({ ref: REF })],
+      get: ok({ id: 'goal-1', revision: 4, phase: 'blocked', activation: 'disarmed' }),
+    })
+
+    await expect(setPlanAsGoal(remote, SESSION, PLAN, DOC_REF)).resolves.toEqual({ kind: 'replaced' })
+
+    expect(clear).toHaveBeenCalledWith(SESSION, { id: 'goal-1', revision: 4 })
+  })
+
+  it('never clears the current goal for a gateway refusal that is not a conflict', async () => {
+    const { remote, create, get, clear } = bench({
+      create: [refuse('gateway/internal', 'goal "goal-1" owner agent is not live')],
+    })
+
+    await expect(setPlanAsGoal(remote, SESSION, PLAN, DOC_REF)).resolves.toEqual({
+      kind: 'failed',
+      message: 'goal "goal-1" owner agent is not live',
+    })
+
+    expect(create).toHaveBeenCalledOnce()
+    expect(get).not.toHaveBeenCalled()
+    expect(clear).not.toHaveBeenCalled()
+  })
+
+  it('turns a rejected create into a failed handoff instead of throwing', async () => {
+    const remote: GoalRemote = {
+      create: (async () => { throw new Error('gateway/internal: connection lost') }) as unknown as GoalRemote['create'],
+      get: vi.fn() as unknown as GoalRemote['get'],
+      clear: vi.fn() as unknown as GoalRemote['clear'],
+    }
+
+    await expect(setPlanAsGoal(remote, SESSION, PLAN, DOC_REF)).resolves.toEqual({
+      kind: 'failed',
+      message: 'connection lost',
+    })
+  })
+
+  it('reports a rejected read without clearing anything', async () => {
+    const clear = vi.fn()
+    const remote: GoalRemote = {
+      create: (async () => refuse('GOAL_ALREADY_EXISTS')) as unknown as GoalRemote['create'],
+      get: (async () => { throw new Error('read exploded') }) as unknown as GoalRemote['get'],
+      clear: clear as unknown as GoalRemote['clear'],
+    }
+
+    await expect(setPlanAsGoal(remote, SESSION, PLAN, DOC_REF)).resolves.toEqual({ kind: 'failed', message: 'read exploded' })
+
+    expect(clear).not.toHaveBeenCalled()
+  })
+
+  it('reports a rejected clear without retrying the create', async () => {
+    const create = vi.fn(async () => refuse('GOAL_ALREADY_EXISTS')) as unknown as GoalRemote['create']
+    const remote: GoalRemote = {
+      create,
+      get: (async () => ok({ id: 'goal-1', revision: 2, phase: 'blocked', activation: 'disarmed' })) as unknown as GoalRemote['get'],
+      clear: (async () => { throw new Error('clear exploded') }) as unknown as GoalRemote['clear'],
+    }
+
+    await expect(setPlanAsGoal(remote, SESSION, PLAN, DOC_REF)).resolves.toEqual({ kind: 'failed', message: 'clear exploded' })
+
+    expect(create).toHaveBeenCalledOnce()
+  })
 })

@@ -49,10 +49,66 @@ export type GoalHandoff =
   | { readonly kind: 'unsupported' }
   | { readonly kind: 'failed'; readonly code?: string; readonly message: string }
 
+/**
+ * Strip the gateway's transport prefix from a Host message.
+ *
+ * The goal service throws `GoalError`, and the RPC gateway relays a thrown
+ * error as `code: "gateway/internal"` with the original text still in
+ * `message`. Showing `gateway/internal: goal "…" already exists…` to a human
+ * buries the only sentence that matters, so the prefix is removed here.
+ */
+function normalizeHostMessage(message: string): string {
+  return message.replace(/^\s*gateway\/[a-z0-9-]+\s*:\s*/i, '').trim()
+}
+
+/**
+ * Whether a refused goal call means "this session already has a goal".
+ *
+ * Two shapes reach here. A Host that returns the domain code says
+ * `GOAL_ALREADY_EXISTS`; the gateway instead relays the thrown `GoalError` as
+ * `gateway/internal` and keeps only the text, so the message itself has to be
+ * recognised. The domain code is checked first and the text only decides the
+ * message shape the Host is known to produce — a refusal for any other reason
+ * must never clear the user's current goal.
+ */
+function isAlreadyExistsError(error: { readonly code: string, readonly message: string }): boolean {
+  if (error.code === 'GOAL_ALREADY_EXISTS') return true
+  return /already exists with phase/i.test(error.message)
+}
+
+/** Codes that describe the transport, not the goal domain. */
+function isTransportCode(code: string): boolean {
+  return code === 'GOAL_TRANSPORT' || code.startsWith('gateway/')
+}
+
 function failure<T>(result: GoalRemoteResult<T>, fallback: string): { code?: string, message: string } {
   if (result.ok) return { message: fallback }
   const { code, message } = result.error
-  return { code, message: message.trim() === '' ? fallback : message }
+  const text = normalizeHostMessage(message)
+  const wording = text === '' ? fallback : text
+  // A transport code says nothing a human can act on; keep it out of the card.
+  return isTransportCode(code) ? { message: wording } : { code, message: wording }
+}
+
+/**
+ * Run one remote call, turning a rejected promise into a refused envelope.
+ *
+ * Generated remotes normally resolve `{ ok: false }`, but a transport failure
+ * (or an older Host that rejects instead of answering) must not escape as an
+ * unhandled rejection: the card would lose its error state and the plan would
+ * stay pending with no explanation.
+ */
+async function guarded<T>(
+  call: () => Promise<GoalRemoteResult<T>>,
+  fallback: string,
+): Promise<GoalRemoteResult<T>> {
+  try {
+    return await call()
+  } catch (error) {
+    const raw = error instanceof Error ? error.message : String(error)
+    const text = normalizeHostMessage(raw)
+    return { ok: false, error: { code: 'GOAL_TRANSPORT', message: text === '' ? fallback : text } }
+  }
 }
 
 /** Identity of the plan document under review, for its durable address. */
@@ -113,19 +169,24 @@ export async function setPlanAsGoal(
   }
   const objective = `持续推进当前plan直到完成（plan 文档：${planDocumentAddress(sessionId, ref)}）`
 
-  const created = await remote.create(sessionId, { objective })
+  const created = await guarded(() => remote.create(sessionId, { objective }), 'the goal could not be created')
   if (created.ok) return { kind: 'created' }
-  if (created.error.code !== 'GOAL_ALREADY_EXISTS') return { kind: 'failed', ...failure(created, 'the goal could not be created') }
+  if (!isAlreadyExistsError(created.error)) return { kind: 'failed', ...failure(created, 'the goal could not be created') }
 
-  // Only a non-complete goal refuses a create: replace it with a fresh one.
-  const current = await remote.get(sessionId)
+  // A goal already tracks this session: replace it with a fresh one. This runs
+  // for every phase a create refuses (active, paused, blocked), which is the
+  // behaviour the card's "set this plan as the goal" button promises.
+  const current = await guarded(() => remote.get(sessionId), 'the current goal could not be read for replacement')
   if (!current.ok || current.value === undefined || current.value === null) {
     return { kind: 'failed', ...failure(current, 'the current goal could not be read for replacement') }
   }
-  const cleared = await remote.clear(sessionId, { id: current.value.id, revision: current.value.revision })
+  const cleared = await guarded(
+    () => remote.clear(sessionId, { id: current.value!.id, revision: current.value!.revision }),
+    'the current goal could not be cleared',
+  )
   if (!cleared.ok) return { kind: 'failed', ...failure(cleared, 'the current goal could not be cleared') }
 
-  const retry = await remote.create(sessionId, { objective })
+  const retry = await guarded(() => remote.create(sessionId, { objective }), 'the goal could not be created')
   if (retry.ok) return { kind: 'replaced' }
   return { kind: 'failed', ...failure(retry, 'the goal could not be created') }
 }

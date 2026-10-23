@@ -1,3 +1,13 @@
+## v0.4.38
+
+计划卡的「设置为目标并执行」现在会**真的顶掉**旧目标：宿主把 `GoalError` 经 RPC 网关中转成 `gateway/internal`，而插件只认 `GOAL_ALREADY_EXISTS`，于是 get→clear→create 的替换分支一直是死代码，点一次报一次「设置目标失败」。
+
+- **P0 root cause: the conflict was matched on a code the gateway never sends (`src/picker/plan-goal.ts`).** `@deepseek-ai/dsh-goal` 的 `create()` 对任何非 `complete` 的现存目标 `throw new GoalError('goal "…" already exists with phase "…"', 'GOAL_ALREADY_EXISTS')`；网关把它转成 `{ code: 'gateway/internal', message: <原文> }`。插件比较的是 `error.code === 'GOAL_ALREADY_EXISTS'`，永远不成立，替换流程从未执行——用户看到的就是 `设置目标失败：gateway/internal: goal "goal-32ce…" already exists with phase "paused"`（该会话目标卡在 paused）。已核对内核实现：`clear(agent, ref)` 只做 id+revision 的 compare-and-set，**不限制 phase**，所以 active/paused/blocked 都能被顶替；`create` 只放过 `complete`。
+- **Fix 1: recognise both refusal shapes.** `isAlreadyExistsError()` 先认域码，再用 `/already exists with phase/i` 识别网关转述的文本。只有这条消息才允许清旧目标——其它 `gateway/internal` 拒绝（如 agent 不存活）一律不碰现有目标，用例钉死。
+- **Fix 2: transport failures no longer escape.** `create` / `get` / `clear` 全部经 `guarded()`：被 reject 的调用转成 `{ code: 'GOAL_TRANSPORT', message }` 的拒绝信封，不再冒泡成未处理异常（否则卡片丢掉错误态、计划停在待审却没有解释）。
+- **Fix 3: readable messages.** `normalizeHostMessage()` 剥掉 `gateway/xxx:` 前缀，`failure()` 丢弃传输层码，卡片不会再出现双重前缀；失败信息在源头就干净，卡片无需改动。
+- **Tests.** `tests/picker/plan-goal.spec.ts` 新增 6 例：网关形状的 paused / blocked 替换、非冲突网关拒绝不清目标、create / get / clear 三处 reject。`pnpm run check` 全绿（56 测试文件 / **510** 测试 + pack 闸门）。
+
 ## v0.4.37
 
 「能力路由」四张卡片现在说明自己的层级：摘要行是**默认（无组时）**的值，另起一行列出所有覆盖它的供应商配置组，改完组不再看起来像"没生效"。
