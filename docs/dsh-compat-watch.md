@@ -39,9 +39,14 @@ Lab evidence (2026-10-24): rc.3 host `3083` (`@deepseek-ai/dsh@0.2.1-rc.3`,
 separate `~/.dsh-lab3` home) with the shipped 0.4.41 artifact — mounts without an
 unverified-runtime warning, 58-entry default allowlist renders and restores, the
 skip counter reaches 3 on `read`/`glob` under the auto preset while a `write`
-leaves it at 3, the plan card's "discuss" ends the turn as `aborted`, and a draft
-survives a session switch. Same artifact on rc.2 host `3082`: skip counter 2 on
-`glob`/`read`, card and switch unchanged.
+leaves it at 3, the plan card's "discuss" ends the turn as `aborted` while its
+"confirm" path runs the approved plan to `completed` (the written file held the
+planned content), the model picker lists all 15 configured models and selecting
+`deepseek-flash` (apigoto) records `model/selection` and answers as that model,
+and a draft survives a session switch. Same artifact on rc.2 host `3082`: skip
+counter 2 on `glob`/`read`, discuss ends as `aborted`, and the same
+`deepseek-flash` switch lands (15 models listed, `model/selection` written, reply
+from that model) — card and picker behaviour is identical across the two lines.
 
 ## Previously verified lines (must keep working)
 
