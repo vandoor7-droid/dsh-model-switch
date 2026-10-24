@@ -53,3 +53,23 @@ describe('DSH forward compatibility policy', () => {
     }
   })
 })
+
+describe('shipped compatibility table', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+    dsh?: { compatibility?: { dshReleases?: Record<string, unknown> } }
+  }
+  const releases = manifest.dsh?.compatibility?.dshReleases ?? {}
+
+  it('keeps every verified line, including the oldest supported one', () => {
+    for (const release of ['0.1.7-alpha.2', '0.1.7-rc.2', '0.2.0-rc.2', '0.2.1-rc.2', '0.2.1-rc.3']) {
+      expect(releases[release], release).toBe('compatible')
+    }
+  })
+
+  it('mounts the rc.3 line without an unverified warning', () => {
+    const warnings: string[] = []
+    const verified = new Set(Object.keys(releases))
+    expect(shouldMountDshRuntime(logger(warnings), 'test-plugin', '0.2.1-rc.3', verified)).toBe(true)
+    expect(warnings).toEqual([])
+  })
+})

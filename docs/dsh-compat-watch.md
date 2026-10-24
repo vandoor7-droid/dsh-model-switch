@@ -7,18 +7,46 @@ update this plugin for the new line **without dropping older lines**.
 
 | Field | Value |
 |---|---|
-| Last check | 2026-10-21 (Asia/Shanghai) |
-| `@deepseek-ai/dsh` dist-tags | `latest` = `0.2.1-rc.2`, `next` = `0.2.1-rc.2`, `alpha` = `0.2.1-alpha.5` |
-| Last verified line | `0.2.1-rc.2` |
-| Plugin version at that check | 0.4.36 |
+| Last check | 2026-10-24 (Asia/Shanghai) |
+| `@deepseek-ai/dsh` dist-tags | `latest` = `0.2.1-rc.2`, `next` = `0.2.1-rc.3`, `alpha` = `0.2.1-alpha.5` |
+| Last verified line | `0.2.1-rc.3` |
+| Plugin version at that check | 0.4.41 |
 
 `latest` moving is the trigger. `next`/`alpha` are early signal only — record
 them, do not update the plugin for them unless the same API change is already on
 `latest`.
 
+Exception on record: the `0.2.1-rc.3` line was verified at the user's explicit
+request while it still sat on `next`. It followed the same evidence bar as a
+`latest` move (contract diff + real-host lab run + rc.2 regression), so the line
+is listed as verified even though `latest` still points at `0.2.1-rc.2`.
+
+## rc.3 change surface (2026-10-24)
+
+Compared `dsh-v0.2.1-rc.2...dsh-v0.2.1-rc.3` (300 files). Everything this plugin
+imports stayed additive:
+
+| Area | rc.2 → rc.3 | Impact |
+|---|---|---|
+| `client/ui-conversation` | adds `conversation.session.header.views.actions` and header `entryPins`/`entryActions`/`setPinned`; `conversation.composer` chain and `ComposerChainProps` unchanged | none |
+| `client/ui-conversation` input | `DraftInitializationOptions` gains `whenDraftExists`; `requestDraftInitialization` treats `clearPreviousDraft` as `replace` (compatible) | none (this plugin never calls it) |
+| `client/ui-user-questions` | version + comment only | none |
+| `client/ui-primitives` | adds `IconAppsAddOutline*` | none |
+| `experimental-auto-review`, `core/tools`, `core/session`, `api/*` | version bumps only | none |
+| new "More" menus (sidebar / conversation / right sidebar) | new slots, additive | settings section and cards still render (lab checked) |
+
+Lab evidence (2026-10-24): rc.3 host `3083` (`@deepseek-ai/dsh@0.2.1-rc.3`,
+separate `~/.dsh-lab3` home) with the shipped 0.4.41 artifact — mounts without an
+unverified-runtime warning, 58-entry default allowlist renders and restores, the
+skip counter reaches 3 on `read`/`glob` under the auto preset while a `write`
+leaves it at 3, the plan card's "discuss" ends the turn as `aborted`, and a draft
+survives a session switch. Same artifact on rc.2 host `3082`: skip counter 2 on
+`glob`/`read`, card and switch unchanged.
+
 ## Previously verified lines (must keep working)
 
-`0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.2`, `0.2.1-rc.2`
+`0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.2`, `0.2.1-rc.2`,
+`0.2.1-rc.3`
 
 Compatibility means **additive** adapters: every runtime seam this plugin reads
 keeps a branch for each released shape it has been verified against (for example

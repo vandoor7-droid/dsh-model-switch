@@ -158,7 +158,7 @@ A packed tarball installs the same build without a registry:
 dsh plugin --profile web add --force ./dsh-model-switch-0.4.26.tgz
 ```
 
-Then install only the provider adapters you use. This release was checked against official DeepSeek Harness `0.1.7-rc.2` and verified on `0.2.0-rc.2` and `0.2.1-rc.2`:
+Then install only the provider adapters you use. This release was checked against official DeepSeek Harness `0.1.7-rc.2` and verified on `0.2.0-rc.2`, `0.2.1-rc.2` and `0.2.1-rc.3` (rc.3 currently ships on the `next` dist-tag):
 
 ```sh
 dsh plugin --profile web add --force \

@@ -1,3 +1,13 @@
+## v0.4.41
+
+DSH `0.2.1-rc.3`（2026-10-23 发布，当前在 `next` 通道）兼容性更新：**插件本体零改动**，本轮做的是实证与声明；旧线（`0.1.7-alpha.2` … `0.2.1-rc.2`）的声明与依赖下界原样保留。
+
+- **rc.3 是纯客户端加法**（compare `dsh-v0.2.1-rc.2...dsh-v0.2.1-rc.3`，300 个文件）：`ui-conversation` 只新增 `conversation.session.header.views.actions` 槽位与 header 的 `entryPins`/`entryActions`/`setPinned`（`conversation.composer` 链与 `ComposerChainProps` 一字未改）；输入侧新增 `whenDraftExists`，`clearPreviousDraft` 语义保持兼容（本插件从不调用 `requestDraftInitialization`）；`ui-user-questions`、`ui-primitives` 只加不改；`experimental-auto-review`、`dsh-tools`、`dsh-session`、`dsh-subagent` 与 `api/*` 源码未变（只有版本号）。
+- **rc.3 lab 实测**（独立 home `~/.dsh-lab3`、端口 3083、`@deepseek-ai/dsh@0.2.1-rc.3`）：挂载无 `best-effort on unverified runtime` 告警；「审查豁免」卡片正常，「恢复默认名单」得到 **58 条**；自动审查预设下 `read`+`glob`+`read` 让跳过计数到 **3**，随后 `write` 让计数保持 **3**（写操作仍走审查）；计划卡「去聊天里说」使回合以 **`aborted`** 结束、输入框回来、显示「已停止」；草稿跨会话切换保留（rc.3 的修复点）。
+- **rc.2 回归**（3082，同一份 0.4.41 产物）：挂载正常、卡片正常、`glob`+`read` 跳过计数 **2**，与 0.4.40 行为一致。
+- **声明**：`package.json#dsh.compatibility.dshReleases` 增加 `0.2.1-rc.3`；`README.md`、`README.zh.md` 与 `docs/dsh-compat-watch.md` 同步（含「rc.3 走 `next` 通道」与本次「用户显式要求、先于 `latest` 触发」的例外记录）。
+- **测试**：`tests/compatibility.spec.ts` 新增两例——真实 `package.json` 必须同时保留旧线与 rc.3 的声明；rc.3 分类为 verified（不产生告警），未知版本仍 fail-open。
+
 ## v0.4.40
 
 按你的点名，默认豁免名单从 47 条扩到 **58 条**：新增 11 个工具，全部在「设置 → 模型切换 → 审查豁免」里可查、可删、可恢复默认。
