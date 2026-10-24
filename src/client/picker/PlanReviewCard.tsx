@@ -7,6 +7,7 @@ import {
   PlanApprovalResponseError, approvePlanReview, planActionView, planReviewOf, settlePlanAction,
 } from '../../picker/plan-review.ts'
 import { PlanDismissalUnsupportedError, dismissPendingQuestion } from '../../picker/pending-dismissal.ts'
+import { discussPlan, type CancelTurn } from '../../picker/discuss-plan.ts'
 import { setPlanAsGoal, type GoalRemote } from '../../picker/plan-goal.ts'
 import { ComposerPicker } from './ComposerPicker.tsx'
 import type { PlanPreviewBinding } from './plan-preview.ts'
@@ -54,6 +55,13 @@ export interface PlanReviewFace extends PickerDirectoryFace {
   planPreview: PlanPreviewBinding
   /** Live catalog-group-id → card-key map from ProviderDirectory. */
   catalogRoutes?: () => Readonly<Record<string, string>>
+  /**
+   * Session-scoped turn cancellation (the official Stop path).
+   *
+   * Absent on a Host that exposes no conversation service; the discuss action
+   * then falls back to withdrawing the pending question.
+   */
+  cancelTurn?: CancelTurn
 }
 
 export type PlanReviewCardProps = PropsRuntime<'conversation.composer'>
@@ -122,6 +130,8 @@ interface PlanReviewStateProps {
   resolveInteractionOperations?: () => PickerInteractionOperations | undefined
   /** Resolve a provider key to its ProviderDirectory role for runtime icons. */
   roleOf?: (providerKey: string) => string | undefined
+  /** Session-scoped turn cancellation; absent when the Host exposes no conversation service. */
+  cancelTurn?: CancelTurn
 }
 
 /** Inline failed lock-read status; history and log reading stay unaffected. */
@@ -169,11 +179,12 @@ export function PlanReviewCard(props: PlanReviewCardProps) {
     planPreview={props.planPreview}
     {...props.resolveInteractionOperations === undefined ? {} : { resolveInteractionOperations: props.resolveInteractionOperations }}
     {...props.roleOf === undefined ? {} : { roleOf: props.roleOf }}
+    {...props.cancelTurn === undefined ? {} : { cancelTurn: props.cancelTurn }}
   />
 }
 
 function PlanReviewState({
-  matched, review, available, providerLock, agentLocked, lockFailed, directory, t, goalRemote, planPreview, resolveInteractionOperations, roleOf,
+  matched, review, available, providerLock, agentLocked, lockFailed, directory, t, goalRemote, planPreview, resolveInteractionOperations, roleOf, cancelTurn,
 }: PlanReviewStateProps) {
   const { snapshot, getDirectorySnapshot, load, select } = directory
   const [execution, setExecution] = useState<ModelSelection | undefined>(snapshot.current ?? undefined)
@@ -374,8 +385,16 @@ function PlanReviewState({
                 icon={<IconEditOutlineRegular size={14} />}
                 disabled={busy}
                 onClick={() => {
+                  // Interrupt (not dismiss): an aborted turn keeps the work
+                  // details expanded, which is the whole point of this action.
                   settle(
-                    () => respondDismiss(matched, t('plan.cancelRejected'), t('plan.dismissUnsupported')),
+                    async () => {
+                      await discussPlan(
+                        cancelTurn,
+                        matched.sessionId,
+                        () => respondDismiss(matched, t('plan.cancelRejected'), t('plan.dismissUnsupported')),
+                      )
+                    },
                     true,
                   )
                 }}

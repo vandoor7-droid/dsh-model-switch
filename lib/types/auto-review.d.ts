@@ -59,11 +59,34 @@ export declare const inject: string[];
  * tool-call safety net allows unreviewed calls instead of failing them.
  * `allowedCalls` counts the calls the net let through in that state, so the
  * settings card can tell the human how much review was skipped.
+ * `skippedReadOnly` counts the calls the allowlist took off the reviewer, which
+ * is the number the settings card shows next to the switch.
  */
 export declare const autoReviewStatus: {
     held: boolean;
     allowedCalls: number;
+    skippedReadOnly: number;
 };
+/**
+ * What one `tools/pre-execute` call carries into the reviewer's async context.
+ *
+ * The official gate reads `permissionPresets.current(session)` at the top of its
+ * listener; this store is what lets that read answer "no review needed" for one
+ * call without touching the rest of the pipeline (see
+ * {@link defensivePermissionPresets}).
+ */
+export interface AutoCallContext {
+    readonly session: Session | undefined;
+    /** `exec.name` — the tool under review. */
+    readonly tool: string;
+}
+/** The read-only skip: which tools, and whether the switch is on. */
+export interface ReadOnlyBypass {
+    /** The call currently executing in this async context, if any. */
+    ambient(): AutoCallContext | undefined;
+    /** Whether this tool name is on the allowlist. */
+    allows(tool: string): boolean;
+}
 /** Pinned reviewer route; both identifiers are non-empty. */
 export interface AutoReviewRoute {
     readonly provider: string;
@@ -108,13 +131,14 @@ export declare function resolveSessionAutoReviewRoute(ctx: Context, session?: Se
  * Because Cordis `on(..., { prepend: true })` unshifts onto the event hook list,
  * registering this listener AFTER `official.apply(scope)` places it at index 0
  * — directly ahead of the official gate's own prepended listener — so
- * `activeSession.run(exec.agent?.session, next)` wraps the entire official
- * review execution.
+ * `activeSession.run({ session, tool }, next)` wraps the entire official review
+ * execution. The stored tool name is what lets the reviewer be skipped for an
+ * allowlisted read without the gate ever seeing a fake preset.
  *
  * @param scope - the review scope context where the gate is mounted.
- * @param activeSession - AsyncLocalStorage holding the session under review.
+ * @param activeSession - AsyncLocalStorage holding the call under review.
  */
-export declare function bindAutoReviewSessionCorrelation(scope: Context, activeSession: AsyncLocalStorage<Session | undefined>): void;
+export declare function bindAutoReviewSessionCorrelation(scope: Context, activeSession: AsyncLocalStorage<AutoCallContext | undefined>): void;
 /**
  * Whether a reviewer-path throw is a broken seam rather than a real decision.
  * @param cause - whatever the waterfall threw.
@@ -188,14 +212,23 @@ export interface ManagedPermissionPresetsFace extends PermissionPresetsFace {
  * displacing row and take it back without unmounting the gate (the gate's
  * disposal would move live `auto` sessions to `danger-full-access`).
  *
+ * `current()` also answers the read-only skip. The official gate's first line is
+ * `if (permissionPresets.current(session) !== 'auto') return next()`, so a call
+ * whose tool is allowlisted can be taken off the reviewer by answering with
+ * anything else — the gate itself then runs the normal `next()` path, leaving
+ * every later listener and guard in place. The answer is scoped to the call in
+ * flight through the async store, so outside a tool call this method reports the
+ * truth (`rememberAuto()` and the settings card read it for accounting).
+ *
  * @param resolve - resolves the host's permission-preset service per call.
  * @param log - the row logger used for the single degradation report.
  * @param chain - diagnostic dump of the resolution chain; defaults to empty.
+ * @param bypass - optional read-only skip; absent when the feature is off.
  * @returns A managed preset face.
  */
 export declare function defensivePermissionPresets(resolve: () => PermissionPresetsFace | undefined, log: {
     warn(line: string): void;
-}, chain?: () => string): ManagedPermissionPresetsFace;
+}, chain?: () => string, bypass?: ReadOnlyBypass): ManagedPermissionPresetsFace;
 /**
  * Build the scoped context the official gate runs under.
  * @param ctx - host context whose modelSwitch settings pin the reviewer route.
@@ -204,7 +237,7 @@ export declare function defensivePermissionPresets(resolve: () => PermissionPres
  * @returns A child context shadowing the llm service and the permission-preset
  * service (always: a gate that sees the raw service can fail a tool call).
  */
-export declare function reviewScope(ctx: Context, activeSession?: AsyncLocalStorage<Session | undefined>, presets?: ManagedPermissionPresetsFace): Context;
+export declare function reviewScope(ctx: Context, activeSession?: AsyncLocalStorage<AutoCallContext | undefined>, presets?: ManagedPermissionPresetsFace): Context;
 /**
  * Structural view of the official gate's plugin face.
  *

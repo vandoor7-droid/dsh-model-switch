@@ -1,5 +1,6 @@
 import type { PendingQuestion } from '@deepseek-ai/dsh-client-ui-user-questions/client';
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
+import { type CancelTurn } from '../../picker/discuss-plan.ts';
 import { type GoalRemote } from '../../picker/plan-goal.ts';
 import type { PlanPreviewBinding } from './plan-preview.ts';
 import { type PickerDirectoryFace } from './PickerDirectory.ts';
@@ -26,6 +27,13 @@ export interface PlanReviewFace extends PickerDirectoryFace {
     planPreview: PlanPreviewBinding;
     /** Live catalog-group-id → card-key map from ProviderDirectory. */
     catalogRoutes?: () => Readonly<Record<string, string>>;
+    /**
+     * Session-scoped turn cancellation (the official Stop path).
+     *
+     * Absent on a Host that exposes no conversation service; the discuss action
+     * then falls back to withdrawing the pending question.
+     */
+    cancelTurn?: CancelTurn;
 }
 export type PlanReviewCardProps = PropsRuntime<'conversation.composer'> & PropsLocale<'composer-picker'> & InjectFace<PlanReviewFace> & {
     matched: PendingQuestion;

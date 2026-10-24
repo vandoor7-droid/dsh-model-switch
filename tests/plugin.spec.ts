@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import ModelSwitchRuntime, { Config, readConfig, RUNTIME_CAPABILITIES, name } from '../src/index.js'
+import { DEFAULT_READ_ONLY_TOOLS } from '../src/tool-allowlist.ts'
 
 describe('Host runtime surface', () => {
   it('preserves package identity and released injection contract', () => {
@@ -8,7 +9,10 @@ describe('Host runtime surface', () => {
     expect(ModelSwitchRuntime.inject ?? []).toEqual([])
   })
   it('defaults Subagent to follow-main and retains unavailable choices in volatile config', () => {
-    expect(readConfig(Config({}))).toEqual({ subagentMode: 'follow-main' })
+    // The review bypass ships OFF, with the calibrated allowlist ready to use.
+    expect(readConfig(Config({}))).toEqual({ subagentMode: 'follow-main', autoReviewAllowlist: [...DEFAULT_READ_ONLY_TOOLS] })
+    expect(readConfig(Config({})).autoReviewSkipReadOnly).toBeUndefined()
+    expect(readConfig(Config({ autoReviewSkipReadOnly: true })).autoReviewSkipReadOnly).toBe(true)
     expect(readConfig(Config({ subagentMode: 'fixed', subagentProvider: 'not-installed', subagentModel: 'remember-me' }))).toMatchObject({
       subagentMode: 'fixed', subagentProvider: 'not-installed', subagentModel: 'remember-me',
     })

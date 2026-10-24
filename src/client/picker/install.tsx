@@ -12,6 +12,7 @@ import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-cli
 import { useEffect, useSyncExternalStore } from 'react'
 import { PROVIDERS_CONFIG_ID } from '../../client-contract.ts'
 import { selectPlanReview, type PlanCommitOutcome } from '../../picker/plan-review.ts'
+import type { CancelTurn } from '../../picker/discuss-plan.ts'
 import type { GoalRemote } from '../../picker/plan-goal.ts'
 import { ComposerPicker } from './ComposerPicker.tsx'
 import { createPlanPreviewBinding, type PlanPreviewBinding } from './plan-preview.ts'
@@ -122,6 +123,8 @@ interface DirectoryFace extends PickerDirectoryFace {
   roleOf?: (key: string) => string | undefined
   /** Live catalog-group-id → card-key map from ProviderDirectory. */
   catalogRoutes?: () => Readonly<Record<string, string>>
+  /** Session-scoped turn cancellation (the official Stop path), when the Host exposes it. */
+  cancelTurn?: CancelTurn
 }
 
 function readSessionState(sessions: unknown, sessionId: unknown): { blank?: boolean; active: boolean } | undefined {
@@ -188,6 +191,8 @@ export function installComposerPicker(ctx: ClientContext): void {
     const sessions = scope.sessions as {
       subagentAddress?: (id: unknown) => unknown
       get?: (id: unknown) => { getSnapshot?: () => { blank?: boolean } }
+      /** Session-scope address used by the official composer to reach the conversation service. */
+      scope?: (id: string) => { get?: (name: string) => unknown } | undefined
     } | undefined
     let directoryService: ProviderDirectoryFace | undefined
     const orderStore = providerOrderStore(scope.configForms.get<ProviderOrderSettings>(PROVIDERS_CONFIG_ID))
@@ -210,6 +215,23 @@ export function installComposerPicker(ctx: ClientContext): void {
       const connection = scope.get('connection', false) as { rpc?: SessionRpc } | undefined
       return connection?.rpc
     }
+    /**
+     * Cancel the session's running turn through the official Stop seam.
+     *
+     * The discuss action interrupts instead of merely withdrawing the pending
+     * question: an aborted turn is kept expanded by the transcript, so the work
+     * details the human was reading never fold. The conversation service is
+     * addressed through the session scope exactly like the official composer's
+     * Stop button does.
+     */
+    const cancelTurn = async (sessionId: string): Promise<void> => {
+      const scoped = sessions?.scope?.(sessionId)
+      const conversation = scoped?.get?.('conversation') as { cancel?: () => Promise<void> } | undefined
+      if (typeof conversation?.cancel !== 'function') {
+        throw new Error('model-switch: the conversation service exposes no cancel() through the session scope')
+      }
+      await conversation.cancel()
+    }
     const directoryFace = (sessionId: Parameters<typeof models.directoryFor>[0]): DirectoryFace => {
       const directory = models.directoryFor(sessionId)
       const available = sessions?.subagentAddress?.(sessionId) === undefined
@@ -229,6 +251,7 @@ export function installComposerPicker(ctx: ClientContext): void {
         },
         goalRemote: () => goalRemoteFrom(scope),
         planPreview,
+        cancelTurn,
         hooks: { directory: directory.store, providerOrder: orderStore },
         getDirectorySnapshot: directory.store.getSnapshot,
         resolveInteractionOperations,

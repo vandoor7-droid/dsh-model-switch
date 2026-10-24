@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { routePairConfigured, subagentModeForEnabled, type CapabilityRouteView, type ModelSwitchSettingsView, type SubagentSettingsView } from '../client-contract.js'
+import { deriveAutoReviewAllowlist, routePairConfigured, subagentModeForEnabled, type CapabilityRouteView, type ModelSwitchSettingsView, type ReviewStatusView, type SubagentSettingsView, type ToolCatalogRow } from '../client-contract.js'
+import { DEFAULT_READ_ONLY_TOOLS, isAllowedByList, resolveToolSource, validateAllowEntry } from '../tool-allowlist.js'
 import { groupOf, normalizeProviderGroups, type ProviderGroupConfig } from '../provider-group.js'
 import { capabilityGroupPins, type CapabilityGroupPin } from '../session-route.js'
 import type { RuntimeCapabilities } from '../runtime-capabilities.js'
@@ -23,6 +24,10 @@ export interface ModelSwitchSettingsFace {
    */
   saveSubagent: (ops: readonly ConfigViewOp<SubagentSettingsView>[]) => Promise<void>
   saveCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction' | 'title', ops: readonly ConfigViewOp<CapabilityRouteView>[]) => Promise<void>
+  /** Persist the read-only skip switch and its allowlist as one atomic write. */
+  saveReviewAllowlist: (value: { enabled: boolean; tools: readonly string[] }) => Promise<void>
+  /** The Host's live tool catalog; absent on a Host without the `tools` RPC endpoint. */
+  scanTools?: () => Promise<{ rows: readonly ToolCatalogRow[]; status?: ReviewStatusView }>
   /** Replace or remove (undefined) one provider's saved capability group. */
   saveProviderGroup: (provider: string, group: ProviderGroupConfig | undefined) => Promise<void>
   loadCatalog: () => Promise<readonly ModelProviderGroup[]>
@@ -34,7 +39,7 @@ export interface ModelSwitchSettingsFace {
 }
 
 export type ModelSwitchSettingsProps = PropsRuntime<'settings.section'> & InjectFace<ModelSwitchSettingsFace>
-type RouteId = 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction' | 'sessionTitle' | 'providerGroups'
+type RouteId = 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction' | 'sessionTitle' | 'providerGroups' | 'allowlist'
 type RouteIconKind = RouteId
 
 function cx(...values: Array<string | undefined | false>): string { return values.filter(Boolean).join(' ') }
@@ -206,6 +211,10 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const [message, setMessage] = useState<{ route: RouteId; text: string } | undefined>()
   const [groupProvider, setGroupProvider] = useState<string>('')
   const [groupDraft, setGroupDraft] = useState<ProviderGroupConfig | undefined>(undefined)
+  const [allowlistQuery, setAllowlistQuery] = useState('')
+  const [catalogRows, setCatalogRows] = useState<readonly ToolCatalogRow[] | undefined>(undefined)
+  const [catalogState, setCatalogState] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle')
+  const [reviewStatus, setReviewStatus] = useState<ReviewStatusView | undefined>(undefined)
   const loadSearchCapabilities = props.loadCapabilities
   const [searchSnapshot, setSearchSnapshot] = useState<CapabilitiesSnapshot | undefined>(undefined)
   const [searchError, setSearchError] = useState<string | undefined>(undefined)
@@ -364,6 +373,55 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
       setBusy(undefined)
     }
   }
+  /**
+   * The Auto reviewer's read-only allowlist.
+   *
+   * An absent stored list means "never configured" and renders the shipped
+   * defaults; an explicitly emptied list stays empty. Every write carries both
+   * the switch and the entries, so the two can never drift apart on disk.
+   */
+  const allowlistView = switchSettings.value === undefined ? undefined : deriveAutoReviewAllowlist(switchSettings.value)
+  const allowlistTools = allowlistView?.tools ?? DEFAULT_READ_ONLY_TOOLS
+  const allowlistEnabled = allowlistView?.enabled === true
+  const allowlistWritable = switchSettings.status === 'ready' && switchSettings.writable
+  const persistAllowlist = (next: { enabled: boolean; tools: readonly string[] }): void => {
+    if (busy !== undefined || !allowlistWritable) return
+    // Refuse invalid entries before they reach the profile: a bare `*` would
+    // otherwise take every tool off the reviewer.
+    const tools = next.tools.filter(entry => validateAllowEntry(entry) === 'ok')
+    void run('allowlist', () => props.saveReviewAllowlist({ enabled: next.enabled, tools }))
+  }
+  const setAllowTool = (name: string, allowed: boolean): void => {
+    if (allowed) {
+      if (isAllowedByList(name, allowlistTools)) return
+      persistAllowlist({ enabled: true, tools: [...allowlistTools, name] })
+      return
+    }
+    persistAllowlist({ enabled: allowlistEnabled, tools: allowlistTools.filter(entry => entry !== name) })
+  }
+  const scanAllowlistTools = (): void => {
+    const scan = props.scanTools
+    if (scan === undefined || busy !== undefined) return
+    setCatalogState('loading')
+    void run('allowlist', async () => {
+      const scanned = await scan()
+      setCatalogRows(scanned.rows)
+      setReviewStatus(scanned.status)
+    })
+      .then(accepted => { setCatalogState(accepted ? 'ready' : 'failed') })
+  }
+  const allowlistQueryText = allowlistQuery.trim().toLowerCase()
+  const allowlistIncluded = allowlistTools
+    .map(entry => ({ entry, source: resolveToolSource(entry) }))
+    .filter(row => allowlistQueryText === '' || row.entry.toLowerCase().includes(allowlistQueryText))
+  const allowlistAvailable = (catalogRows ?? [])
+    .filter(row => !isAllowedByList(row.name, allowlistTools))
+    .filter(row => allowlistQueryText === '' || row.name.toLowerCase().includes(allowlistQueryText) || row.sourceLabel.toLowerCase().includes(allowlistQueryText))
+  const allowlistSummaryText = allowlistView === undefined
+    ? props.t('loading')
+    : allowlistEnabled
+      ? props.t('reviewAllowlistOnSummary').replace('{count}', String(allowlistTools.length))
+      : props.t('reviewAllowlistOffSummary')
   const saveSubagent = (): void => {
     if (subagentDraft === undefined || subagentDraft.mode !== 'fixed') return
     const matched = subagentCatalogModel
@@ -604,6 +662,38 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
           <Field label={props.t('provider')} value={titleDraft.provider ?? ''} disabled={busy !== undefined || !sessionTitle.writable} choices={titleChoices.providers} onChange={provider => { const first = groups.find(group => group.id === provider)?.models[0]; setTitleDraft({ provider, ...(first === undefined ? {} : { model: first.id }) }) }} />
           <Field label={props.t('model')} value={titleDraft.model ?? ''} disabled={busy !== undefined || !sessionTitle.writable} choices={titleChoices.models} onChange={model => { setTitleDraft({ ...titleDraft, model }) }} />
         </div><Actions t={props.t} busy={busy === 'sessionTitle'} disabled={titleDisabled} {...(message?.route === 'sessionTitle' ? { message: message.text } : {})} onCancel={() => { resetTitle(); setMessage(undefined) }} onSave={saveTitle} /></>}
+      </RouteCard>
+    </section>
+
+    <section className={css.group}><h2 className={css.groupLabel}>{props.t('reviewAllowlistGroup')}</h2>
+      <RouteCard title={props.t('reviewAllowlist')} summary={allowlistSummaryText} hint={props.t('reviewAllowlistHelp')} icon="autoReview" open={open === 'allowlist'} onToggle={() => { toggle('allowlist') }} {...(allowlistEnabled ? { badge: props.t('reviewAllowlistBadge') } : {})} trailing={<InstantSwitch checked={allowlistEnabled} disabled={busy !== undefined || !allowlistWritable} label={props.t('reviewAllowlist')} onChange={value => { persistAllowlist({ enabled: value, tools: allowlistTools }) }} />}>
+        <p className={css.hint}>{props.t('reviewAllowlistNote')}</p>
+        <div className={css.allowToolbar}>
+          <input className={css.input} type="search" value={allowlistQuery} placeholder={props.t('reviewAllowlistSearch')} onChange={event => { setAllowlistQuery(event.target.value) }} />
+          <button type="button" className={cx(css.button, css.secondaryButton)} disabled={busy !== undefined || props.scanTools === undefined || catalogState === 'loading'} onClick={scanAllowlistTools}>{catalogState === 'loading' ? props.t('reviewAllowlistScanning') : props.t('reviewAllowlistScan')}</button>
+          <button type="button" className={cx(css.button, css.secondaryButton)} disabled={busy !== undefined || !allowlistWritable} onClick={() => { persistAllowlist({ enabled: allowlistEnabled, tools: [...DEFAULT_READ_ONLY_TOOLS] }) }}>{props.t('reviewAllowlistReset')}</button>
+        </div>
+        {message?.route === 'allowlist' ? <p className={cx(css.hint, css.message)}>{message.text}</p> : null}
+        {reviewStatus === undefined || reviewStatus.skippedReadOnly === 0 ? null : <p className={css.hint}>{props.t('reviewAllowlistSkipped').replace('{count}', String(reviewStatus.skippedReadOnly))}</p>}
+        <ul className={css.allowList}>
+          {allowlistIncluded.map(row => <li key={row.entry} className={css.allowRow}>
+            <label className={css.allowLabel}><input type="checkbox" checked readOnly /><code className={css.allowName}>{row.entry}</code></label>
+            <span className={css.allowSource}>{row.source.label}{row.source.repo === undefined ? null : <><span className={css.allowDot}>·</span><a className={css.allowRepo} href={row.source.repo} target="_blank" rel="noreferrer">{props.t('reviewAllowlistRepo')}</a></>}</span>
+            <button type="button" className={cx(css.button, css.secondaryButton)} disabled={busy !== undefined || !allowlistWritable} onClick={() => { setAllowTool(row.entry, false) }}>{props.t('reviewAllowlistRemove')}</button>
+          </li>)}
+        </ul>
+        {allowlistIncluded.length === 0 ? <p className={css.hint}>{props.t('reviewAllowlistNone')}</p> : null}
+        {allowlistAvailable.length === 0 ? null : <>
+          <p className={css.hint}>{props.t('reviewAllowlistAvailable')}</p>
+          <ul className={css.allowList}>
+            {allowlistAvailable.map(row => <li key={row.name} className={css.allowRow}>
+              <label className={css.allowLabel}><input type="checkbox" checked={false} readOnly /><code className={css.allowName}>{row.name}</code></label>
+              <span className={css.allowSource}>{row.sourceLabel}{row.repo === undefined ? null : <><span className={css.allowDot}>·</span><a className={css.allowRepo} href={row.repo} target="_blank" rel="noreferrer">{props.t('reviewAllowlistRepo')}</a></>}</span>
+              <button type="button" className={cx(css.button, css.secondaryButton)} disabled={busy !== undefined || !allowlistWritable} onClick={() => { setAllowTool(row.name, true) }}>{props.t('reviewAllowlistAdd')}</button>
+            </li>)}
+          </ul>
+        </>}
+        {catalogState === 'failed' ? <p className={cx(css.hint, css.message)}>{props.t('reviewAllowlistScanFailed')}</p> : null}
       </RouteCard>
     </section>
 

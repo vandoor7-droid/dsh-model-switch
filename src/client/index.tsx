@@ -5,7 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { AUTO_REVIEW_SETTINGS_FIELDS, deriveAutoReviewSettings, deriveCompactionSettings, deriveImageSettings, deriveSearchSettings, deriveSubagentSettings, deriveTitleSettings, COMPACTION_SETTINGS_FIELDS, IMAGE_SETTINGS_FIELDS, MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, SEARCH_SETTINGS_FIELDS, SUBAGENT_SETTINGS_FIELDS, TITLE_SETTINGS_FIELDS } from '../client-contract.js'
+import { AUTO_REVIEW_SETTINGS_FIELDS, decodeReviewStatus, decodeToolCatalog, deriveAutoReviewSettings, deriveCompactionSettings, deriveImageSettings, deriveSearchSettings, deriveSubagentSettings, deriveTitleSettings, COMPACTION_SETTINGS_FIELDS, IMAGE_SETTINGS_FIELDS, MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, SEARCH_SETTINGS_FIELDS, SUBAGENT_SETTINGS_FIELDS, TITLE_SETTINGS_FIELDS } from '../client-contract.js'
 import { type ProviderGroupConfig } from '../provider-group.js'
 import { deriveConfigForm } from './derived-config-form.js'
 import { RUNTIME_CAPABILITIES } from '../runtime-capabilities.js'
@@ -68,6 +68,26 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'model-switch', order: 9, label: () => t('nav'), locale: localeNamespace,
     inject: (): ModelSwitchSettingsFace => ({ t, hooks: { subagentSettings: subagent, searchSettings: search, imageSettings: image, autoReviewSettings: autoReview, compactionSettings: compaction, titleSettings: sessionTitle, switchSettings: owned }, capabilities: RUNTIME_CAPABILITIES, saveSubagent: ops => subagent.mutate(ops), saveCapability: (route, ops) => { const scope = route === 'search' ? search : route === 'image' ? image : route === 'compaction' ? compaction : route === 'title' ? sessionTitle : autoReview; return scope.mutate(ops) },
+      saveReviewAllowlist: async ({ enabled, tools }: { enabled: boolean; tools: readonly string[] }) => {
+        // One atomic write: the switch and the list are one setting unit, so a
+        // refused write can never leave "enabled" pointing at a stale list.
+        const accepted = await owned.mutate([
+          { op: 'set', path: ['autoReviewSkipReadOnly'], value: enabled },
+          { op: 'set', path: ['autoReviewAllowlist'], value: [...tools] },
+        ])
+        if (!accepted) throw new Error('settings-rejected')
+      },
+      ...(connectionRpc === undefined ? {} : { scanTools: async () => {
+        const rpc = connectionRpc
+        const response = await callPluginRpc(rpc, 'plugin-rpc/model-switch', 'tools', {})
+        if (!response.ok || response.value === undefined) throw new Error(t('reviewAllowlistScanFailed'))
+        const rows = decodeToolCatalog(response.value)
+        if (rows === undefined) throw new Error(t('reviewAllowlistScanFailed'))
+        // The Host also reports the live reviewer counters; a Host that does not
+        // is simply missing the "skipped so far" line.
+        const status = decodeReviewStatus(response.value)
+        return status === undefined ? { rows } : { rows, status }
+      } }),
       saveProviderGroup: async (provider: string, group: ProviderGroupConfig | undefined) => {
         // Revision-fenced and retried: see saveProviderGroupFenced for why one
         // refused write must not surface as a lost save.

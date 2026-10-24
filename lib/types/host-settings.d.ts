@@ -16,6 +16,19 @@ export interface ModelSwitchSettings {
     autoReviewProvider?: string;
     /** Reviewer model for the Auto preset; set together with `autoReviewProvider`. */
     autoReviewModel?: string;
+    /**
+     * Opt-in: pure-read tools from {@link autoReviewAllowlist} run without the Auto
+     * reviewer. Absent/false keeps every call reviewed (the shipped default).
+     */
+    autoReviewSkipReadOnly?: boolean;
+    /**
+     * Tool names that skip the reviewer when {@link autoReviewSkipReadOnly} is on.
+     *
+     * Exact names, plus a trailing `*` pattern for tools whose name carries a
+     * renameable owner (the QQ bot extension suffixes its tools with the bot's
+     * name). A bare `*` is rejected by the settings editor and never matches.
+     */
+    autoReviewAllowlist?: readonly string[];
     /** Summarization provider for `/compact` and automatic compaction; both fields unset = official default (the conversation target). */
     compactProvider?: string;
     /** Summarization model for `/compact` and automatic compaction; set together with `compactProvider`. */
@@ -39,6 +52,10 @@ export interface Config {
     imageModel: Volatile<string | undefined>;
     autoReviewProvider: Volatile<string | undefined>;
     autoReviewModel: Volatile<string | undefined>;
+    /** Opt-in: skip the Auto reviewer for allowlisted pure-read tools (default off). */
+    autoReviewSkipReadOnly: Volatile<boolean>;
+    /** Tool names (exact, or a trailing `*` pattern) that skip the Auto reviewer. */
+    autoReviewAllowlist: Volatile<readonly string[]>;
     compactProvider: Volatile<string | undefined>;
     compactModel: Volatile<string | undefined>;
     titleProvider: Volatile<string | undefined>;

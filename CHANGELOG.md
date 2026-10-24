@@ -1,3 +1,27 @@
+## v0.4.39
+
+「自动审查」下，**纯读工具不再调用审查模型**：`read` / `grep` / `glob` 这类只读调用直接执行，写操作、命令执行与删除仍然逐次审查。功能默认**关闭**，在「设置 → 模型切换 → 审查豁免」一键开启。
+
+- **机制：让官方 gate 自己走 `next()`，不截断流水线。** 官方 `@deepseek-ai/dsh-experimental-auto-review` 的 `tools/pre-execute` 监听器首行是 `if (permissionPresets.current(session) !== 'auto') return next()`——它对本插件挂载的 `permissionPresets` 影子提问。`defensivePermissionPresets().current()` 现在只在「当前有工具调用在飞 ∧ 该调用名命中名单 ∧ 真实预设就是 auto」时回答 `'custom'`，gate 因此自己跳过审查并调用 `next()`：其它 listener、`ctx.tools.guard` 与沙箱策略全部照常执行。只在飞行的异步上下文内生效（`AsyncLocalStorage`），工具调用之外的 `current()`（teardown 记账、设置卡片）仍报告真实值。读设置失败、名单为空、工具名为空一律 fail closed（照常审查）。
+- **默认名单（47 条）按本机实测校准，覆盖本机 105 个工具中的全部纯读项**，每条都能回溯到来源与仓库：
+
+  | 来源 | 仓库 | 默认放行 |
+  | --- | --- | --- |
+  | DSH 核心 | https://github.com/deepseek-ai/deepseek-harness | 25 条（`read` `grep` `glob` `read_image` `skill` `web_search` `web_search_pro` `web_fetch` `job_list` `job_output` `terminal_list` `terminal_read` `list_agents` `team_task_list` `team_task_get` `get_goal` `schedule_list` `list_mcp_resources` `list_mcp_resource_templates` `read_mcp_resource` `session_search` `session_event_search` `session_event_read` `session_event_trace` `session_trace`） |
+  | dsh-ops | https://github.com/T-Auto/dsh-ops | 2 条（`ops_read_files` `ops_discover_tools`） |
+  | dsh-browser-cdp | https://github.com/drscrewdriver/dsh-browser-cdp | 5 条（`bcdp_status` `bcdp_help` `bcdp_doctor` `bcdp_snapshot` `browser_window_status`） |
+  | dsh-auto-memory | https://github.com/AskTheWay/dsh-auto-memory | 2 条（`memory_list` `memory_read`） |
+  | MCP `wincu`（dsh-computer-use-win） | https://github.com/Yu-tao-Li/dsh-computer-use-win | 11 条（`accessibility_tree` `element_info` `find` `health` `list_windows` `ocr` `screenshot` `snapshot` `tools` `wait` `wait_for`） |
+  | QQ 机器人扩展（框架 @zaofan/dsh-qqbot） | https://github.com/zaofan-make/dsh-qqbot | 2 条模式（`sessions_list__*` `bing_search__*`） |
+
+  插件本身不注册纯读工具（`generate_image` 有副作用），因此不贡献默认条目。
+- **通配符后缀**：QQ 机器人扩展的工具名是 `<工具>__<机器人名>`，机器人名可自由修改，所以默认用 `sessions_list__*` / `bing_search__*` 而不是写死 `__YiXuan`；换 bot 名无需改配置。裸 `*` 与 `*开头` 的条目在校验层直接拒绝，防止把名单配成"全部放行"。
+- **设置界面可编辑并声明来源**：新增「审查豁免」卡片——开关即时保存（开关与名单作为一次原子写入，永不出现"开着但名单是旧的"）；每一行显示工具名 + 来源徽章 + 仓库链接；可按工具名/来源搜索；「恢复默认名单」；「扫描本机工具」调用新增的 `tools` RPC（`ctx.tools.schemas()` 公开接口）列出本机存在但未放行的工具，一键加入；扫描后还会显示本 Host 进程的实时计数「已为纯读调用跳过 N 次审查」，用来确认豁免真的生效。
+- **测试**：新增 `tests/tool-allowlist.spec.ts`（16 例：默认名单规模与禁项、通配符匹配与裸 `*` 拒绝、来源解析六类分支、仓库表完备、RPC 负载与计数解码）与 `tests/auto-review.spec.ts` 的 5 例豁免语义（在飞/非在飞、非 auto 预设、计数、拒绝）。`pnpm run check` 全绿（59 个测试文件 / **539** 测试 + pack 闸门）。
+- **lab 实测（`DSH_HOME=~/.dsh-lab`，3082，0.2.1-rc.2 官方 Host）**：手动选「自动审查」预设 + 开关开启后，一轮里 `read`×2 + `glob`×1 让计数变成 3（确实跳过了审查）；同一会话再 `write` 一次，计数仍是 3（写操作没有被豁免，仍走审查并被放行）；把开关关掉后再跑 `glob`+`read`，计数保持 3（审查恢复）。
+- **本地留档**：`review/allowlist-excluded.md` 列出了本机 105 个工具中未放行的 58 个及其来源与原因，`.gitignore` 已忽略 `review/`，不推送、不进包。
+- **「去聊天里说」改为中断回合，不再收起工作步骤**（`src/picker/discuss-plan.ts`、`src/client/picker/PlanReviewCard.tsx`、`src/client/picker/install.tsx`）。之前该按钮只做 `PendingQuestion.dismiss()`：计划工具返回 `ASK_CANCELLED`，模型再回一句，回合以 **completed** 结束，于是按官方「工作步骤收起时机=回答结束后」把步骤折叠——想边看计划边讨论就得手动再展开。官方 transcript 的折叠判断是 `alwaysOpen = … || reason === 'aborted' || reason === 'interrupted' || reason === 'error'`（asar `ui-chat` 的 `ChatGroupSeat`），所以改成走官方「停止」同款路径 `conversation.cancel()`（会话作用域公开方法），回合以 **aborted** 结束：输入框照样立刻回来、工作步骤保持展开、并显示「已停止」标记；取消接口不可用或被拒时自动回落到原来的 dismiss，不会让按钮失效。新增 `tests/picker/plan-discuss.spec.ts` 5 例覆盖中断 / 回落 / 无会话 id / 取消失败。lab 实测：计划卡上点「去聊天里说」后，会话日志的回合结束原因是 `aborted`（不再是 `completed`），输入框立即回来、会话显示「已停止」，工作步骤保持展开。
+
 ## v0.4.38
 
 计划卡的「设置为目标并执行」现在会**真的顶掉**旧目标：宿主把 `GoalError` 经 RPC 网关中转成 `gateway/internal`，而插件只认 `GOAL_ALREADY_EXISTS`，于是 get→clear→create 的替换分支一直是死代码，点一次报一次「设置目标失败」。

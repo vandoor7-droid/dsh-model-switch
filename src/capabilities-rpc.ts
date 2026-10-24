@@ -2,6 +2,16 @@ import type { Context } from '@deepseek-ai/cordis'
 import { clientRequestSchema, type ConnectionRpcHandler, type ConnectionRpcHandlerResult } from '@deepseek-ai/dsh-client-connection'
 import type { ModelSwitchAdapterRegistry } from './adapter-registry.js'
 import type { RuntimeCapabilities } from './runtime-capabilities.js'
+import { readToolCatalog, type ToolCatalogSnapshot } from './tool-catalog.js'
+import { DEFAULT_READ_ONLY_TOOLS } from './tool-allowlist.js'
+import { autoReviewStatus } from './auto-review.js'
+
+/** Live reviewer counters surfaced next to the allowlist editor. */
+export interface ReviewStatus {
+  readonly held: boolean
+  readonly allowedCalls: number
+  readonly skippedReadOnly: number
+}
 
 export const CAPABILITIES_RPC_METHOD = 'plugin-rpc/model-switch'
 export interface CapabilitiesSnapshot { readonly revision: number; readonly capabilities: RuntimeCapabilities }
@@ -55,7 +65,14 @@ async function handleFetchRpc(
 }
 
 /** Bounded long-poll on the existing registry; each caller owns and disposes its subscription. */
-export function capabilitiesRpc(registry: ModelSwitchAdapterRegistry, snapshot: () => RuntimeCapabilities, lifetime: AbortSignal): ConnectionRpcHandler {
+export function capabilitiesRpc(
+  registry: ModelSwitchAdapterRegistry,
+  snapshot: () => RuntimeCapabilities,
+  lifetime: AbortSignal,
+  catalog: () => ToolCatalogSnapshot = () => ({ tools: [], recommended: [...DEFAULT_READ_ONLY_TOOLS] }),
+  /** Live Auto-reviewer counters (see `autoReviewStatus`), shown next to the allowlist. */
+  status: () => ReviewStatus = () => ({ held: false, allowedCalls: 0, skippedReadOnly: 0 }),
+): ConnectionRpcHandler {
   let revision = 0
   let previous: string | undefined
   const read = (): CapabilitiesSnapshot => {
@@ -66,6 +83,12 @@ export function capabilitiesRpc(registry: ModelSwitchAdapterRegistry, snapshot: 
     return { revision, capabilities }
   }
   return async (endpoint, payload, signal) => {
+    if (endpoint === 'tools') {
+      if (payload === null || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).length !== 0) {
+        return { ok: false, error: { details: {}, code: 'invalid-request', message: 'Expected an empty payload' } }
+      }
+      return { ok: true, value: { ...catalog(), status: status() } }
+    }
     if (endpoint !== 'capabilities') return { ok: false, error: { details: {}, code: 'unknown-endpoint', message: 'Unknown Model Switch endpoint' } }
     if (payload === null || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).some(key => key !== 'revision')) return { ok: false, error: { details: {}, code: 'invalid-request', message: 'Expected optional revision' } }
     const requested = (payload as { revision?: unknown }).revision
@@ -86,7 +109,13 @@ export function capabilitiesRpc(registry: ModelSwitchAdapterRegistry, snapshot: 
 export function installCapabilitiesRpc(ctx: Context, registry: ModelSwitchAdapterRegistry, snapshot: () => RuntimeCapabilities): void {
   ctx.inject(['connection'], scope => scope.effect(() => {
     const lifetime = new AbortController()
-    const handler = capabilitiesRpc(registry, snapshot, lifetime.signal)
+    const handler = capabilitiesRpc(
+      registry,
+      snapshot,
+      lifetime.signal,
+      () => ({ tools: readToolCatalog(ctx), recommended: [...DEFAULT_READ_ONLY_TOOLS] }),
+      () => ({ held: autoReviewStatus.held, allowedCalls: autoReviewStatus.allowedCalls, skippedReadOnly: autoReviewStatus.skippedReadOnly }),
+    )
     const dispose = scope.connection.fetch.register({
       path: '/api/plugin-rpc/model-switch',
       methods: ['POST'],

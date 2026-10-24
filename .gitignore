@@ -22,3 +22,6 @@ lib/types/**/*.d.ts.map
 coverage/
 *.log
 .playwright-mcp/
+
+# Local audit artifacts (never pushed): allowlist review notes
+review/

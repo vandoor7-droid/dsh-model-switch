@@ -54,6 +54,7 @@ import {
   officialAutoReviewEntry,
   type AutoReviewSeam,
 } from './auto-review-takeover.js'
+import { isAllowedByList } from './tool-allowlist.js'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'model-switch-auto-review'
@@ -85,8 +86,32 @@ const AUTO_PRESET = 'auto'
  * tool-call safety net allows unreviewed calls instead of failing them.
  * `allowedCalls` counts the calls the net let through in that state, so the
  * settings card can tell the human how much review was skipped.
+ * `skippedReadOnly` counts the calls the allowlist took off the reviewer, which
+ * is the number the settings card shows next to the switch.
  */
-export const autoReviewStatus = { held: false, allowedCalls: 0 }
+export const autoReviewStatus = { held: false, allowedCalls: 0, skippedReadOnly: 0 }
+
+/**
+ * What one `tools/pre-execute` call carries into the reviewer's async context.
+ *
+ * The official gate reads `permissionPresets.current(session)` at the top of its
+ * listener; this store is what lets that read answer "no review needed" for one
+ * call without touching the rest of the pipeline (see
+ * {@link defensivePermissionPresets}).
+ */
+export interface AutoCallContext {
+  readonly session: Session | undefined
+  /** `exec.name` — the tool under review. */
+  readonly tool: string
+}
+
+/** The read-only skip: which tools, and whether the switch is on. */
+export interface ReadOnlyBypass {
+  /** The call currently executing in this async context, if any. */
+  ambient(): AutoCallContext | undefined
+  /** Whether this tool name is on the allowlist. */
+  allows(tool: string): boolean
+}
 
 /** Pinned reviewer route; both identifiers are non-empty. */
 export interface AutoReviewRoute {
@@ -166,18 +191,23 @@ export function resolveSessionAutoReviewRoute(ctx: Context, session?: Session): 
  * Because Cordis `on(..., { prepend: true })` unshifts onto the event hook list,
  * registering this listener AFTER `official.apply(scope)` places it at index 0
  * — directly ahead of the official gate's own prepended listener — so
- * `activeSession.run(exec.agent?.session, next)` wraps the entire official
- * review execution.
+ * `activeSession.run({ session, tool }, next)` wraps the entire official review
+ * execution. The stored tool name is what lets the reviewer be skipped for an
+ * allowlisted read without the gate ever seeing a fake preset.
  *
  * @param scope - the review scope context where the gate is mounted.
- * @param activeSession - AsyncLocalStorage holding the session under review.
+ * @param activeSession - AsyncLocalStorage holding the call under review.
  */
 export function bindAutoReviewSessionCorrelation(
   scope: Context,
-  activeSession: AsyncLocalStorage<Session | undefined>,
+  activeSession: AsyncLocalStorage<AutoCallContext | undefined>,
 ): void {
   scope.effect(function* () {
-    yield scope.on('tools/pre-execute', (exec, next) => activeSession.run(exec.agent?.session, next), { prepend: true })
+    yield scope.on(
+      'tools/pre-execute',
+      (exec, next) => activeSession.run({ session: exec.agent?.session, tool: exec.name }, next),
+      { prepend: true },
+    )
   }, 'model-switch: auto-review session correlation')
 }
 
@@ -346,15 +376,25 @@ function fiberChainOf(ctx: Context): string {
  * displacing row and take it back without unmounting the gate (the gate's
  * disposal would move live `auto` sessions to `danger-full-access`).
  *
+ * `current()` also answers the read-only skip. The official gate's first line is
+ * `if (permissionPresets.current(session) !== 'auto') return next()`, so a call
+ * whose tool is allowlisted can be taken off the reviewer by answering with
+ * anything else — the gate itself then runs the normal `next()` path, leaving
+ * every later listener and guard in place. The answer is scoped to the call in
+ * flight through the async store, so outside a tool call this method reports the
+ * truth (`rememberAuto()` and the settings card read it for accounting).
+ *
  * @param resolve - resolves the host's permission-preset service per call.
  * @param log - the row logger used for the single degradation report.
  * @param chain - diagnostic dump of the resolution chain; defaults to empty.
+ * @param bypass - optional read-only skip; absent when the feature is off.
  * @returns A managed preset face.
  */
 export function defensivePermissionPresets(
   resolve: () => PermissionPresetsFace | undefined,
   log: { warn(line: string): void },
   chain: () => string = () => '',
+  bypass?: ReadOnlyBypass,
 ): ManagedPermissionPresetsFace {
   let reported = false
   let admit: (() => void) | undefined
@@ -371,12 +411,18 @@ export function defensivePermissionPresets(
   }
   return {
     current(session) {
+      let preset: string
       try {
-        return requireService().current(session)
+        preset = requireService().current(session)
       } catch (error) {
         degrade('current()', error)
         return CUSTOM_PRESET
       }
+      if (preset !== AUTO_PRESET || bypass === undefined) return preset
+      const ambient = bypass.ambient()
+      if (ambient === undefined || !bypass.allows(ambient.tool)) return preset
+      autoReviewStatus.skippedReadOnly += 1
+      return CUSTOM_PRESET
     },
     set(session, preset) {
       try {
@@ -428,11 +474,11 @@ export function defensivePermissionPresets(
  */
 export function reviewScope(
   ctx: Context,
-  activeSession: AsyncLocalStorage<Session | undefined> = new AsyncLocalStorage<Session | undefined>(),
+  activeSession: AsyncLocalStorage<AutoCallContext | undefined> = new AsyncLocalStorage<AutoCallContext | undefined>(),
   presets: ManagedPermissionPresetsFace = defensivePermissionPresets(() => permissionPresetsOf(ctx), ctx.logger, () => fiberChainOf(ctx)),
 ): Context {
   return ctx.extend({
-    llm: reviewLlm(ctx.llm, () => resolveSessionAutoReviewRoute(ctx, activeSession.getStore())),
+    llm: reviewLlm(ctx.llm, () => resolveSessionAutoReviewRoute(ctx, activeSession.getStore()?.session)),
     permissionPresets: presets,
   } as never)
 }
@@ -553,8 +599,32 @@ export async function apply(ctx: Context): Promise<void> {
     return
   }
 
-  const presets = defensivePermissionPresets(() => permissionPresetsOf(ctx), ctx.logger, () => fiberChainOf(ctx))
-  const activeSession = new AsyncLocalStorage<Session | undefined>()
+  const activeSession = new AsyncLocalStorage<AutoCallContext | undefined>()
+  /**
+   * The read-only skip, read live so a settings change applies to the next call.
+   *
+   * Fails closed: an unreadable setting, a disabled switch, or an empty list all
+   * mean "review it". The allowlist is the user's explicit opt-in, so a broken
+   * read must never widen what runs unreviewed.
+   */
+  const skipReadOnly = (tool: string): boolean => {
+    let settings: ModelSwitchSettings | undefined
+    try {
+      settings = ctx.modelSwitch.currentSettings()
+    } catch {
+      return false
+    }
+    if (settings?.autoReviewSkipReadOnly !== true) return false
+    const list = settings.autoReviewAllowlist
+    if (!Array.isArray(list) || list.length === 0) return false
+    return isAllowedByList(tool, list)
+  }
+  const presets = defensivePermissionPresets(
+    () => permissionPresetsOf(ctx),
+    ctx.logger,
+    () => fiberChainOf(ctx),
+    { ambient: () => activeSession.getStore(), allows: skipReadOnly },
+  )
   const scope = reviewScope(ctx, activeSession, presets)
   // Live from the first tool call, before the takeover runs: a lost
   // `registerAuto` leaves the official (unshielded) gate serving, and its probe

@@ -357,6 +357,53 @@ describe('defensivePermissionPresets', () => {
     expect(face.set({} as never, 'danger-full-access')).toBeUndefined()
     expect(warn).toHaveBeenCalledTimes(1)
   })
+
+  it('takes an allowlisted read off the reviewer only while that call is in flight', () => {
+    const preset = { current: vi.fn(() => 'auto'), set: vi.fn(), registerAuto: vi.fn(() => () => undefined) }
+    let ambient: { session: undefined; tool: string } | undefined = { session: undefined, tool: 'read' }
+    const face = defensivePermissionPresets(() => preset, { warn: vi.fn() }, () => '', {
+      ambient: () => ambient,
+      allows: tool => tool === 'read',
+    })
+    // The gate reads a non-auto preset and calls next(): no reviewer round trip.
+    expect(face.current({} as never)).toBe('custom')
+    // A write is not on the allowlist, so the real preset comes back and it is reviewed.
+    ambient = { session: undefined, tool: 'write' }
+    expect(face.current({} as never)).toBe('auto')
+    // Outside a tool call (teardown accounting, the settings card) the truth is reported.
+    ambient = undefined
+    expect(face.current({} as never)).toBe('auto')
+  })
+
+  it('keeps reviewing an allowlisted read on a non-Auto preset', () => {
+    const preset = { current: vi.fn(() => 'danger-full-access'), set: vi.fn(), registerAuto: vi.fn(() => () => undefined) }
+    const face = defensivePermissionPresets(() => preset, { warn: vi.fn() }, () => '', {
+      ambient: () => ({ session: undefined, tool: 'read' }),
+      allows: () => true,
+    })
+    expect(face.current({} as never)).toBe('danger-full-access')
+  })
+
+  it('counts every skipped call for the settings card', () => {
+    const preset = { current: vi.fn(() => 'auto'), set: vi.fn(), registerAuto: vi.fn(() => () => undefined) }
+    const face = defensivePermissionPresets(() => preset, { warn: vi.fn() }, () => '', {
+      ambient: () => ({ session: undefined, tool: 'grep' }),
+      allows: () => true,
+    })
+    const before = autoReviewStatus.skippedReadOnly
+    face.current({} as never)
+    face.current({} as never)
+    expect(autoReviewStatus.skippedReadOnly).toBe(before + 2)
+  })
+
+  it('keeps reviewing when the bypass refuses the tool', () => {
+    const preset = { current: vi.fn(() => 'auto'), set: vi.fn(), registerAuto: vi.fn(() => () => undefined) }
+    const face = defensivePermissionPresets(() => preset, { warn: vi.fn() }, () => '', {
+      ambient: () => ({ session: undefined, tool: 'write' }),
+      allows: () => false,
+    })
+    expect(face.current({} as never)).toBe('auto')
+  })
 })
 
 describe('apply', () => {
