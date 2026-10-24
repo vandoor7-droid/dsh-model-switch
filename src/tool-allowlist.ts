@@ -143,13 +143,22 @@ const PLUGIN_TOOLS: ReadonlyMap<string, string> = new Map([['generate_image', 'd
 const EXTENSION_TOOL = /^([A-Za-z0-9_-]+)__(.+)$/
 
 /**
- * Default allowlist: every pure-read tool this deployment exposes, calibrated on
- * a live desktop profile (105 tools) at dsh 0.2.1-rc.2.
+ * Default allowlist: every pure-read tool this deployment exposes plus the
+ * no-side-effect and autonomy entries the user explicitly released, calibrated
+ * on a live desktop profile (105 tools) at dsh 0.2.1-rc.2.
  *
  * Grouped by origin so a reader can trace each entry through {@link SOURCE_CATALOG}.
  * Entries ending in `*` are patterns: the QQ bot extension suffixes its tools with
  * the bot's own name, so `sessions_list__*` keeps working when the persona is
  * renamed.
+ *
+ * Everything here follows one rule: releasing it must not let a side effect escape
+ * the reviewer. Calls that merely dispatch, ask, present, wait or navigate qualify
+ * because the work they trigger still runs under the same auto preset. Delegation
+ * tools (`subagent`, `subagent_fork`, `spawn_teammate`) deliberately stay out: a
+ * child session seeds its preset from `permissionPresets.current(parent.session)`,
+ * and this bypass answers `'custom'` for an allowlisted call in flight — releasing
+ * them would hand the child no `auto` preset at all, i.e. no review.
  */
 export const DEFAULT_READ_ONLY_TOOLS: readonly string[] = [
   // DSH core — filesystem and session reads.
@@ -158,15 +167,31 @@ export const DEFAULT_READ_ONLY_TOOLS: readonly string[] = [
   'skill',
   // DSH core — network reads.
   'web_search', 'web_search_pro', 'web_fetch',
+  // DSH core — bundled dependency paths and versions (pure read).
+  'load_workspace_dependencies',
+  // DSH core — asking the human and presenting a deliverable card (no file effect).
+  'ask_user_question', 'present',
+  // DSH core — sidebar navigation (opens a file, folder or URL for the human).
+  'sidebar_open',
+  // DSH core — the plan gate: the human approves it, so a second reviewer adds nothing.
+  'exit_plan_mode',
   // DSH core — background job / terminal output.
   'job_list', 'job_output', 'terminal_list', 'terminal_read',
   // DSH core — team and goal inspection.
   'list_agents', 'team_task_list', 'team_task_get', 'get_goal', 'schedule_list',
+  // DSH core — coordination that only dispatches or waits; the callee keeps its own
+  // preset, so its tool calls stay reviewed.
+  'wait_agent', 'send_message', 'team_task_create',
   // DSH core — MCP resource inspection.
   'list_mcp_resources', 'list_mcp_resource_templates', 'read_mcp_resource',
   // DSH core — session-log forensics.
   'session_search', 'session_event_search', 'session_event_read',
   'session_event_trace', 'session_trace',
+  // DSH core — released by explicit user decision (2026-10-24). These change
+  // session state or open an execution surface, but everything they enable is
+  // still reviewed: goal rounds and scheduled prompts keep the same auto preset,
+  // and a terminal's commands go through the still-reviewed `terminal_send`.
+  'create_goal', 'schedule_create', 'terminal_open',
   // dsh-ops.
   'ops_read_files', 'ops_discover_tools',
   // dsh-browser-cdp (inspection only; navigate/script/space/open/close stay reviewed).

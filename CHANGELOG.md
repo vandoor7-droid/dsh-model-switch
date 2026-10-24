@@ -1,3 +1,15 @@
+## v0.4.40
+
+按你的点名，默认豁免名单从 47 条扩到 **58 条**：新增 11 个工具，全部在「设置 → 模型切换 → 审查豁免」里可查、可删、可恢复默认。
+
+- **纯读 / 无副作用（6 个）**：`load_workspace_dependencies`（只返回打包依赖路径与版本）、`wait_agent`（只等待队友变化）、`ask_user_question`（把问题抛给人，决策权本来就在人手里）、`present`（只登记交付物卡片，不复制内容）、`sidebar_open`（只在侧栏打开文件/文件夹/URL）、`exit_plan_mode`（计划门由人审批，第二个审查者多余）。
+- **只派发、副作用仍留在审查内（3 个）**：`send_message`（给队友投递消息，目标会话的预设是它被创建时定好的）、`team_task_create`（只写共享任务板）、`terminal_open`（只起 shell，后续 `terminal_send` 仍在审查）。
+- **自治项（2 个，按你的明确决定放出）**：`create_goal`（创建持久目标，让本会话跨轮继续）、`schedule_create`（排一条未来投递的提示）。它们触发的新回合仍跑同一个 auto 预设，所以每轮里的工具调用照样逐次审查；风险是无人值守的 token 消耗，已在名单注释里标明。
+- **明确排除：`subagent` / `subagent_fork` / `spawn_teammate` 永不进默认名单。** `dsh-subagent` 生成子会话时会读 `permissionPresets.current(parent.session)`，只有 `auto` / `danger-full-access` 会被继承；而本插件在"名单命中的调用正在飞"时把 `current()` 答成 `'custom'`——放行这三个会让子会话拿不到 auto 预设，等于造出**无审查的子 agent**。`tests/tool-allowlist.spec.ts` 新增 `DELEGATION_SPAWNS` 专项守卫，防止以后被顺手加进去。
+- **守卫调整**：`MUTATING` 里移除 `send_message`、`team_task_create`（现按"派发类"放行），补入 `subagent`、`subagent_fork`。
+- **注意**：默认名单只是"出厂值"。已经保存过名单的部署（含桌面）升级后不会自动多出这 11 条——需要点一次「恢复默认名单」，或手动加入。
+- 测试：59 个测试文件 / **541** 测试（新增 delegation 守卫与"用户放行清单"两例）。
+
 ## v0.4.39
 
 「自动审查」下，**纯读工具不再调用审查模型**：`read` / `grep` / `glob` 这类只读调用直接执行，写操作、命令执行与删除仍然逐次审查。功能默认**关闭**，在「设置 → 模型切换 → 审查豁免」一键开启。

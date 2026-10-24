@@ -12,8 +12,8 @@ import { decodeReviewStatus, decodeToolCatalog } from '../src/client-contract.ts
 /** Tools that must never be covered by the shipped defaults. */
 const MUTATING = [
   'write', 'edit', 'pwsh', 'ops_bash', 'todo_write', 'create_skill',
-  'job_kill', 'terminal_send', 'terminal_close', 'send_message', 'spawn_teammate',
-  'team_task_create', 'team_task_update', 'memory_write', 'memory_delete',
+  'job_kill', 'terminal_send', 'terminal_close',
+  'team_task_update', 'memory_write', 'memory_delete',
   'memory_delete_all', 'memory_prune',
   'mcp__wincu__windows_computer_use_click', 'mcp__wincu__windows_computer_use_type_text',
   'mcp__wincu__windows_computer_use_keypress', 'mcp__wincu__windows_computer_use_drag',
@@ -21,15 +21,43 @@ const MUTATING = [
   'qq_send__YiXuan', 'session_send__YiXuan',
 ]
 
+/**
+ * Delegation tools that must never be covered.
+ *
+ * A child session seeds its permission preset from
+ * `permissionPresets.current(parent.session)` and only inherits `auto` /
+ * `danger-full-access`. This plugin's bypass answers `'custom'` for an allowlisted
+ * call in flight, so releasing a spawn tool would strip the child of the auto
+ * preset entirely — an unreviewed subagent, which is exactly what the allowlist
+ * must not create.
+ */
+const DELEGATION_SPAWNS = ['subagent', 'subagent_fork', 'spawn_teammate']
+
 describe('DEFAULT_READ_ONLY_TOOLS', () => {
-  it('ships the calibrated pure-read catalog', () => {
-    expect(DEFAULT_READ_ONLY_TOOLS).toHaveLength(47)
-    expect(new Set(DEFAULT_READ_ONLY_TOOLS).size).toBe(47)
+  it('ships the calibrated catalog', () => {
+    expect(DEFAULT_READ_ONLY_TOOLS).toHaveLength(58)
+    expect(new Set(DEFAULT_READ_ONLY_TOOLS).size).toBe(58)
   })
 
   it('never covers a mutating tool', () => {
     for (const tool of MUTATING) {
       expect(isAllowedByList(tool, DEFAULT_READ_ONLY_TOOLS), tool).toBe(false)
+    }
+  })
+
+  it('never covers a delegation spawn', () => {
+    for (const tool of DELEGATION_SPAWNS) {
+      expect(isAllowedByList(tool, DEFAULT_READ_ONLY_TOOLS), tool).toBe(false)
+    }
+  })
+
+  it('covers the tools released by explicit user decision', () => {
+    for (const tool of [
+      'load_workspace_dependencies', 'wait_agent', 'ask_user_question', 'present',
+      'sidebar_open', 'exit_plan_mode', 'send_message', 'team_task_create',
+      'terminal_open', 'create_goal', 'schedule_create',
+    ]) {
+      expect(isAllowedByList(tool, DEFAULT_READ_ONLY_TOOLS), tool).toBe(true)
     }
   })
 

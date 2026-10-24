@@ -53,13 +53,22 @@ export declare const SOURCE_CATALOG: readonly SourceCatalogEntry[];
 /** Catalog lookup by id. */
 export declare const SOURCE_BY_ID: ReadonlyMap<string, SourceCatalogEntry>;
 /**
- * Default allowlist: every pure-read tool this deployment exposes, calibrated on
- * a live desktop profile (105 tools) at dsh 0.2.1-rc.2.
+ * Default allowlist: every pure-read tool this deployment exposes plus the
+ * no-side-effect and autonomy entries the user explicitly released, calibrated
+ * on a live desktop profile (105 tools) at dsh 0.2.1-rc.2.
  *
  * Grouped by origin so a reader can trace each entry through {@link SOURCE_CATALOG}.
  * Entries ending in `*` are patterns: the QQ bot extension suffixes its tools with
  * the bot's own name, so `sessions_list__*` keeps working when the persona is
  * renamed.
+ *
+ * Everything here follows one rule: releasing it must not let a side effect escape
+ * the reviewer. Calls that merely dispatch, ask, present, wait or navigate qualify
+ * because the work they trigger still runs under the same auto preset. Delegation
+ * tools (`subagent`, `subagent_fork`, `spawn_teammate`) deliberately stay out: a
+ * child session seeds its preset from `permissionPresets.current(parent.session)`,
+ * and this bypass answers `'custom'` for an allowlisted call in flight — releasing
+ * them would hand the child no `auto` preset at all, i.e. no review.
  */
 export declare const DEFAULT_READ_ONLY_TOOLS: readonly string[];
 /** Why one allowlist entry was refused. */
