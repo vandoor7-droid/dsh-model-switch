@@ -1,0 +1,24 @@
+{
+  "$schema-note": "Baseline for the scheduled compatibility watch (see docs/dsh-compat-watch.md). `latest` is the npm dist-tag an ordinary install gets.",
+  "schema": "dsh-model-switch/compat-watch-state/v1",
+  "checkedAt": "2026-10-24T10:36:00Z",
+  "dsh": {
+    "distTagWatched": "latest",
+    "latest": "0.2.1-rc.2",
+    "verifiedDeclared": [
+      "0.1.7-alpha.2",
+      "0.1.7-rc.1",
+      "0.1.7-rc.2",
+      "0.2.0-rc.2",
+      "0.2.1-rc.2",
+      "0.2.1-rc.3"
+    ]
+  },
+  "automode": {
+    "package": "@log.li/dsh-automode",
+    "distTagWatched": "latest",
+    "latest": "0.17.0",
+    "adapter": "model-switch-automode-compat (v0.4.42)",
+    "lastVerifiedWith": "0.17.0"
+  }
+}
