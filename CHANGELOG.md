@@ -1,3 +1,15 @@
+## v0.4.42
+
+与第三方自动模式插件 `@log.li/dsh-automode` 的插件层适配：**不改用户配置、不新增依赖、不安装任何东西**——本插件在自己的 loader 行里，把「自动审查路由」与「纯读名单」注入到 `@log.li/dsh-automode` 行的**内存配置**，让它的 `auto-mode` 档位沿用我们的路由与豁免。
+
+- **新行 `model-switch-automode-compat`**（`dsh-model-switch/automode-compat`）：`inject = ['loader','modelSwitch']`，在 `loader/patch-context` 里于该行挂载前改写 `entry.options.config`；行不存在时整行空转。可在插件管理器里单独停用，不影响审查闸门。
+- **路由**：仅当 automode 的 `classifier.provider` / `classifier.model` **都为空**时填入我们的 `autoReviewProvider/Model`；任一字段已有值即视为用户意图，绝不覆盖（状态里标 `user-set`）；我们将自己上次写入的值记为可重写，设置变更时能跟随更新。
+- **纯读豁免**：把我们的名单（默认 58 条）并入它的 `readOnlyTools`，并在「纯读工具免审查」开关关闭时**不注入**。它用精确匹配，所以 `sessions_list__*` 这类通配条目会跳过并在卡片上计数（默认名单里是 1 条）。注入后的工具仍会先过它自己的 deny 正则——不会削弱它的硬底线。
+- **不落盘**：只改运行时 `entry.options`，从不调用 `Entry.update()`；启动前后 profile 的 `cordis.patch.yml` 不变，重启自动重放。
+- **可见性**：「审查豁免」卡片新增一行 `Auto mode 已接入：审查路由 <provider>/<model>，直通 +N 个纯读工具（M 条通配未同步）`，未安装时不显示；`tools` RPC 的 `status.automode` 提供同数字段。
+- **rc.3 lab 实测**（3083 / `~/.dsh-lab3`，automode `0.17.0` + 本插件 0.4.42）：automode 的 `boot` 审计行出现；在 `auto-mode` 会话的工具调用里，它的闸门实际读到 `preset="auto-mode"`、`classifier={"provider":"apigoto","model":"mimo-v2.6-flash",…}`、`readOnlyTools=58`、`preExecuteGate=true`（即注入生效）；启动前后 profile `cordis.patch.yml` 的 sha256 一致（未落盘）；卡片显示「Auto mode 已接入：审查路由 apigoto/mimo-v2.6-flash，直通 +53 个纯读工具（2 条通配未同步）」。注：automode 的逐调用审计行本次未出现，是因为它对未升级的 workspace-write 调用按设计静默放行，与兼容性无关。
+- **边界**：它的分类器只有一个静态路由，逐步 provider 分组无法映射过去（取顶层自动审查路由）；它的 `readOnlyTools` 精确匹配，通配条目转不过去；这些都在文案与文档里写明。
+
 ## v0.4.41
 
 DSH `0.2.1-rc.3`（2026-10-23 发布，当前在 `next` 通道）兼容性更新：**插件本体零改动**，本轮做的是实证与声明；旧线（`0.1.7-alpha.2` … `0.2.1-rc.2`）的声明与依赖下界原样保留。

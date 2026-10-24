@@ -71,6 +71,9 @@ export declare const zh: {
     readonly reviewAllowlistAvailable: "本机存在但未放行的工具：";
     readonly reviewAllowlistRepo: "仓库";
     readonly reviewAllowlistSkipped: "本 Host 进程已为纯读调用跳过 {count} 次审查。";
+    readonly reviewAutomodeLinked: "Auto mode 已接入：审查路由 {route}，直通 +{added} 个纯读工具（{skipped} 条通配未同步）。";
+    readonly reviewAutomodeRouteOwn: "沿用其自身配置";
+    readonly reviewAutomodeRouteUnset: "未配置（沿用会话模型）";
     readonly 'reason.central-subagent-routing': "Alpha.4 没有全局子代理启动路由接口。";
     readonly 'reason.packaged-preset-roots': "Alpha.4 不支持插件提供额外 preset root。";
     readonly 'reason.tool-owner-suppression': "Alpha.4 没有工具所有者或来源抑制接口。";

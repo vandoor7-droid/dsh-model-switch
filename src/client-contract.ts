@@ -73,6 +73,13 @@ export interface ReviewStatusView {
   readonly held: boolean
   readonly allowedCalls: number
   readonly skippedReadOnly: number
+  /** Third-party `@log.li/dsh-automode` row this Host adapted, when present. */
+  readonly automode?: {
+    readonly route?: string | undefined
+    readonly routeSkipped?: string | undefined
+    readonly added: number
+    readonly skipped: number
+  } | undefined
 }
 
 /**
@@ -84,12 +91,21 @@ export function decodeReviewStatus(value: unknown): ReviewStatusView | undefined
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
   const raw = (value as { status?: unknown }).status
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined
-  const status = raw as { held?: unknown; allowedCalls?: unknown; skippedReadOnly?: unknown }
+  const status = raw as { held?: unknown; allowedCalls?: unknown; skippedReadOnly?: unknown; automode?: unknown }
   const count = (input: unknown): number => (typeof input === 'number' && Number.isFinite(input) && input >= 0 ? input : 0)
+  const route = (input: unknown): string | undefined => (typeof input === 'string' && input.trim() !== '' ? input.trim() : undefined)
+  const automode = status.automode !== null && typeof status.automode === 'object' && !Array.isArray(status.automode)
+    ? (() => {
+        const row = status.automode as { installed?: unknown; route?: unknown; routeSkipped?: unknown; added?: unknown; skipped?: unknown }
+        if (row.installed !== true) return undefined
+        return { route: route(row.route), routeSkipped: route(row.routeSkipped), added: count(row.added), skipped: count(row.skipped) }
+      })()
+    : undefined
   return {
     held: status.held === true,
     allowedCalls: count(status.allowedCalls),
     skippedReadOnly: count(status.skippedReadOnly),
+    automode,
   }
 }
 

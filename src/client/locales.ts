@@ -16,6 +16,8 @@ export const zh = {
   reviewAllowlistReset: '恢复默认名单', reviewAllowlistRemove: '移除', reviewAllowlistAdd: '加入',
   reviewAllowlistNone: '名单为空：没有任何工具免审查。', reviewAllowlistAvailable: '本机存在但未放行的工具：', reviewAllowlistRepo: '仓库',
   reviewAllowlistSkipped: '本 Host 进程已为纯读调用跳过 {count} 次审查。',
+  reviewAutomodeLinked: 'Auto mode 已接入：审查路由 {route}，直通 +{added} 个纯读工具（{skipped} 条通配未同步）。',
+  reviewAutomodeRouteOwn: '沿用其自身配置', reviewAutomodeRouteUnset: '未配置（沿用会话模型）',
   'reason.central-subagent-routing': 'Alpha.4 没有全局子代理启动路由接口。', 'reason.packaged-preset-roots': 'Alpha.4 不支持插件提供额外 preset root。', 'reason.tool-owner-suppression': 'Alpha.4 没有工具所有者或来源抑制接口。',
   'reason.search-provider-adapters': '当前公开版本没有可按模型切换的搜索 Provider Adapter。', 'reason.vision-provider-adapters': '尚无 Provider 注册可独立路由的 Vision Adapter。', 'reason.image-provider-adapters': '当前公开版本没有图像生成 Provider Adapter。',
 } as const
@@ -38,6 +40,8 @@ export const en: Record<keyof typeof zh, string> = {
   reviewAllowlistReset: 'Restore defaults', reviewAllowlistRemove: 'Remove', reviewAllowlistAdd: 'Add',
   reviewAllowlistNone: 'Empty list: no tool skips review.', reviewAllowlistAvailable: 'Present on this machine but not allowed:', reviewAllowlistRepo: 'repo',
   reviewAllowlistSkipped: 'This Host process has skipped the reviewer {count} times.',
+  reviewAutomodeLinked: 'Auto mode linked: reviewer route {route}, passes +{added} read-only tools ({skipped} pattern entries not synced).',
+  reviewAutomodeRouteOwn: "its own settings", reviewAutomodeRouteUnset: 'unset (follows the session model)',
   'reason.central-subagent-routing': 'Alpha.4 exposes no global Subagent start-routing seam.', 'reason.packaged-preset-roots': 'Alpha.4 exposes no plugin-owned preset root.', 'reason.tool-owner-suppression': 'Alpha.4 exposes no tool owner or provenance suppression seam.',
   'reason.search-provider-adapters': 'This release exposes no model-selectable Search provider adapter.', 'reason.vision-provider-adapters': 'No Provider has registered an independently routable Vision Adapter.', 'reason.image-provider-adapters': 'This release exposes no image-generation provider adapter.',
 }

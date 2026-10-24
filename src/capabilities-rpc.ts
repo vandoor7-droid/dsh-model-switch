@@ -5,12 +5,21 @@ import type { RuntimeCapabilities } from './runtime-capabilities.js'
 import { readToolCatalog, type ToolCatalogSnapshot } from './tool-catalog.js'
 import { DEFAULT_READ_ONLY_TOOLS } from './tool-allowlist.js'
 import { autoReviewStatus } from './auto-review.js'
+import { automodeCompatView } from './automode-compat.js'
 
 /** Live reviewer counters surfaced next to the allowlist editor. */
 export interface ReviewStatus {
   readonly held: boolean
   readonly allowedCalls: number
   readonly skippedReadOnly: number
+  /** Third-party `@log.li/dsh-automode` row, when this Host mounts one. */
+  readonly automode?: {
+    readonly installed: boolean
+    readonly route?: string | undefined
+    readonly routeSkipped?: string | undefined
+    readonly added: number
+    readonly skipped: number
+  } | undefined
 }
 
 export const CAPABILITIES_RPC_METHOD = 'plugin-rpc/model-switch'
@@ -114,7 +123,7 @@ export function installCapabilitiesRpc(ctx: Context, registry: ModelSwitchAdapte
       snapshot,
       lifetime.signal,
       () => ({ tools: readToolCatalog(ctx), recommended: [...DEFAULT_READ_ONLY_TOOLS] }),
-      () => ({ held: autoReviewStatus.held, allowedCalls: autoReviewStatus.allowedCalls, skippedReadOnly: autoReviewStatus.skippedReadOnly }),
+      () => ({ held: autoReviewStatus.held, allowedCalls: autoReviewStatus.allowedCalls, skippedReadOnly: autoReviewStatus.skippedReadOnly, automode: automodeCompatView() }),
     )
     const dispose = scope.connection.fetch.register({
       path: '/api/plugin-rpc/model-switch',

@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-switch",
-  "version": "0.4.41",
+  "version": "0.4.42",
   "description": "Explicit model routing plus composer/Plan picker for DeepSeek Harness",
   "repository": {
     "type": "git",
@@ -57,6 +57,10 @@
     "./adapter-registry": {
       "types": "./lib/types/adapter-registry.d.ts",
       "default": "./lib/adapter-registry.js"
+    },
+    "./automode-compat": {
+      "types": "./lib/types/automode-compat.d.ts",
+      "default": "./lib/automode-compat.js"
     },
     "./package.json": "./package.json"
   },

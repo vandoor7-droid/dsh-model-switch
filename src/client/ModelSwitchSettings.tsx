@@ -675,6 +675,10 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
         </div>
         {message?.route === 'allowlist' ? <p className={cx(css.hint, css.message)}>{message.text}</p> : null}
         {reviewStatus === undefined || reviewStatus.skippedReadOnly === 0 ? null : <p className={css.hint}>{props.t('reviewAllowlistSkipped').replace('{count}', String(reviewStatus.skippedReadOnly))}</p>}
+        {reviewStatus?.automode === undefined ? null : <p className={css.hint}>{props.t('reviewAutomodeLinked')
+          .replace('{route}', reviewStatus.automode.route ?? (reviewStatus.automode.routeSkipped === 'user-set' ? props.t('reviewAutomodeRouteOwn') : props.t('reviewAutomodeRouteUnset')))
+          .replace('{added}', String(reviewStatus.automode.added))
+          .replace('{skipped}', String(reviewStatus.automode.skipped))}</p>}
         <ul className={css.allowList}>
           {allowlistIncluded.map(row => <li key={row.entry} className={css.allowRow}>
             <label className={css.allowLabel}><input type="checkbox" checked readOnly /><code className={css.allowName}>{row.entry}</code></label>

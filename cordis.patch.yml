@@ -73,3 +73,10 @@
     # The official naming provider under the configurable naming route.
     - id: model-switch-session-title
       name: 'dsh-model-switch/session-title'
+
+    # Inject this plugin's Auto-review route and pure-read list into the
+    # third-party @log.li/dsh-automode row's in-memory config (no profile write,
+    # no-op when that plugin is not installed). Kept as its own row so it can be
+    # disabled without touching the reviewer gate.
+    - id: model-switch-automode-compat
+      name: 'dsh-model-switch/automode-compat'

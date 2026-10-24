@@ -193,6 +193,8 @@ Verified releases: `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.2`. Th
 
 The verified releases in `package.json#dsh.compatibility.dshReleases` are evidence, not an allowlist. Review public API changes and test new Host releases before adding a verification claim.
 
+**Third-party auto modes.** When [`@log.li/dsh-automode`](https://github.com/log-li/dsh-automode) is installed, the `model-switch-automode-compat` row injects this plugin's Auto-review route and pure-read list into that row's **in-memory** config — no profile write, nothing to configure by hand. Its `auto-mode` preset then reviews with your configured route and passes your allowlisted tools, while the `auto` preset keeps using this plugin's own gate. Explicit `classifier.provider/model` values in that row always win, pattern-shaped allowlist entries cannot transfer (its check is exact-match), and its hard-deny bands still run first.
+
 ## Development
 
 Requires Node 22.19+ and pnpm.

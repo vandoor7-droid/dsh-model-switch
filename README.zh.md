@@ -191,6 +191,8 @@ DSH Host peer 和开发依赖接受 `>=0.1.7-alpha.2`，包括 rc.1 和后续版
 
 `package.json#dsh.compatibility.dshReleases` 中的已验证版本是证据，不是允许列表。新增验证声明前要审查公开 API 变化并测试新 Host 版本。
 
+**第三方自动模式。** 安装 [`@log.li/dsh-automode`](https://github.com/log-li/dsh-automode) 后，`model-switch-automode-compat` 行会把本插件的自动审查路由与纯读名单注入到该行的**内存配置**里——不写 profile、不需要手工配置。它的 `auto-mode` 档位会用你配置的路由审查、并按你的名单直通纯读工具；`auto` 档位仍然走本插件自己的闸门。该行里显式写过的 `classifier.provider/model` 永远优先，带通配的名单条目无法转过去（它是精确匹配），它的硬 deny 正则也照旧先跑。
+
 ## 开发
 
 需要 Node 22.19+ 和 pnpm。

@@ -8,6 +8,14 @@ export interface ReviewStatus {
     readonly held: boolean;
     readonly allowedCalls: number;
     readonly skippedReadOnly: number;
+    /** Third-party `@log.li/dsh-automode` row, when this Host mounts one. */
+    readonly automode?: {
+        readonly installed: boolean;
+        readonly route?: string | undefined;
+        readonly routeSkipped?: string | undefined;
+        readonly added: number;
+        readonly skipped: number;
+    } | undefined;
 }
 export declare const CAPABILITIES_RPC_METHOD = "plugin-rpc/model-switch";
 export interface CapabilitiesSnapshot {

@@ -94,6 +94,13 @@ export interface ReviewStatusView {
     readonly held: boolean;
     readonly allowedCalls: number;
     readonly skippedReadOnly: number;
+    /** Third-party `@log.li/dsh-automode` row this Host adapted, when present. */
+    readonly automode?: {
+        readonly route?: string | undefined;
+        readonly routeSkipped?: string | undefined;
+        readonly added: number;
+        readonly skipped: number;
+    } | undefined;
 }
 /**
  * Decode the reviewer counters from a `tools` RPC payload.

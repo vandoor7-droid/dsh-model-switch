@@ -48,6 +48,30 @@ counter 2 on `glob`/`read`, discuss ends as `aborted`, and the same
 `deepseek-flash` switch lands (15 models listed, `model/selection` written, reply
 from that model) — card and picker behaviour is identical across the two lines.
 
+## Third-party auto-mode coexistence (v0.4.42)
+
+`@log.li/dsh-automode` (0.17.0) has no public seam for an outside route or tool
+list: its classifier route and its pure-read allowance are read from its own row
+config (`resolveRoute(agent, config.classifier.provider, config.classifier.model)`
+in `src/classifier.ts`, `config.readOnlyTools.includes(name)` in
+`src/pre-execute.ts`). The `model-switch-automode-compat` row therefore rewrites
+that row's **live** `entry.options.config` from the `loader/patch-context`
+waterfall, before the loader mounts it:
+
+- `classifier.provider/model` ← this plugin's Auto-review route, only while the
+  row leaves both empty (either half set counts as user intent);
+- `readOnlyTools` ← union of the row's list and this plugin's allowlist, only
+  while the pure-read switch is on. Pattern entries (`sessions_list__*`) cannot
+  transfer because the third-party check is exact-match; they are reported.
+- Nothing is persisted: `Entry.update()` is never called, so the profile stays
+  byte-identical across boots and the in-memory view is re-applied on every
+  start.
+
+The two mechanisms stay independent by preset: `auto` sessions run this plugin's
+gate, `auto-mode` sessions run the third-party gate. Our shadow of
+`permissionPresets.current()` returns the real value for `auto-mode`, and our
+adaptation does not touch the third-party deny band, so its hard floor survives.
+
 ## Previously verified lines (must keep working)
 
 `0.1.7-alpha.2`, `0.1.7-rc.1`, `0.1.7-rc.2`, `0.2.0-rc.2`, `0.2.1-rc.2`,
