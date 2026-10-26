@@ -313,6 +313,36 @@
   background: var(--dsw-alias-bg-module-platform);
 }
 
+/*
+ * A group capability reads as ONE card: the header row and the fields grid that
+ * follows it are joined into a single bordered block, so the 提供商/模型 selects
+ * can no longer look like they belong to the next capability. The summary line
+ * is hidden exactly when the fields are shown (it would only repeat them).
+ */
+.rowCard:has(+ .formGrid) {
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-color: transparent;
+}
+
+.rowCard:has(+ .formGrid) .hint {
+  display: none;
+}
+
+.rowCard + .formGrid {
+  margin-top: -1px;
+  padding: 0 16px 14px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-top: 0;
+  border-bottom-right-radius: 10px;
+  border-bottom-left-radius: 10px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.formGrid + .rowCard {
+  margin-top: 14px;
+}
+
 .rowCopy {
   display: grid;
   flex: 1;

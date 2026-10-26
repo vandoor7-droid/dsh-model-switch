@@ -106,8 +106,11 @@ describe('session-title takeover', () => {
     await apply(ctx)
     // An enabled official row is displaced asynchronously, so the claim settles
     // after `apply` returns instead of racing that row's own registration.
-    await flush(TAKEOVER_MAX_ATTEMPTS)
-    expect(service.registered).toHaveLength(1)
+    // Bounded wait instead of a fixed flush: the takeover settles on its own
+    // schedule, and a fixed window is timing-sensitive under a parallel run.
+    await vi.waitFor(() => {
+      expect(service.registered).toHaveLength(1)
+    }, { timeout: 5000 })
     expect(service.registered[0]).toMatchObject({ id: 'session-title-first-prompt-llm', automatic: 'first-prompt' })
 
     // The user enables the experimental bundle: the loader runs this entry's
