@@ -36,6 +36,23 @@ the check in a profile that already has a compatible gate. Until then the review
 stays "unverified" here even though its rewrite path is covered by unit tests
 (`tests/auto-review.spec.ts`).
 
+## UI layout checks
+
+The plan review card's narrow-window rules live in
+`src/client/picker/PlanReviewCard.module.css` and were reviewed line by line: the action
+row wraps instead of clipping, the primary `确认执行` button is `flex-shrink: 0` on wide
+cards and `flex: 1 1 0` with `overflow-wrap: anywhere` under the 720 px breakpoint, the
+header picker takes its own row, and the strip wraps.
+
+**No screenshot exists for it.** Producing one needs a plan proposal in the UI, and this
+lab profile has no plan tooling configured (`cordis.patch.yml` contains no plan row —
+the only `plan` hits are an API-key env name), so the agent answers with prose instead of
+opening the card. Two further constraints found while trying: `Browser.setWindowBounds`
+is rejected by this browser runtime ("No web contents in the target"), and a full-page
+screenshot ignores `Emulation.setDeviceMetricsOverride`, so the check has to use an
+element-level screenshot of the card. Until a profile with plan tooling is used, the
+narrow-window layout is code-reviewed only, not visually verified.
+
 ## Attribution gotcha
 
 The memory plugin posts a distillation call after every turn. With its route pointed at
