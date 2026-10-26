@@ -31,7 +31,7 @@ import { distillChainPatch, isPrimeMemoryRow, planDistillChain, type DistillChai
 
 /** Row name and dependencies, mirroring the sibling adapter row. */
 export const name = 'model-switch-prime-memory-compat'
-export const inject = ['loader', 'modelSwitch']
+export const inject = ['loader', 'modelSwitch', 'settings']
 
 /** The loader row id prime-memory is composed under (fixed by its bundle patch). */
 const MEMORY_ENTRY_ID = 'dsh-memory'
@@ -159,10 +159,10 @@ function defaultProviderOf(loader: Loader | undefined): string | undefined {
   return undefined
 }
 
-/** The settings-forms service, when the host exposes it. */
+/** The `settings` service the memory plugin itself writes through. */
 function formsOf(ctx: Context): SettingsForms | undefined {
   try {
-    return ctx.get('settingsForms', false) as SettingsForms | undefined
+    return ctx.get('settings', false) as SettingsForms | undefined
   } catch {
     return undefined
   }
