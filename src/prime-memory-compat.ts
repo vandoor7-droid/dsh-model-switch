@@ -57,6 +57,55 @@ interface SettingsForms {
   describe?(options?: { redactSecrets?: boolean }): readonly SettingsDescriptor[]
   get?(name: string): unknown
   update?(name: string, patch: unknown, expectedRevision?: number): Promise<void>
+  /** The profile patch file the native configuration editor shows. */
+  readonly documentPath?: string
+}
+
+/**
+ * Write the memory row's static route into the profile patch itself.
+ *
+ * `settings.update` only accepts the entry's *live* schema fields, so the static
+ * `llm` pin never survives that call. The pin is what `resolveModelRoute` returns
+ * first, and it is the only key every distillation layer honours — so it has to be
+ * written where the next start reads it: the row config in the profile document.
+ * @param documentPath - the profile patch file.
+ * @param provider - route provider to pin.
+ * @param model - route model to pin.
+ * @returns whether the document changed.
+ */
+async function writeStaticPin(
+  documentPath: string,
+  provider: string,
+  model: string,
+): Promise<'written' | 'unchanged' | 'missing'> {
+  const { readFile, writeFile } = await import('node:fs/promises')
+  let text: string
+  try {
+    text = await readFile(documentPath, 'utf8')
+  } catch {
+    return 'missing'
+  }
+  const rows = text.split(/(?=^- id: )/m)
+  const index = rows.findIndex(row => /^- id: dsh-memory\r?\n/.test(row))
+  if (index < 0) return 'missing'
+  const row = rows[index] as string
+  const desired = `    llm:\n      provider: ${provider}\n      model: ${model}\n`
+  let next: string
+  if (/^ {4}llm:\r?\n(?: {6}.*\r?\n)*/m.test(row)) {
+    next = row.replace(/^ {4}llm:\r?\n(?: {6}.*\r?\n)*/m, desired)
+  } else if (/^ {2}config:\r?\n/m.test(row)) {
+    next = row.replace(/^ {2}config:\r?\n/m, `  config:\n${desired}`)
+  } else {
+    next = row.replace(/^- id: dsh-memory\r?\n/m, `- id: dsh-memory\n  config:\n${desired}`)
+  }
+  if (next === row) return 'unchanged'
+  rows[index] = next
+  try {
+    await writeFile(documentPath, rows.join(''), 'utf8')
+  } catch {
+    return 'missing'
+  }
+  return 'written'
 }
 
 /** One settings form descriptor, as the host reports it. */
@@ -314,16 +363,15 @@ export function installPrimeMemoryCompat(
       delete primeMemoryCompatStatus.routeSkipped
     }
     // The runtime chain only reaches the layers that re-resolve per call. The
-    // plugin's static pin (`config.llm.provider` + `config.llm.model`) is read by
-    // `resolveModelRoute` before anything else and makes every layer use one route
-    // — verified in the lab: with the pin in place the L1 call ran on the pinned
-    // model. It is configuration, so it applies from the next start.
-    const config = asRecord((primeMemoryEntry()?.options as { config?: unknown } | undefined)?.config) ?? {}
-    const pinned = asRecord(config.llm) ?? {}
-    if (text(pinned.provider) !== provider || text(pinned.model) !== model) {
+    // plugin's static pin (`config.llm.provider` + `config.llm.model`) is returned
+    // by `resolveModelRoute` before anything else, and the lab confirmed a call on
+    // the pinned model once the pin was in the profile. It is configuration, so it
+    // applies from the next start — written where that start reads it.
+    const documentPath = forms.documentPath
+    if (typeof documentPath === 'string' && documentPath !== '') {
       try {
-        await forms.update(MEMORY_ENTRY_ID, { llm: { ...pinned, provider, model } })
-        ctx.logger.info(`model-switch: pinned the dsh-prime-memory distillation route to ${wanted} (applies from the next start)`)
+        if ((await writeStaticPin(documentPath, provider, model)) === 'written')
+          ctx.logger.info(`model-switch: pinned the dsh-prime-memory distillation route to ${wanted} (applies from the next start)`)
       } catch (cause: unknown) {
         ctx.logger.warn(`model-switch: could not pin the dsh-prime-memory route (${String(cause)})`)
       }
