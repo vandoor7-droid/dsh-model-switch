@@ -179,7 +179,25 @@ export function installPrimeMemoryCompat(
     }
     return any
   }
-  return { dispose, replay }
+  /**
+   * A row a bundle layer inserts is often composed AFTER this row, so neither the
+   * mount sweep nor the patch-context waterfall reaches it. `entry-init` fires
+   * for every entry before its plugin applies, and one bounded late sweep covers
+   * a row that still arrives later.
+   */
+  const offInit = ctx.on('loader/entry-init', function (this: unknown, first?: unknown) {
+    const candidate = (this ?? first) as Entry | undefined
+    if (candidate !== undefined && isPrimeMemoryRow(candidate)) applying(candidate)
+  })
+  const lateSweep = setTimeout(() => { replay() }, 1_500)
+  return {
+    dispose: () => {
+      dispose()
+      offInit()
+      clearTimeout(lateSweep)
+    },
+    replay,
+  }
 }
 
 /**
