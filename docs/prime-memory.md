@@ -89,3 +89,30 @@ Until that card exists, the recipe above is the supported path, and
 - Model Switch and prime-memory do not compete for any seam: prime-memory does
   not register a `sessionTitle` provider or a permission preset, and its tools
   are its own `memory_*` family.
+
+## Lab result: the route does not move (2026-10-26)
+
+Verified on DSH 0.2.1-rc.3 with `dsh-prime-memory@0.26.10` — **neither public seam
+changes the model a distillation call actually uses**:
+
+| Attempt | Result |
+|---|---|
+| Patch the row config (`entry.options.config.llm.provider/model`) | No effect: the plugin reads its config once at init |
+| Same, plus a `loader/entry-init` listener and a late sweep | No effect |
+| `settings.update('dsh-memory', { live: { distillChain } })` | **Write lands** (visible in the profile patch, survives a restart, and the plugin's own settings page shows it) — but the calls still run on `apigoto/deepseek-flash`, the deployment default |
+| Clean restart, then `memory_ruminate` | Still `apigoto/deepseek-flash` |
+
+`memory.log` recorded `LLM 调用 apigoto/deepseek-flash` on every distillation round
+(L1/L2/L3), while the configured chain was `apigoto/mimo-v2.6-flash`.
+
+**So**: the settings write is real, but it feeds the plugin's *displayed* chain, not
+the route its distillation calls resolve. The adapter in
+`src/prime-memory-compat.ts` is therefore an **unverified experimental path**, and
+the "memory distillation follows the provider group" capability must not be
+advertised as working. Reverting the claim in `CHANGELOG.md` (v0.4.44) is part of
+this note.
+
+Next step if this is ever picked up again: find where the plugin resolves `cfg` for
+a distillation call (its `effectiveCfg` path) and inject there, or drop the
+capability from the settings page.
+
