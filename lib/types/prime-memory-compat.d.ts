@@ -1,19 +1,23 @@
 /**
  * Adapt `dsh-prime-memory`'s distillation route to this plugin's route.
  *
- * The memory plugin resolves its distillation route as
- * `config.llm.provider/model` → its own runtime chain → the deployment default
- * model. Model Switch owns the deployment's per-provider routes, so this adapter
- * fills the FIRST tier with the route this plugin resolved — but only while that
- * row is still following its own default:
+ * The memory plugin resolves its distillation route from its own runtime
+ * settings section (`live.distillChain`, legacy `live.distillProvider/Model`,
+ * else the deployment default model), and it WRITES that section through the
+ * host's settings-forms service:
  *
- * - a deliberate `provider`/`model` in the row's config is never overwritten
- *   (`user-set`), and neither is a route this adapter wrote earlier unless it
- *   matches what it wrote (`adopted`);
+ *   await forms.update('dsh-memory', { live: next })
+ *
+ * Its row config is read once at plugin init, so patching
+ * `entry.options.config.llm.*` afterwards has no effect (verified on 0.2.1-rc.3:
+ * the model kept being the deployment default). This adapter therefore writes
+ * the same section the plugin itself writes, and only that key:
+ *
+ * - a chain that is already set and is not the one this adapter wrote counts as
+ *   user intent and is left alone (`user-set`);
  * - an empty Model Switch route means "leave it alone" (`no-route`);
- * - nothing is persisted: the row's live config object is patched in memory, so
- *   the memory plugin's own settings page keeps showing "follow the default
- *   model" and a restart simply re-applies this adapter.
+ * - nothing is persisted by us beyond that section, and no other `live` key
+ *   (capture, trace, embedding, memory mutation) is touched.
  *
  * The route itself is provider-group based: the group of the deployment default
  * provider (read from the `agent-default-model` row), falling back to the flat
@@ -22,14 +26,15 @@
 import type { Context } from '@deepseek-ai/cordis';
 import type { Entry } from '@deepseek-ai/cordis-plugin-loader';
 import { type CapabilityRoute } from './session-route.js';
-/** Why the adapter stayed out of the way. */
-export type PrimeMemoryRouteSkip = 'user-set' | 'no-route';
+import { type DistillChainEntry } from './prime-memory-route.js';
 /** Row name and dependencies, mirroring the sibling adapter row. */
 export declare const name = "model-switch-prime-memory-compat";
 export declare const inject: string[];
+/** Why the adapter stayed out of the way. */
+export type PrimeMemoryRouteSkip = 'user-set' | 'no-route';
 /** Live adapter state, surfaced next to the settings card. */
 export interface PrimeMemoryCompatStatus {
-    /** Whether at least one memory row was seen and adapted. */
+    /** Whether at least one write reached the memory plugin's settings. */
     installed: boolean;
     /** The `provider/model` written on the last pass. */
     route?: string | undefined;
@@ -38,12 +43,19 @@ export interface PrimeMemoryCompatStatus {
 }
 /** The state the settings page reads. */
 export declare const primeMemoryCompatStatus: PrimeMemoryCompatStatus;
-/** One row's config, read/written structurally so a bad shape never throws. */
-type UnknownConfig = Record<string, unknown>;
-/** The route one plan installs, or why it installs nothing. */
+/**
+ * The distillation chain a settings section currently carries.
+ *
+ * Accepts the chain form and the legacy provider/model pair, so a user who set
+ * the old two fields is still recognised as user intent.
+ * @param section - the `live` section (or a whole settings view) to read.
+ * @returns The chain entries; empty when nothing is set.
+ */
+export declare function chainOf(section: unknown): readonly DistillChainEntry[];
+/** What one memory row's config decides, kept pure for the unit tests. */
 export interface PrimeMemoryPlan {
     /** The config to install (unchanged when `changed` is false). */
-    readonly config: UnknownConfig;
+    readonly config: Record<string, unknown>;
     /** Whether the config differs from the input. */
     readonly changed: boolean;
     /** The `provider/model` written on this pass. */
@@ -52,9 +64,11 @@ export interface PrimeMemoryPlan {
     readonly skipped?: PrimeMemoryRouteSkip | undefined;
 }
 /**
- * Decide the config one memory row should run with.
+ * Decide the route config one memory row would run with from its config alone.
  *
- * Pure and side-effect free so the policy is unit-testable.
+ * Kept for the settings-free path (a profile that pins `config.llm.*`): the
+ * runtime path writes the settings section instead, because the plugin reads its
+ * config only at init.
  * @param config - the row's current config (any JSON-ish value).
  * @param route - this plugin's distillation route; an incomplete pair counts as unset.
  * @param adoptedRoute - a `provider/model` this adapter wrote on an earlier pass.
@@ -68,8 +82,10 @@ interface Loader {
 /**
  * Install the adapter for the whole profile.
  *
- * Adapts on activation, on every `loader/patch-context`, and again whenever this
- * plugin's settings change, so a saved route reaches a row that is already live.
+ * Writes the memory plugin's own `live` section on activation, on every
+ * `loader/patch-context`, on `loader/entry-init`, once more after a short delay
+ * (a bundle-inserted row is often composed after this one), and again whenever
+ * this plugin's settings change.
  * @param ctx - this row's context.
  * @param loader - the loader service, when present.
  * @param routeOf - resolves this plugin's distillation route for one settings snapshot.
