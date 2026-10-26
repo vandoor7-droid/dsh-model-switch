@@ -1,3 +1,16 @@
+## v0.4.44
+
+「记忆蒸馏」成为第五个可配置能力：`dsh-prime-memory` 的蒸馏默认路由改为跟随本插件按供应商分组的配置，并新增一套本地探针，用来证明某条请求**实际**打到了哪个模型。
+
+- **新能力「记忆蒸馏」（`memoryProvider` / `memoryModel`）**：与压缩/审查/命名/子代理并列，平面默认 + 每供应商组一行；因蒸馏是全局流水线、没有会话 provider，分组键取**部署默认供应商**（`agent-default-model.config.provider`），解析顺序 `组 → 平面 → 不注入`。设置页新增「记忆蒸馏模型」卡片，供应商组编辑器新增第五行。
+- **适配层 `src/prime-memory-compat.ts`**：在内存里填充 `dsh-prime-memory` 行的 `config.llm.provider/model`（其 `resolveModelRoute` 的最高优先层），四段判定——用户显式设置则让位；本插件上次写的值可覆盖；本插件路由不完整则跳过；否则注入。不落盘、不写 `live.distillChain`，因此它自己的设置页仍显示「跟随默认模型」。挂载扫描 + `loader/patch-context` + `settings-update` 三时机一致生效。
+- **行接线**：新增 loader 行 `model-switch-prime-memory-compat`（`inject: ['loader','modelSwitch']`）、tsdown 入口与 `package.json` 导出。**lab 首启曾因漏声明 `inject` 报 `cannot get property "modelSwitch" without inject`，已修并复验**。
+- **用量探针 `tools/route-probe.mjs` + `tools/route-report.mjs`**：本地 OpenAI 兼容端点记录每次请求的 model/port/authPresent 到 JSONL；报告按 model×port 汇总，`--assert` 失败退非零。冒烟通过（POST 200 / 报告出表 / 断言 OK 与 MISSING 各一次）。
+- **计划审阅卡窄窗截断**：`.actions` 改为可换行、按钮可收缩、主操作 `flex-shrink:0`，主操作不再被面板右缘裁掉。
+- **分组编辑器观感**：`.rowCard:has(+ .formGrid)` 把能力头与其字段并成一张卡（下半圆角/边框拼接、字段区同底），字段可见时隐藏重复摘要行，五项之间留 14px 间距；文案统一为"五项（含记忆蒸馏）"。
+- **测试**：新增 `tests/prime-memory-compat.spec.ts`（10 例：注入/让位/半对/自改/无路由/非对象/保留其它键 + `memoryRouteOf` 三级回落）；接管时序断言改为有界 `vi.waitFor`。`pnpm run check` 绿（62 文件 / **578** 测试 + pack 闸门）。
+- **Lab 验证（DSH 0.2.1-rc.3，`DSH_HOME=~/.dsh-lab`，real apigoto 凭据从桌面 profile 导入）**：apigoto 可达（非 401/403；首次失败是 `UNSUPPORTED_REASONING_EFFORT`，去掉 effort 后正常）。已实测：主模型 `apigoto/deepseek-flash` 回复成功（3 秒）、会话命名走 `apigoto/mimo-v2.6-flash`（标题自动生成）、`memory.log` 出现 `蒸馏模型路由: apigoto/…` 证明适配层路由已到达该插件。**未逐一实测**：子代理 / 压缩 / 自动审查 / automode 分类器四条路径（仅单测覆盖），按项目规则这些路径不得对外宣称已验收。
+
 ## v0.4.43
 
 修掉「同时启用本插件与『随对话更新的标题』时，添加模型供应商会失败」的冲突（`session-title provider "session-title-all-prompts-llm" is already registered`）。
