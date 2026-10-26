@@ -29,6 +29,10 @@ import { isPrimeMemoryRow } from './prime-memory-route.js'
 /** Why the adapter stayed out of the way. */
 export type PrimeMemoryRouteSkip = 'user-set' | 'no-route'
 
+/** Row name and dependencies, mirroring the sibling adapter row. */
+export const name = 'model-switch-prime-memory-compat'
+export const inject = ['loader', 'modelSwitch']
+
 /** Live adapter state, surfaced next to the settings card. */
 export interface PrimeMemoryCompatStatus {
   /** Whether at least one memory row was seen and adapted. */
