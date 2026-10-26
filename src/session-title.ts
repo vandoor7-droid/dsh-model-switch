@@ -811,6 +811,28 @@ function leafId(entry: Entry): string | undefined {
 }
 
 /**
+ * Every official naming row the loader currently has instantiated and enabled.
+ *
+ * A row that is enabled here may be about to run its own `register()`, so this
+ * row must not take the slot first: the official registration would throw
+ * "already registered", and a failed activation aborts the whole composition —
+ * the way saving a model provider used to fail while both rows were enabled.
+ * @param ctx - this row's context.
+ * @returns The live enabled rows, empty when the profile keeps none.
+ */
+function enabledOfficialRows(ctx: Context): Entry[] {
+  const loader = ctx.get('loader', false) as { entries?(): Iterable<Entry> } | undefined
+  if (typeof loader?.entries !== 'function') return []
+  const rows: Entry[] = []
+  for (const candidate of loader.entries()) {
+    if (!isOfficialTitleRow(candidate)) continue
+    if ((candidate as { disabled?: boolean }).disabled === true) continue
+    rows.push(candidate)
+  }
+  return rows
+}
+
+/**
  * Install the takeover choreography for naming rows that activate after this one.
  *
  * `loader/patch-context` runs inside the official entry's own `_init`, before its
@@ -861,7 +883,10 @@ function installTakeover(ctx: Context, module: TitleLlmModule, seam: NamingSeam)
           return
         }
       }
-      ctx.logger.error(`model-switch: the official naming row ${String(leafId(entry) ?? 'unknown')} kept the session-title provider slot; the configurable naming route is unavailable this session`)
+      // Either another registration owns the slot or the displaced row's own
+      // registration is still releasing: naming keeps following that owner instead
+      // of guessing a route, so this is reported once and never thrown.
+      ctx.logger.info(`model-switch: another session-title provider owns the seam after the official naming row ${String(leafId(entry) ?? 'unknown')} was displaced; naming follows it while it is active`)
     } finally {
       reclaiming.delete(entry)
     }
@@ -906,9 +931,29 @@ function installTakeover(ctx: Context, module: TitleLlmModule, seam: NamingSeam)
     }
     return nextFn()
   })
+  // A row re-inserted by a bundle layer after a settings rewrite does not always
+  // run the patch-context waterfall, but every entry announces itself here before
+  // its plugin applies. Freeing the slot first is what keeps that row's own
+  // register() from failing with "already registered" (a failed activation aborts
+  // the composition, which is how saving a model provider used to fail).
+  listen('loader/entry-init', function (this: unknown, first?: unknown) {
+    const entry = entryOfEvent(this, first)
+    if (entry === undefined || !isOfficialTitleRow(entry) || handled.has(entry)) return
+    const plan = planFor(ctx, module, entry)
+    if (plan === undefined) return
+    handled.add(entry)
+    seam.yieldSlot()
+    void reclaim(entry, plan)
+  })
   // A removed/disabled official row frees the slot; claim it again with the
   // cadence that remains in the tree (first-prompt when the bundle is gone).
   listen('loader/partial-dispose', function (this: unknown, first?: unknown) {
+    // A composition teardown starts here, and the rebuilt composition re-inserts
+    // bundle-provided rows before this row is disposed again. Releasing the slot
+    // on the very first teardown event is what keeps such a row's own register()
+    // from failing with "already registered" — a failed activation aborts the
+    // whole composition, which is how saving a model provider used to fail.
+    seam.yieldSlot()
     const entry = entryOfEvent(this, first)
     if (entry === undefined || !isOfficialTitleRow(entry)) return
     handled.delete(entry)
@@ -922,12 +967,18 @@ function installTakeover(ctx: Context, module: TitleLlmModule, seam: NamingSeam)
   // disabled and this row serving its cadence.
   const loader = ctx.get('loader', false) as { entries?(): Iterable<Entry> } | undefined
   if (typeof loader?.entries === 'function') {
+    let swept = false
     for (const candidate of loader.entries()) {
       if (!isOfficialTitleRow(candidate)) continue
       if ((candidate as { disabled?: boolean }).disabled === true) continue
       const plan = planFor(ctx, module, candidate)
-      if (plan !== undefined) void reclaim(candidate, plan)
+      if (plan === undefined) continue
+      swept = true
+      void reclaim(candidate, plan)
     }
+    // Nothing to displace (the row carries no resolvable cadence): the slot is
+    // free, so this row serves its own plan rather than leaving naming fallback.
+    if (!swept && !seam.claimed) seam.claim()
   }
   // The listeners are effects of this row's fiber on a real Host, so unloading
   // the profile unregisters them; a structural context keeps the same lifetime.
@@ -971,7 +1022,14 @@ export async function apply(ctx: Context): Promise<void> {
   const plan = planFor(ctx, module, entry)
   if (plan === undefined) return
   const seam = new NamingSeam(ctx, module, plan)
-  if (!seam.claim()) {
+  // Claim only when no enabled official naming row is live. A composition
+  // rewrite (a provider save re-writes the bundle layer, so the inserted row is
+  // re-created) makes that row run its own `register()`, and a slot already held
+  // here turns it into "already registered" — which aborts the whole activation
+  // and fails the save the user was doing. The takeover below displaces every
+  // live row and claims the slot once their fibers are gone.
+  const pendingOfficial = enabledOfficialRows(ctx).length > 0
+  if (!pendingOfficial && !seam.claim()) {
     // One provider per context: another row already owns the seam. Handing the
     // slot over is the right outcome when that row is an official naming row —
     // the takeover below still installs, so a later slide back to this row can

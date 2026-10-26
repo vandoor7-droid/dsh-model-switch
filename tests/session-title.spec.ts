@@ -167,6 +167,9 @@ function bench(options: {
   return { ctx: ctx as unknown as Context, info, errors, warns, registrations, listeners, settings }
 }
 
+/** Let the asynchronous takeover settle: an enabled official row is displaced after `apply` returns. */
+const settle = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 200))
+
 describe('session-title plugin identity', () => {
   it('keeps the loader contract stable', () => {
     expect(name).toBe('model-switch-session-title')
@@ -280,6 +283,8 @@ describe('apply', () => {
   it('registers exactly one provider mirroring the disabled first-prompt row', async () => {
     const { ctx, registrations, errors } = bench()
     await apply(ctx)
+
+    await settle()
     expect(errors).toEqual([])
     expect(registrations).toHaveLength(1)
     expect(registrations[0]).toMatchObject({ id: 'session-title-first-prompt-llm', automatic: 'first-prompt' })
@@ -289,6 +294,8 @@ describe('apply', () => {
   it('mirrors the all-prompts cadence the disabled row declared', async () => {
     const { ctx, registrations, errors } = bench({ entries: [officialRow({}, ALL_PROMPTS)] })
     await apply(ctx)
+
+    await settle()
     expect(errors).toEqual([])
     expect(registrations).toHaveLength(1)
     expect(registrations[0]).toMatchObject({ id: 'session-title-all-prompts-llm', automatic: 'all-prompts' })
@@ -301,6 +308,8 @@ describe('apply', () => {
     // cadence is mirrored instead.
     const { ctx, registrations, info, errors } = bench({ entries: [{ id: 'web', options: { name: '@deepseek-ai/dsh-web', config: {} } }] })
     await apply(ctx)
+
+    await settle()
     expect(errors).toEqual([])
     expect(registrations).toHaveLength(1)
     expect(registrations[0]).toMatchObject({ id: 'session-title-first-prompt-llm', automatic: 'first-prompt' })
@@ -312,6 +321,8 @@ describe('apply', () => {
       entries: [{ id: 'session-title-llm', options: { name: '@deepseek-ai/something-else', config: {} } }],
     })
     await apply(ctx)
+
+    await settle()
     expect(errors).toEqual([])
     expect(registrations).toHaveLength(1)
     expect(registrations[0]).toMatchObject({ id: 'session-title-first-prompt-llm', automatic: 'first-prompt' })
@@ -321,6 +332,8 @@ describe('apply', () => {
     llm.resolve.impl = () => { throw new Error('policy rejected') }
     const { ctx, registrations, errors } = bench()
     await apply(ctx)
+
+    await settle()
     expect(registrations).toHaveLength(0)
     expect(errors.some(line => line.includes('no valid naming policy'))).toBe(true)
   })
@@ -331,7 +344,11 @@ describe('apply', () => {
     expect(registrations).toHaveLength(0)
     // Another provider owns the slot: the row reports it once and leaves naming
     // to that provider; a later removal slides the slot back (takeover listener).
-    expect(info.some(line => line.includes('already owns the seam'))).toBe(true)
+    // The takeover displaces the row asynchronously, so the report lands after
+    // `apply` resolves; naming follows the owner it found.
+    await vi.waitFor(() => {
+      expect(info.some(line => line.includes('owns the seam'))).toBe(true)
+    }, { timeout: 5000 })
     expect(errors).toEqual([])
   })
 
@@ -344,6 +361,8 @@ describe('apply', () => {
       },
     })
     await apply(ctx)
+
+    await settle()
     const request = titleRequest(sessionOf('codex'), [message(1, 'first'), message(2, 'second')])
     const result = await registrations[0]!.generate(request)
     expect(result).toEqual({ title: 'generated', messageSeqs: [] })
@@ -357,6 +376,8 @@ describe('apply', () => {
   it('falls back to the flat title pair when the session provider has no group', async () => {
     const { ctx, registrations } = bench({ settings: { titleProvider: 'deepseek', titleModel: 'deep-title' } })
     await apply(ctx)
+
+    await settle()
     await registrations[0]!.generate(titleRequest(sessionOf('ungrouped'), [message(1, 'only')]))
     expect(llm.calls[0]?.config).toEqual({ ...POLICY, provider: 'deepseek', model: 'deep-title' })
   })
@@ -364,6 +385,8 @@ describe('apply', () => {
   it('keeps the row policy when the session resolves no route', async () => {
     const { ctx, registrations } = bench()
     await apply(ctx)
+
+    await settle()
     await registrations[0]!.generate(titleRequest(sessionOf(undefined), [message(1, 'only')]))
     expect(llm.calls[0]?.config).toEqual(POLICY)
     expect(llm.calls[0]?.config).not.toHaveProperty('provider')
@@ -372,6 +395,8 @@ describe('apply', () => {
   it('keeps the row policy when host settings are unavailable', async () => {
     const { ctx, registrations } = bench({ host: false, settings: { titleProvider: 'deepseek', titleModel: 'deep-title' } })
     await apply(ctx)
+
+    await settle()
     await registrations[0]!.generate(titleRequest(sessionOf('codex'), [message(1, 'only')]))
     expect(llm.calls[0]?.config).toEqual(POLICY)
   })
@@ -379,6 +404,8 @@ describe('apply', () => {
   it('forwards every message for the all-prompts cadence and records its id', async () => {
     const { ctx, registrations } = bench({ entries: [officialRow({}, ALL_PROMPTS)] })
     await apply(ctx)
+
+    await settle()
     const messages = [message(1, 'first'), message(2, 'second')]
     await registrations[0]!.generate(titleRequest(sessionOf(undefined), messages))
     expect(llm.calls[0]?.messages).toEqual(messages)
@@ -388,6 +415,8 @@ describe('apply', () => {
   it('re-reads the live route on every request, so a settings save needs no remount', async () => {
     const { ctx, registrations, settings } = bench({ settings: { titleProvider: 'p1', titleModel: 'm1' } })
     await apply(ctx)
+
+    await settle()
     await registrations[0]!.generate(titleRequest(sessionOf('plain'), [message(1, 'only')]))
     settings.titleProvider = 'p2'
     settings.titleModel = 'm2'
@@ -400,6 +429,8 @@ describe('apply', () => {
   it('registers no settings listener, so an emission cannot remount or dispose', async () => {
     const { ctx, registrations, listeners } = bench({ settings: { titleProvider: 'p', titleModel: 'm' } })
     await apply(ctx)
+
+    await settle()
     expect(registrations).toHaveLength(1)
     expect(listeners.filter(entry => entry.event === 'model-switch/settings-update')).toEqual([])
     // A settings emission reaches no settings listener of this row; the loader
@@ -560,6 +591,8 @@ describe('naming route fallback', () => {
   it('falls through to the deployment pair when the group pair fails', async () => {
     const { ctx, registrations } = bench(grouped)
     await apply(ctx)
+
+    await settle()
     let call = 0
     llm.generate.impl = async () => {
       call += 1
@@ -577,6 +610,8 @@ describe('naming route fallback', () => {
   it('retries the same route with a widened budget on a max-token failure', async () => {
     const { ctx, registrations } = bench()
     await apply(ctx)
+
+    await settle()
     let call = 0
     llm.generate.impl = async () => {
       call += 1
@@ -591,6 +626,8 @@ describe('naming route fallback', () => {
   it('reports every candidate failure when no route works', async () => {
     const { ctx, registrations, warns } = bench(grouped)
     await apply(ctx)
+
+    await settle()
     llm.generate.impl = async () => { throw new Error('boom') }
     await expect(registrations[0]!.generate(titleRequest(sessionOf('ark'), [message(1, 'only')])))
       .rejects.toThrow('boom')
@@ -602,6 +639,8 @@ describe('naming route fallback', () => {
   it('keeps a cancelled request silent instead of falling through', async () => {
     const { ctx, registrations, warns } = bench(grouped)
     await apply(ctx)
+
+    await settle()
     llm.generate.impl = async () => { throw new Error('aborted') }
     const controller = new AbortController()
     controller.abort()

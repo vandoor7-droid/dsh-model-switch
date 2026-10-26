@@ -123,6 +123,9 @@ function bench(options: { settings?: Record<string, unknown>; entries?: unknown[
   return { ctx: ctx as unknown as Context, warns, errors, registrations, settings }
 }
 
+/** Let the asynchronous takeover settle: an enabled official row is displaced after `apply` returns. */
+const settle = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 200))
+
 describe('the 0.2.1 provider-prepared line', () => {
   it('prepares the official prompt and interprets the assembled response', async () => {
     llm.impl = async () => ({
@@ -132,6 +135,8 @@ describe('the 0.2.1 provider-prepared line', () => {
     })
     const { ctx, registrations, errors } = bench({ settings: { titleProvider: 'p', titleModel: 'm' } })
     await apply(ctx)
+
+    await settle()
     expect(errors).toEqual([])
     const request = {
       session: sessionOf('plain'),
@@ -153,6 +158,8 @@ describe('the 0.2.1 provider-prepared line', () => {
   it('anchors an all-prompts update on the accepted provider title only', async () => {
     const { ctx, registrations } = bench({ entries: [officialRow(ALL_PROMPTS)] })
     await apply(ctx)
+
+    await settle()
     const anchored = {
       session: sessionOf(undefined),
       messages: [message(1, 'first'), message(2, 'second')],
@@ -171,6 +178,8 @@ describe('the 0.2.1 provider-prepared line', () => {
   it('ignores a fallback title and a first-prompt request as anchors', async () => {
     const { ctx, registrations } = bench()
     await apply(ctx)
+
+    await settle()
     await registrations[0]!.generate({
       session: sessionOf(undefined),
       messages: [message(1, 'first'), message(2, 'second')],
@@ -190,6 +199,8 @@ describe('the 0.2.1 provider-prepared line', () => {
       },
     })
     await apply(ctx)
+
+    await settle()
     let call = 0
     llm.impl = async () => {
       call += 1
@@ -216,6 +227,8 @@ describe('the 0.2.1 provider-prepared line', () => {
     llm.resolve = () => { throw new Error('policy rejected') }
     try {
       await apply(ctx)
+
+      await settle()
     } finally {
       llm.resolve = original
     }

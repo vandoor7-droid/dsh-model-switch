@@ -1,3 +1,14 @@
+## v0.4.43
+
+修掉「同时启用本插件与『随对话更新的标题』时，添加模型供应商会失败」的冲突（`session-title provider "session-title-all-prompts-llm" is already registered`）。
+
+- **根因（lab 复现 + 插桩取证）**：保存供应商会重写 profile 配置层并重建整个组合；官方 `optional-session-title-all-prompts`（由 `@deepseek-ai/dsh-experimental-session-titles-bundle` 插入）在重建时被**重新激活**，而本插件在 `loader/partial-dispose` 开始时**仍持有** `sessionTitle` 的单槽位注册，于是官方行自己的 `register()` 抛 `already registered`；一次激活失败会中止整个组合，保存因此失败。
+- **插桩证据**：临时把 provider id 改成 `model-switch-…` 后，报错点名占用者是 `model-switch-session-title-all-prompts-llm`（本插件），排除"官方行自己重入"的猜测；再把 `loader/*` 事件落盘，确认保存时整树 `partial-dispose` 期间 `claimed=true`。
+- **修复（`src/session-title.ts`）**：在**第一个** `loader/partial-dispose` 就 `yieldSlot()` 释放命名槽位；重建期间被重新插入的官方行因此能正常注册，本插件随后按既有接管流程（禁用该行 → 有界夺回）恢复可控命名路由。另加 `loader/entry-init` 让位与"无可接管行时补认领"两处兜底。
+- **行为不变**：命名路由优先级（组 ?? 默认）、候选链、日志字段都不变；仅在组合拆除的短暂窗口内把槽位交还给官方行。
+- **测试**：新增"官方行在同一次组合重建中激活时不得占位"回归用例；接管时序断言改为等待异步完成。`pnpm run check` 绿（**60 文件 / 559 测试** + pack 闸门）。
+- **Lab 验证（DSH 0.2.1-rc.3 + 官方 session-titles bundle，`DSH_HOME=~/.dsh-lab`，3082）**：修复前连续复现 `did not activate … already registered`（与你桌面截图逐字一致）；修复后「添加模型提供商」连续两次（mistral、qwen-token-plan）均返回「已保存」，无任何激活告警；随后新建会话发送首条消息，标题正常生成（「验证结果一词总结」），证明命名接管在配置重写后仍然有效。
+
 ## v0.4.42
 
 与第三方自动模式插件 `@log.li/dsh-automode` 的插件层适配：**不改用户配置、不新增依赖、不安装任何东西**——本插件在自己的 loader 行里，把「自动审查路由」与「纯读名单」注入到 `@log.li/dsh-automode` 行的**内存配置**，让它的 `auto-mode` 档位沿用我们的路由与豁免。

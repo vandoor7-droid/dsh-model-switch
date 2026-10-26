@@ -104,6 +104,9 @@ describe('session-title takeover', () => {
     const first = entryOf('session-title-llm', FIRST_PROMPT)
     const { ctx, service } = ctxOf([first])
     await apply(ctx)
+    // An enabled official row is displaced asynchronously, so the claim settles
+    // after `apply` returns instead of racing that row's own registration.
+    await flush(TAKEOVER_MAX_ATTEMPTS)
     expect(service.registered).toHaveLength(1)
     expect(service.registered[0]).toMatchObject({ id: 'session-title-first-prompt-llm', automatic: 'first-prompt' })
 
@@ -124,6 +127,29 @@ describe('session-title takeover', () => {
     await officialDispose()
     expect(all.updates).toContainEqual({ disabled: true })
     await flush(TAKEOVER_MAX_ATTEMPTS)
+    expect(service.current()?.provider.id).toBe('session-title-all-prompts-llm')
+  })
+
+  it('leaves the slot free for an official row that activates in the same composition', async () => {
+    // A composition rewrite (saving a model provider re-writes the bundle layer)
+    // re-creates the inserted row enabled. Holding the slot here would make that
+    // row's own register() throw "already registered"; a failed activation aborts
+    // the whole composition, which is how the provider save used to fail.
+    const all = entryOf('optional-session-title-all-prompts', ALL_PROMPTS, {
+      targetWords: 5, targetCjkCharacters: 10, maxInputBytes: 4096, maxOutputTokens: 64, timeoutMs: 60000,
+    })
+    const { ctx, service } = ctxOf([all])
+
+    await apply(ctx)
+    // Nothing is claimed before that row has had its chance to register.
+    expect(service.registered).toHaveLength(0)
+    const officialDispose = service.register({ id: 'session-title-all-prompts-llm', automatic: 'all-prompts' })
+
+    // The takeover still converges once the official registration releases.
+    await flush(TAKEOVER_MAX_ATTEMPTS)
+    await officialDispose()
+    await flush(TAKEOVER_MAX_ATTEMPTS)
+    expect(all.updates).toContainEqual({ disabled: true })
     expect(service.current()?.provider.id).toBe('session-title-all-prompts-llm')
   })
 
@@ -183,12 +209,12 @@ describe('session-title takeover', () => {
     const all = entryOf('optional-session-title-all-prompts', ALL_PROMPTS, { maxInputBytes: 4096, maxOutputTokens: 64, timeoutMs: 1000 })
     const { ctx, service } = ctxOf([all])
     service.register({ id: 'session-title-all-prompts-llm', automatic: 'all-prompts' })
-    const error = vi.spyOn(ctx.logger, 'error')
+    const info = vi.spyOn(ctx.logger, 'info')
 
     await apply(ctx)
     await flush(TAKEOVER_MAX_ATTEMPTS + 3)
 
-    expect(error.mock.calls.some(call => String(call[0]).includes('kept the session-title provider slot'))).toBe(true)
+    expect(info.mock.calls.some(call => String(call[0]).includes('owns the seam'))).toBe(true)
     expect(service.current()?.provider.id).toBe('session-title-all-prompts-llm')
     expect(service.registered).toHaveLength(1)
   })
