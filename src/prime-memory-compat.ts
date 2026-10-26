@@ -154,12 +154,48 @@ interface Loader {
   entries?(): Iterable<Entry>
 }
 
-/** The static pin a row config carries, when both halves are set. */
-function pinOf(config: unknown): { provider: string; model: string } | undefined {
-  const llm = asRecord(asRecord(config)?.llm)
-  const provider = text(llm?.provider)
-  const model = text(llm?.model)
-  return provider === '' || model === '' ? undefined : { provider, model }
+/** What this adapter needs from the host web server, to reach the plugin's own RPC. */
+interface WebServerLike {
+  port?: number
+  address?: { port?: number }
+}
+
+/** The endpoint the memory plugin registers for its own runtime settings writes. */
+const MEMORY_RPC_PATH = '/dsh-memory/rpc/settings-set'
+
+/**
+ * Hand the route to the memory plugin through the RPC it registers for its own
+ * settings page.
+ *
+ * Writing the config document (what `settings.update` does) only changes what the
+ * next start reads; the plugin resolves its route from the runtime settings object
+ * it built at `apply`. This endpoint is the documented runtime write path — the
+ * same one its own "distillation parameters" panel posts to — so it takes effect
+ * without a restart, which is exactly what a provider switch needs.
+ */
+async function pushMemoryRoute(
+  ctx: Context,
+  route: { provider: string; model: string },
+): Promise<'pushed' | 'absent' | 'rejected'> {
+  const server = ctx.get('webServer', false) as WebServerLike | undefined
+  const port = server?.port ?? server?.address?.port
+  if (typeof port !== 'number' || port <= 0) return 'absent'
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}${MEMORY_RPC_PATH}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        distillChain: [{ provider: route.provider, model: route.model }],
+        distillProvider: '',
+        distillModel: '',
+        reasoningEffort: '',
+      }),
+    })
+    if (response.status === 404 || response.status === 405 || response.status === 403) return 'absent'
+    return response.ok ? 'pushed' : 'rejected'
+  } catch {
+    return 'absent'
+  }
 }
 
 /** The `agent-default-model` row's provider: the deployment default. */
@@ -257,36 +293,17 @@ export function installPrimeMemoryCompat(
       return
     }
     const wanted = `${provider}/${model}`
-    // The plugin resolves its route from the config snapshot it took at `apply`,
-    // and a live-section write does not reach that snapshot (verified on
-    // 0.2.1-rc.3: the chain was stored and read back, the call still used the
-    // deployment model). Its static pin wins over every runtime key, so this sets
-    // the pin and re-mounts the row through the public `Entry.update` — which is
-    // what makes the change observable on the very next distillation.
-    const entry = primeMemoryEntry()
-    if (entry !== undefined) {
-      const config = asRecord((entry.options as { config?: unknown } | undefined)?.config) ?? {}
-      const pin = pinOf(config)
-      const pinned = pin === undefined ? '' : `${pin.provider}/${pin.model}`
-      if (pinned !== '' && pinned !== wanted && adoptedRoute !== wanted) {
-        primeMemoryCompatStatus.routeSkipped = 'user-set'
-        primeMemoryCompatStatus.route = undefined
-        return
-      }
-      if (pinned !== wanted && entry.update !== undefined && adoptedRoute !== wanted) {
-        const llm = asRecord(config.llm) ?? {}
-        try {
-          await entry.update({ config: { ...config, llm: { ...llm, provider, model } } })
-          adoptedRoute = wanted
-          primeMemoryCompatStatus.installed = true
-          primeMemoryCompatStatus.route = wanted
-          delete primeMemoryCompatStatus.routeSkipped
-          ctx.logger.info(`model-switch: pinned the dsh-prime-memory distillation route to ${wanted} and restarted that row`)
-          return
-        } catch (cause: unknown) {
-          ctx.logger.warn(`model-switch: could not pin the dsh-prime-memory route (${String(cause)})`)
-        }
-      }
+    // The plugin resolves its route from the runtime settings object it built at
+    // `apply`, so a document write alone stays invisible until the next start.
+    // Its own settings RPC is the runtime write path — the one its panel posts to —
+    // and it is the only seam that makes a provider switch take effect immediately.
+    const pushed = await pushMemoryRoute(ctx, { provider, model })
+    if (pushed === 'pushed') {
+      adoptedRoute = wanted
+      primeMemoryCompatStatus.installed = true
+      primeMemoryCompatStatus.route = wanted
+      delete primeMemoryCompatStatus.routeSkipped
+      return
     }
     const section = sectionOf(forms)
     if (section === undefined || asRecord(section.value) === undefined) {
