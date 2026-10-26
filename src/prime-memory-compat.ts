@@ -154,6 +154,14 @@ interface Loader {
   entries?(): Iterable<Entry>
 }
 
+/** The static pin a row config carries, when both halves are set. */
+function pinOf(config: unknown): { provider: string; model: string } | undefined {
+  const llm = asRecord(asRecord(config)?.llm)
+  const provider = text(llm?.provider)
+  const model = text(llm?.model)
+  return provider === '' || model === '' ? undefined : { provider, model }
+}
+
 /** The `agent-default-model` row's provider: the deployment default. */
 function defaultProviderOf(loader: Loader | undefined): string | undefined {
   if (typeof loader?.entries !== 'function') return undefined
@@ -199,10 +207,11 @@ export function installPrimeMemoryCompat(
   let attempt = 0
   const timers: ReturnType<typeof setTimeout>[] = []
 
-  const memoryRowPresent = (): boolean => {
-    for (const entry of loader?.entries?.() ?? []) if (isPrimeMemoryRow(entry)) return true
-    return false
+  const primeMemoryEntry = (): Entry | undefined => {
+    for (const entry of loader?.entries?.() ?? []) if (isPrimeMemoryRow(entry)) return entry
+    return undefined
   }
+  const memoryRowPresent = (): boolean => primeMemoryEntry() !== undefined
 
   /** The live section the memory plugin registered, read back through the host. */
   const sectionOf = (forms: SettingsForms): SettingsDescriptor | undefined => {
@@ -248,6 +257,37 @@ export function installPrimeMemoryCompat(
       return
     }
     const wanted = `${provider}/${model}`
+    // The plugin resolves its route from the config snapshot it took at `apply`,
+    // and a live-section write does not reach that snapshot (verified on
+    // 0.2.1-rc.3: the chain was stored and read back, the call still used the
+    // deployment model). Its static pin wins over every runtime key, so this sets
+    // the pin and re-mounts the row through the public `Entry.update` — which is
+    // what makes the change observable on the very next distillation.
+    const entry = primeMemoryEntry()
+    if (entry !== undefined) {
+      const config = asRecord((entry.options as { config?: unknown } | undefined)?.config) ?? {}
+      const pin = pinOf(config)
+      const pinned = pin === undefined ? '' : `${pin.provider}/${pin.model}`
+      if (pinned !== '' && pinned !== wanted && adoptedRoute !== wanted) {
+        primeMemoryCompatStatus.routeSkipped = 'user-set'
+        primeMemoryCompatStatus.route = undefined
+        return
+      }
+      if (pinned !== wanted && entry.update !== undefined && adoptedRoute !== wanted) {
+        const llm = asRecord(config.llm) ?? {}
+        try {
+          await entry.update({ config: { ...config, llm: { ...llm, provider, model } } })
+          adoptedRoute = wanted
+          primeMemoryCompatStatus.installed = true
+          primeMemoryCompatStatus.route = wanted
+          delete primeMemoryCompatStatus.routeSkipped
+          ctx.logger.info(`model-switch: pinned the dsh-prime-memory distillation route to ${wanted} and restarted that row`)
+          return
+        } catch (cause: unknown) {
+          ctx.logger.warn(`model-switch: could not pin the dsh-prime-memory route (${String(cause)})`)
+        }
+      }
+    }
     const section = sectionOf(forms)
     if (section === undefined || asRecord(section.value) === undefined) {
       scheduleRetry()
