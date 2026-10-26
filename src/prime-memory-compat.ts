@@ -185,7 +185,16 @@ async function pushMemoryRoute(
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
+        // The global chain covers the un-layered paths; the per-layer chains are
+        // what the L1/L2/L3 pipelines actually read, and a layer chain replaces
+        // the global one for its layer. Both are written so no layer falls back to
+        // the deployment default model.
         distillChain: [{ provider: route.provider, model: route.model }],
+        distillLayerChains: {
+          l1: [{ provider: route.provider, model: route.model }],
+          l2: [{ provider: route.provider, model: route.model }],
+          l3: [{ provider: route.provider, model: route.model }],
+        },
         distillProvider: '',
         distillModel: '',
         reasoningEffort: '',
