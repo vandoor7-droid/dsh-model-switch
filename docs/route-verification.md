@@ -61,3 +61,8 @@ another route's traffic. Confirm a row's owner from `memory.log` (which prints t
 per call) before attributing it. Review calls are also streaming (`llm.stream()`), so
 "non-streaming means review" is a wrong discriminator; use a distinct model name for the
 route under test instead.
+
+## automode route
+
+`@log.li/dsh-automode` is not part of the provider groups: `src/provider-group.ts` has no automode key. `src/automode-compat.ts` fills the row's `classifier.provider` / `classifier.model` from this plugin's **Auto-review** route, and only when the row leaves them empty (an explicit pair is kept, reported as `routeSkipped: 'user-set'`). So the automode classifier inherits the auto-review route and can be measured without the official auto-review gate being installed — point `autoReviewProvider/Model` at the recorder with a unique model name and trigger one automation. Not yet run: the lab installation of `@log.li/dsh-automode@0.17.0` succeeded, but the profile has no automode row yet, so the plugin is not loaded.
+
