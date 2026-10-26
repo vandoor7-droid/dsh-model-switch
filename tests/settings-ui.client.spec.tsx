@@ -71,6 +71,7 @@ function face(options?: {
     useAutoReviewSettings: () => autoReviewSettings,
     useCompactionSettings: () => compactionSettings,
     useTitleSettings: () => titleSettings,
+    useMemorySettings: () => titleSettings,
     useSwitchSettings: () => switchSettings,
     useSubagentSettings: () => subagentSnapshot,
     saveSubagent: options?.saveSubagent ?? vi.fn(async () => undefined),

@@ -17,6 +17,7 @@ export interface ModelSwitchSettingsFace {
         autoReviewSettings: ConfigViewForm<CapabilityRouteView>;
         compactionSettings: ConfigViewForm<CapabilityRouteView>;
         titleSettings: ConfigViewForm<CapabilityRouteView>;
+        memorySettings: ConfigViewForm<CapabilityRouteView>;
         switchSettings: Pick<ConfigForm<ModelSwitchSettingsView>, 'getSnapshot' | 'subscribe'>;
     };
     capabilities: RuntimeCapabilities;
@@ -25,7 +26,7 @@ export interface ModelSwitchSettingsFace {
      * write can never leave a half-written provider/model pair behind.
      */
     saveSubagent: (ops: readonly ConfigViewOp<SubagentSettingsView>[]) => Promise<void>;
-    saveCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction' | 'title', ops: readonly ConfigViewOp<CapabilityRouteView>[]) => Promise<void>;
+    saveCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction' | 'title' | 'memory', ops: readonly ConfigViewOp<CapabilityRouteView>[]) => Promise<void>;
     /** Persist the read-only skip switch and its allowlist as one atomic write. */
     saveReviewAllowlist: (value: {
         enabled: boolean;

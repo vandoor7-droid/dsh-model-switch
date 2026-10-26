@@ -42,11 +42,15 @@ export declare const zh: {
     readonly titleFollow: "跟随会话模型";
     readonly titleHelp: "为官方自动命名（新会话首条消息后生成标题）指定模型；关闭（两个字段都留空）时命名跟随当前会话模型。";
     readonly titleRouteHelp: "命名请求固定使用这里的 Provider/模型（不带推理强度）；关闭时跟随会话模型。保存后立即对下一次命名生效，不会中断正在进行的命名，会话日志记录的也是实际使用的模型。";
+    readonly memory: "记忆蒸馏模型";
+    readonly memoryFollow: "跟随记忆插件默认";
+    readonly memoryHelp: "为 dsh-prime-memory 的记忆蒸馏指定路由；两个字段都留空时跟随该插件自己的默认模型。";
+    readonly memoryRouteHelp: "按部署默认供应商的配置组解析；该供应商没有组时使用这里填写的平面默认。只改它的内存配置，不写入它的设置。";
     readonly providerGroups: "供应商配置组";
     readonly providerGroupsCard: "按供应商预设路由";
     readonly providerGroupsSummary: "使用该供应商的会话自动采用对应组";
     readonly providerGroupsHelp: "为压缩、自动审查、会话命名与子代理按供应商分别保存路由。";
-    readonly providerGroupsBodyHelp: "每个供应商保存一组压缩、自动审查、会话命名与子代理路由。会话自身的供应商与该组一致时，这四项能力按组实时解析，未固定项回落到上方卡片里的全局设置。切换某个会话的模型不会写入任何全局设置，因此不同供应商的多个会话并行时互不影响，会话中切换供应商后下一次调用也会立即跟随新供应商的配置组。";
+    readonly providerGroupsBodyHelp: "每个供应商保存一组压缩、自动审查、会话命名与子代理路由。会话自身的供应商与该组一致时，这五项能力（含记忆蒸馏）按组实时解析，未固定项回落到上方卡片里的全局设置。切换某个会话的模型不会写入任何全局设置，因此不同供应商的多个会话并行时互不影响，会话中切换供应商后下一次调用也会立即跟随新供应商的配置组。";
     readonly providerGroupPick: "选择供应商以编辑其配置组。";
     readonly providerGroupDelete: "删除该组";
     readonly groupOverridesLabel: "组覆盖：{pins}；无组时用上方默认值";

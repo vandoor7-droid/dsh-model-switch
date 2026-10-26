@@ -5,7 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import { AUTO_REVIEW_SETTINGS_FIELDS, decodeReviewStatus, decodeToolCatalog, deriveAutoReviewSettings, deriveCompactionSettings, deriveImageSettings, deriveSearchSettings, deriveSubagentSettings, deriveTitleSettings, COMPACTION_SETTINGS_FIELDS, IMAGE_SETTINGS_FIELDS, MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, SEARCH_SETTINGS_FIELDS, SUBAGENT_SETTINGS_FIELDS, TITLE_SETTINGS_FIELDS } from '../client-contract.js'
+import { AUTO_REVIEW_SETTINGS_FIELDS, decodeReviewStatus, decodeToolCatalog, deriveAutoReviewSettings, deriveCompactionSettings, deriveImageSettings, deriveMemorySettings, deriveSearchSettings, deriveSubagentSettings, deriveTitleSettings, COMPACTION_SETTINGS_FIELDS, IMAGE_SETTINGS_FIELDS, MEMORY_SETTINGS_FIELDS, MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, SEARCH_SETTINGS_FIELDS, SUBAGENT_SETTINGS_FIELDS, TITLE_SETTINGS_FIELDS } from '../client-contract.js'
 import { type ProviderGroupConfig } from '../provider-group.js'
 import { deriveConfigForm } from './derived-config-form.js'
 import { RUNTIME_CAPABILITIES } from '../runtime-capabilities.js'
@@ -41,6 +41,7 @@ export function apply(ctx: ClientContext): void {
   const autoReview = deriveConfigForm(owned, deriveAutoReviewSettings, AUTO_REVIEW_SETTINGS_FIELDS)
   const compaction = deriveConfigForm(owned, deriveCompactionSettings, COMPACTION_SETTINGS_FIELDS)
   const sessionTitle = deriveConfigForm(owned, deriveTitleSettings, TITLE_SETTINGS_FIELDS)
+  const memory = deriveConfigForm(owned, deriveMemorySettings, MEMORY_SETTINGS_FIELDS)
   const connectionRpc = ((): PluginRpcClient | undefined => {
     try {
       const connection = ctx.get('connection', false) as ConnectionHandle | undefined
@@ -67,7 +68,7 @@ export function apply(ctx: ClientContext): void {
   const subscribeProviderOrder = orderStore.subscribe
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'model-switch', order: 9, label: () => t('nav'), locale: localeNamespace,
-    inject: (): ModelSwitchSettingsFace => ({ t, hooks: { subagentSettings: subagent, searchSettings: search, imageSettings: image, autoReviewSettings: autoReview, compactionSettings: compaction, titleSettings: sessionTitle, switchSettings: owned }, capabilities: RUNTIME_CAPABILITIES, saveSubagent: ops => subagent.mutate(ops), saveCapability: (route, ops) => { const scope = route === 'search' ? search : route === 'image' ? image : route === 'compaction' ? compaction : route === 'title' ? sessionTitle : autoReview; return scope.mutate(ops) },
+    inject: (): ModelSwitchSettingsFace => ({ t, hooks: { subagentSettings: subagent, searchSettings: search, imageSettings: image, autoReviewSettings: autoReview, compactionSettings: compaction, titleSettings: sessionTitle, memorySettings: memory, switchSettings: owned }, capabilities: RUNTIME_CAPABILITIES, saveSubagent: ops => subagent.mutate(ops), saveCapability: (route, ops) => { const scope = route === 'search' ? search : route === 'image' ? image : route === 'compaction' ? compaction : route === 'title' ? sessionTitle : route === 'memory' ? memory : autoReview; return scope.mutate(ops) },
       saveReviewAllowlist: async ({ enabled, tools }: { enabled: boolean; tools: readonly string[] }) => {
         // One atomic write: the switch and the list are one setting unit, so a
         // refused write can never leave "enabled" pointing at a stale list.
