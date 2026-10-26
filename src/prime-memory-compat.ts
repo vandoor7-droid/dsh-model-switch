@@ -54,8 +54,16 @@ export const primeMemoryCompatStatus: PrimeMemoryCompatStatus = { installed: fal
 
 /** The settings-forms seam the memory plugin itself writes through. */
 interface SettingsForms {
+  describe?(options?: { redactSecrets?: boolean }): readonly SettingsDescriptor[]
   get?(name: string): unknown
-  update?(name: string, patch: unknown): Promise<void>
+  update?(name: string, patch: unknown, expectedRevision?: number): Promise<void>
+}
+
+/** One settings form descriptor, as the host reports it. */
+interface SettingsDescriptor {
+  ns: string
+  value?: unknown
+  revision?: number
 }
 
 /** A non-blank string. */
@@ -187,70 +195,123 @@ export function installPrimeMemoryCompat(
 ): { dispose: () => void; replay: () => boolean } {
   /** The route this adapter wrote last, so it may replace its own value only. */
   let adoptedRoute: string | undefined
-  let writing = false
+  let pending: Promise<void> | undefined
+  let attempt = 0
+  const timers: ReturnType<typeof setTimeout>[] = []
 
   const memoryRowPresent = (): boolean => {
     for (const entry of loader?.entries?.() ?? []) if (isPrimeMemoryRow(entry)) return true
     return false
   }
 
-  const sync = (): boolean => {
-    if (!memoryRowPresent()) return false
+  /** The live section the memory plugin registered, read back through the host. */
+  const sectionOf = (forms: SettingsForms): SettingsDescriptor | undefined => {
+    try {
+      return (forms.describe?.({ redactSecrets: true }) ?? []).find((item) => item.ns === MEMORY_ENTRY_ID)
+    } catch {
+      return undefined
+    }
+  }
+
+  const scheduleRetry = (): void => {
+    if (attempt >= 8) return
+    const delay = Math.min(4_000, 200 * 2 ** attempt)
+    attempt += 1
+    const timer = setTimeout(() => { void run() }, delay)
+    timer.unref?.()
+    timers.push(timer)
+  }
+
+  /**
+   * Write our route into the section the plugin itself reads, then read it back.
+   *
+   * The plugin builds that section inside its own `apply` (`settings.register`), so
+   * a write issued before that point lands in a section nobody reads — the reason
+   * an unverified "write once at mount" pass left it on the deployment default.
+   * Writing only once the section is visible, and verifying by reading the chain
+   * back, is what makes this measurable instead of hopeful.
+   */
+  const run = async (): Promise<void> => {
+    if (pending !== undefined) return pending
+    if (!memoryRowPresent()) return
     const route = routeOf()
     const provider = text(route?.provider)
     const model = text(route?.model)
     if (provider === '' || model === '') {
       primeMemoryCompatStatus.routeSkipped = 'no-route'
-      return true
+      return
     }
     const forms = formsOf(ctx)
-    if (forms?.update === undefined) {
+    if (forms?.update === undefined || forms.describe === undefined) {
       primeMemoryCompatStatus.routeSkipped = 'no-route'
-      return true
+      scheduleRetry()
+      return
     }
-    const current = chainOf(forms.get?.(MEMORY_ENTRY_ID))
     const wanted = `${provider}/${model}`
-    if (current.length > 0 && adoptedRoute !== wanted) {
-      // Someone set a chain that is not ours: leave it alone.
+    const section = sectionOf(forms)
+    if (section === undefined || asRecord(section.value) === undefined) {
+      scheduleRetry()
+      return
+    }
+    const current = chainOf(section.value)
+    const declared = current.length > 0 ? `${text(current[0]?.provider)}/${text(current[0]?.model)}` : ''
+    if (declared !== '' && declared !== wanted && adoptedRoute !== wanted) {
       primeMemoryCompatStatus.routeSkipped = 'user-set'
       primeMemoryCompatStatus.route = undefined
-      return true
+      return
     }
     const chain = planDistillChain({ provider, model }, current)
-    if (writing) return true
-    writing = true
-    void forms.update(MEMORY_ENTRY_ID, distillChainPatch(chain)).then(() => {
-      adoptedRoute = wanted
-      primeMemoryCompatStatus.installed = true
-      primeMemoryCompatStatus.route = wanted
-      delete primeMemoryCompatStatus.routeSkipped
-    }).catch((cause: unknown) => {
-      primeMemoryCompatStatus.routeSkipped = 'no-route'
-      ctx.logger.warn(`model-switch: could not write the dsh-prime-memory distillation route (${String(cause)})`)
-    }).finally(() => { writing = false })
+    pending = forms.update(MEMORY_ENTRY_ID, distillChainPatch(chain), section.revision)
+      .then(() => {
+        const applied = chainOf(sectionOf(forms)?.value)
+        const appliedRoute = applied.length > 0 ? `${text(applied[0]?.provider)}/${text(applied[0]?.model)}` : ''
+        if (appliedRoute !== wanted) {
+          scheduleRetry()
+          return
+        }
+        adoptedRoute = wanted
+        attempt = 0
+        primeMemoryCompatStatus.installed = true
+        primeMemoryCompatStatus.route = wanted
+        delete primeMemoryCompatStatus.routeSkipped
+      })
+      .catch((cause: unknown) => {
+        primeMemoryCompatStatus.routeSkipped = 'no-route'
+        ctx.logger.warn(`model-switch: could not write the dsh-prime-memory distillation route (${String(cause)})`)
+        scheduleRetry()
+      })
+      .finally(() => { pending = undefined })
+    return pending
+  }
+
+  const replay = (): boolean => {
+    void run()
     return true
   }
 
-  const replay = (): boolean => sync()
-
-  sync()
+  void run()
 
   const offPatch = ctx.on('loader/patch-context', function (this: unknown, first: unknown, second?: unknown) {
     const nextFn = (typeof first === 'function' ? first : second) as (() => unknown) | undefined
     const candidate = typeof first === 'function' ? this : first
-    if (isPrimeMemoryRow(candidate as Entry | undefined)) sync()
+    if (isPrimeMemoryRow(candidate as Entry | undefined)) void run()
     return nextFn === undefined ? undefined : nextFn()
   })
   const offInit = ctx.on('loader/entry-init', function (this: unknown, first?: unknown) {
     const candidate = (this ?? first) as Entry | undefined
-    if (candidate !== undefined && isPrimeMemoryRow(candidate)) sync()
+    if (candidate !== undefined && isPrimeMemoryRow(candidate)) void run()
   })
-  const lateSweep = setTimeout(() => { sync() }, 1_500)
+  const offService = ctx.on('internal/service', (name: unknown) => {
+    if (name === 'settings') void run()
+  })
+  const lateSweep = setTimeout(() => { void run() }, 1_500)
   return {
     dispose: () => {
       offPatch()
       offInit()
+      offService()
       clearTimeout(lateSweep)
+      for (const timer of timers) clearTimeout(timer)
     },
     replay,
   }
