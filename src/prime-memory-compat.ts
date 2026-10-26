@@ -312,8 +312,23 @@ export function installPrimeMemoryCompat(
       primeMemoryCompatStatus.installed = true
       primeMemoryCompatStatus.route = wanted
       delete primeMemoryCompatStatus.routeSkipped
-      return
     }
+    // The runtime chain only reaches the layers that re-resolve per call. The
+    // plugin's static pin (`config.llm.provider` + `config.llm.model`) is read by
+    // `resolveModelRoute` before anything else and makes every layer use one route
+    // — verified in the lab: with the pin in place the L1 call ran on the pinned
+    // model. It is configuration, so it applies from the next start.
+    const config = asRecord((primeMemoryEntry()?.options as { config?: unknown } | undefined)?.config) ?? {}
+    const pinned = asRecord(config.llm) ?? {}
+    if (text(pinned.provider) !== provider || text(pinned.model) !== model) {
+      try {
+        await forms.update(MEMORY_ENTRY_ID, { llm: { ...pinned, provider, model } })
+        ctx.logger.info(`model-switch: pinned the dsh-prime-memory distillation route to ${wanted} (applies from the next start)`)
+      } catch (cause: unknown) {
+        ctx.logger.warn(`model-switch: could not pin the dsh-prime-memory route (${String(cause)})`)
+      }
+    }
+    if (pushed === 'pushed') return
     const section = sectionOf(forms)
     if (section === undefined || asRecord(section.value) === undefined) {
       scheduleRetry()
