@@ -16,6 +16,8 @@ export interface ModelSwitchSettingsView {
   autoReviewAllowlist?: readonly string[]
   compactProvider?: string; compactModel?: string
   titleProvider?: string; titleModel?: string
+  /** Distillation route for the memory plugin; both unset means it keeps its own default. */
+  memoryProvider?: string; memoryModel?: string
   /** Raw saved per-provider groups; edited whole through the provider-groups card. */
   providerGroups?: ProviderGroupsStorage
 }
@@ -54,6 +56,8 @@ export function deriveAutoReviewAllowlist(settings: ModelSwitchSettingsView): Au
 export const COMPACTION_SETTINGS_FIELDS = Object.freeze({ provider: 'compactProvider', model: 'compactModel' } as const)
 /** Automatic session-title naming route; both unset means the official default (the session's own logged route). */
 export const TITLE_SETTINGS_FIELDS = Object.freeze({ provider: 'titleProvider', model: 'titleModel' } as const)
+/** Distillation route handed to the memory plugin when it follows its own default. */
+export const MEMORY_SETTINGS_FIELDS = Object.freeze({ provider: 'memoryProvider', model: 'memoryModel' } as const)
 
 export function deriveSubagentSettings(settings: ModelSwitchSettingsView): SubagentSettingsView {
   return { mode: settings.subagentMode, ...(settings.subagentProvider === undefined ? {} : { provider: settings.subagentProvider }), ...(settings.subagentModel === undefined ? {} : { model: settings.subagentModel }), ...(settings.subagentReasoningEffort === undefined ? {} : { reasoningEffort: settings.subagentReasoningEffort }) }
@@ -63,6 +67,7 @@ export function deriveImageSettings(settings: ModelSwitchSettingsView): Capabili
 export function deriveAutoReviewSettings(settings: ModelSwitchSettingsView): CapabilityRouteView { return { ...(settings.autoReviewProvider === undefined ? {} : { provider: settings.autoReviewProvider }), ...(settings.autoReviewModel === undefined ? {} : { model: settings.autoReviewModel }) } }
 export function deriveCompactionSettings(settings: ModelSwitchSettingsView): CapabilityRouteView { return { ...(settings.compactProvider === undefined ? {} : { provider: settings.compactProvider }), ...(settings.compactModel === undefined ? {} : { model: settings.compactModel }) } }
 export function deriveTitleSettings(settings: ModelSwitchSettingsView): CapabilityRouteView { return { ...(settings.titleProvider === undefined ? {} : { provider: settings.titleProvider }), ...(settings.titleModel === undefined ? {} : { model: settings.titleModel }) } }
+export function deriveMemorySettings(settings: ModelSwitchSettingsView): CapabilityRouteView { return { ...(settings.memoryProvider === undefined ? {} : { provider: settings.memoryProvider }), ...(settings.memoryModel === undefined ? {} : { model: settings.memoryModel }) } }
 /** Whether both fields of a model route form a complete pair; an incomplete pair stays off. */
 export function routePairConfigured(route: CapabilityRouteView | undefined): boolean {
   return route !== undefined && (route.provider ?? '').trim() !== '' && (route.model ?? '').trim() !== ''

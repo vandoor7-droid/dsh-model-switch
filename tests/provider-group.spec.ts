@@ -69,6 +69,8 @@ describe('entryOf', () => {
       subagentReasoningEffort: '',
       titleProvider: '',
       titleModel: '',
+      memoryProvider: '',
+      memoryModel: '',
     })
   })
   it('stores a pinned naming route alongside the other capabilities', () => {
@@ -83,6 +85,8 @@ describe('entryOf', () => {
       subagentReasoningEffort: '',
       titleProvider: 'deepseek',
       titleModel: 'deep-mini',
+      memoryProvider: '',
+      memoryModel: '',
     })
   })
 })

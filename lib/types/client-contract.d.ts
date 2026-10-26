@@ -20,6 +20,9 @@ export interface ModelSwitchSettingsView {
     compactModel?: string;
     titleProvider?: string;
     titleModel?: string;
+    /** Distillation route for the memory plugin; both unset means it keeps its own default. */
+    memoryProvider?: string;
+    memoryModel?: string;
     /** Raw saved per-provider groups; edited whole through the provider-groups card. */
     providerGroups?: ProviderGroupsStorage;
 }
@@ -81,12 +84,18 @@ export declare const TITLE_SETTINGS_FIELDS: Readonly<{
     readonly provider: "titleProvider";
     readonly model: "titleModel";
 }>;
+/** Distillation route handed to the memory plugin when it follows its own default. */
+export declare const MEMORY_SETTINGS_FIELDS: Readonly<{
+    readonly provider: "memoryProvider";
+    readonly model: "memoryModel";
+}>;
 export declare function deriveSubagentSettings(settings: ModelSwitchSettingsView): SubagentSettingsView;
 export declare function deriveSearchSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 export declare function deriveImageSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 export declare function deriveAutoReviewSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 export declare function deriveCompactionSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 export declare function deriveTitleSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
+export declare function deriveMemorySettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 /** Whether both fields of a model route form a complete pair; an incomplete pair stays off. */
 export declare function routePairConfigured(route: CapabilityRouteView | undefined): boolean;
 /** Live reviewer counters shown beside the allowlist editor. */

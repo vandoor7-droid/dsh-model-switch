@@ -12,7 +12,7 @@
  * All functions here are pure and never throw on malformed storage.
  */
 /** Flat settings fields a provider group carries across all four per-session capabilities. */
-export type ProviderGroupRouteField = 'compactProvider' | 'compactModel' | 'autoReviewProvider' | 'autoReviewModel' | 'subagentProvider' | 'subagentModel' | 'subagentReasoningEffort' | 'titleProvider' | 'titleModel';
+export type ProviderGroupRouteField = 'compactProvider' | 'compactModel' | 'autoReviewProvider' | 'autoReviewModel' | 'subagentProvider' | 'subagentModel' | 'subagentReasoningEffort' | 'titleProvider' | 'titleModel' | 'memoryProvider' | 'memoryModel';
 /** Stored entry: the owning provider plus every route field; '' means the capability stays at its default. */
 export interface ProviderGroupEntry {
     provider: string;
@@ -25,6 +25,9 @@ export interface ProviderGroupEntry {
     subagentReasoningEffort: string;
     titleProvider: string;
     titleModel: string;
+    /** Distillation route for the memory plugin; '' keeps that plugin's own default. */
+    memoryProvider: string;
+    memoryModel: string;
 }
 /** Normalized view of one provider's group; absent fields follow their default state. */
 export type ProviderGroupConfig = Partial<Record<ProviderGroupRouteField, string>>;

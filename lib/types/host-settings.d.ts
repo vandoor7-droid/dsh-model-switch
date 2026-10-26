@@ -37,6 +37,10 @@ export interface ModelSwitchSettings {
     titleProvider?: string;
     /** Naming model for automatic session titles; set together with `titleProvider`. */
     titleModel?: string;
+    /** Distillation provider for the memory plugin; both fields unset = its own default. */
+    memoryProvider?: string;
+    /** Distillation model for the memory plugin; set together with `memoryProvider`. */
+    memoryModel?: string;
     /** Per-provider compaction/subagent/review presets, keyed by provider id; absent when no group is saved. */
     providerGroups?: ProviderGroups;
 }
@@ -60,6 +64,9 @@ export interface Config {
     compactModel: Volatile<string | undefined>;
     titleProvider: Volatile<string | undefined>;
     titleModel: Volatile<string | undefined>;
+    /** Distillation route handed to the memory plugin when it follows its default. */
+    memoryProvider: Volatile<string | undefined>;
+    memoryModel: Volatile<string | undefined>;
     /** Saved per-provider capability groups as one entry per provider; entry route fields are '' when the capability stays at its default. */
     providerGroups: Volatile<readonly ProviderGroupEntry[]>;
 }

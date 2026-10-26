@@ -62,6 +62,10 @@
       "types": "./lib/types/automode-compat.d.ts",
       "default": "./lib/automode-compat.js"
     },
+    "./prime-memory-compat": {
+      "types": "./lib/types/prime-memory-compat.d.ts",
+      "default": "./lib/prime-memory-compat.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

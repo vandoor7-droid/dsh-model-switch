@@ -23,6 +23,8 @@ export type ProviderGroupRouteField =
   | 'subagentReasoningEffort'
   | 'titleProvider'
   | 'titleModel'
+  | 'memoryProvider'
+  | 'memoryModel'
 
 /** Stored entry: the owning provider plus every route field; '' means the capability stays at its default. */
 export interface ProviderGroupEntry {
@@ -36,6 +38,9 @@ export interface ProviderGroupEntry {
   subagentReasoningEffort: string
   titleProvider: string
   titleModel: string
+  /** Distillation route for the memory plugin; '' keeps that plugin's own default. */
+  memoryProvider: string
+  memoryModel: string
 }
 
 /** Normalized view of one provider's group; absent fields follow their default state. */
@@ -57,6 +62,8 @@ const ROUTE_FIELDS: readonly ProviderGroupRouteField[] = Object.freeze([
   'subagentReasoningEffort',
   'titleProvider',
   'titleModel',
+  'memoryProvider',
+  'memoryModel',
 ])
 
 /** Own data property, so a literal '__proto__' provider id can never touch a prototype. */
@@ -133,6 +140,8 @@ export function entryOf(provider: string, group: ProviderGroupConfig): ProviderG
     subagentReasoningEffort: group.subagentReasoningEffort ?? '',
     titleProvider: group.titleProvider ?? '',
     titleModel: group.titleModel ?? '',
+    memoryProvider: group.memoryProvider ?? '',
+    memoryModel: group.memoryModel ?? '',
   }
 }
 

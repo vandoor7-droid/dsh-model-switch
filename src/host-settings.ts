@@ -40,6 +40,10 @@ export interface ModelSwitchSettings {
   titleProvider?: string
   /** Naming model for automatic session titles; set together with `titleProvider`. */
   titleModel?: string
+  /** Distillation provider for the memory plugin; both fields unset = its own default. */
+  memoryProvider?: string
+  /** Distillation model for the memory plugin; set together with `memoryProvider`. */
+  memoryModel?: string
   /** Per-provider compaction/subagent/review presets, keyed by provider id; absent when no group is saved. */
   providerGroups?: ProviderGroups
 }
@@ -64,6 +68,9 @@ export interface Config {
   compactModel: Volatile<string | undefined>
   titleProvider: Volatile<string | undefined>
   titleModel: Volatile<string | undefined>
+  /** Distillation route handed to the memory plugin when it follows its default. */
+  memoryProvider: Volatile<string | undefined>
+  memoryModel: Volatile<string | undefined>
   /** Saved per-provider capability groups as one entry per provider; entry route fields are '' when the capability stays at its default. */
   providerGroups: Volatile<readonly ProviderGroupEntry[]>
 }
@@ -90,6 +97,8 @@ export const Config: z<any, Config, 'plain'> = z.object({
   compactModel: z.string().volatile(),
   titleProvider: z.string().volatile(),
   titleModel: z.string().volatile(),
+  memoryProvider: z.string().volatile(),
+  memoryModel: z.string().volatile(),
   providerGroups: z.array(z.object({
     provider: z.string().default(''),
     compactProvider: z.string().default(''),
@@ -101,6 +110,8 @@ export const Config: z<any, Config, 'plain'> = z.object({
     subagentReasoningEffort: z.string().default(''),
     titleProvider: z.string().default(''),
     titleModel: z.string().default(''),
+    memoryProvider: z.string().default(''),
+    memoryModel: z.string().default(''),
   })).default([]).volatile(),
 })
 
@@ -120,6 +131,8 @@ export function readConfig(config: Config): ModelSwitchSettings {
   const compactModel = config.compactModel.get()
   const titleProvider = config.titleProvider.get()
   const titleModel = config.titleModel.get()
+  const memoryProvider = config.memoryProvider.get()
+  const memoryModel = config.memoryModel.get()
   const providerGroups = normalizeProviderGroups(config.providerGroups.get())
   return {
     subagentMode: config.subagentMode.get(),
@@ -138,6 +151,8 @@ export function readConfig(config: Config): ModelSwitchSettings {
     ...(compactModel === undefined || compactModel === '' ? {} : { compactModel }),
     ...(titleProvider === undefined || titleProvider === '' ? {} : { titleProvider }),
     ...(titleModel === undefined || titleModel === '' ? {} : { titleModel }),
+    ...(memoryProvider === undefined || memoryProvider === '' ? {} : { memoryProvider }),
+    ...(memoryModel === undefined || memoryModel === '' ? {} : { memoryModel }),
     ...(Object.keys(providerGroups).length === 0 ? {} : { providerGroups }),
   }
 }

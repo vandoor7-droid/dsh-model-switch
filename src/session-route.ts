@@ -27,7 +27,7 @@ import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/typ
 import { groupOf, type ProviderGroupConfig, type ProviderGroups } from './provider-group.js'
 
 /** Capabilities whose route can be derived per session. */
-export type CapabilityId = 'compaction' | 'autoReview' | 'title' | 'subagent'
+export type CapabilityId = 'compaction' | 'autoReview' | 'title' | 'subagent' | 'memory'
 
 /** A complete pinned route; either half missing means "follow the default". */
 export interface CapabilityRoute {
@@ -51,6 +51,8 @@ export interface RouteBearingSettings {
   readonly compactModel?: string
   readonly titleProvider?: string
   readonly titleModel?: string
+  readonly memoryProvider?: string
+  readonly memoryModel?: string
   readonly providerGroups?: ProviderGroups
 }
 
@@ -60,6 +62,7 @@ const CAPABILITY_FIELDS: Readonly<Record<CapabilityId, { readonly provider: stri
   autoReview: { provider: 'autoReviewProvider', model: 'autoReviewModel' },
   title: { provider: 'titleProvider', model: 'titleModel' },
   subagent: { provider: 'subagentProvider', model: 'subagentModel' },
+  memory: { provider: 'memoryProvider', model: 'memoryModel' },
 })
 
 /** A non-blank string; blank values behave exactly like an absent field. */
@@ -85,6 +88,22 @@ function pairOf(source: object | undefined, fields: { readonly provider: string;
  */
 export function deploymentRoute(settings: RouteBearingSettings | undefined, capability: CapabilityId): CapabilityRoute | undefined {
   return pairOf(settings, CAPABILITY_FIELDS[capability])
+}
+
+/**
+ * The distillation route one deployment should use.
+ *
+ * Distillation is a background pipeline with no session of its own, so the group
+ * key is the deployment default provider (the provider the profile starts
+ * sessions on) rather than a session's provider. A provider without a group falls
+ * back to the flat memory pair; an empty pair leaves the memory plugin at its own
+ * default.
+ * @param settings - live Model Switch settings.
+ * @param provider - the deployment default provider, when one is observable.
+ * @returns The complete pair, or undefined when nothing is pinned.
+ */
+export function memoryRouteOf(settings: RouteBearingSettings | undefined, provider: string | undefined): CapabilityRoute | undefined {
+  return groupRoute(settings, provider, 'memory') ?? deploymentRoute(settings, 'memory')
 }
 
 /** One capability's route plus the reasoning effort a subagent spawn also carries. */
