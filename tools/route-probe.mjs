@@ -69,6 +69,27 @@ if (toolName !== '') {
     process.exit(2)
   }
 }
+/**
+ * Per-model overrides so one probe can serve several measured paths at once:
+ * `--map '{"probe-review":{"preset":"classifier-allow"},"probe-plan":{"tool":"exit_plan_mode","args":{"plan":"## 虚拟计划"}}}'`.
+ * A model without an entry keeps the process-wide `--preset` / `--tool` reply.
+ */
+const mapRaw = flag('map', '')
+let modelMap = null
+if (mapRaw !== '') {
+  try {
+    const parsedMap = JSON.parse(mapRaw)
+    if (parsedMap === null || typeof parsedMap !== 'object' || Array.isArray(parsedMap)) throw new Error('object required')
+    for (const [key, value] of Object.entries(parsedMap)) {
+      if (value === null || typeof value !== 'object') throw new Error(`entry ${key} must be an object`)
+      if (value.preset !== undefined && !Object.hasOwn(PRESETS, value.preset)) throw new Error(`entry ${key} has an unknown preset`)
+    }
+    modelMap = parsedMap
+  } catch (error) {
+    console.error(`route-probe: bad --map (${String(error)})`)
+    process.exit(2)
+  }
+}
 if (process.argv.includes('--clear')) writeFileSync(logPath, '')
 
 /** Append one observation; never let logging break the response. */
@@ -89,6 +110,9 @@ function readBody(request) {
     request.on('end', () => resolve(body))
   })
 }
+
+/** Models that already got their one-shot tool call (see `--map` `once`). */
+const servedOnce = new Set()
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? '/', `http://127.0.0.1:${port}`)
@@ -114,17 +138,32 @@ const server = createServer(async (request, response) => {
     } catch {
       // A non-JSON body still gets recorded, so a malformed call is visible.
     }
-    record({ path: url.pathname, model, stream, tool: toolName, preset, authPresent: request.headers.authorization !== undefined, port })
+    const pinned = modelMap === null ? undefined : modelMap[model]
+    // `once` keeps a replayed tool call from looping: the first request gets the
+    // tool call, later ones for that model get plain text (a tool call on every
+    // request makes the agent retry it until it is stopped by hand).
+    const oneShotSpent = pinned?.once === true && servedOnce.has(model)
+    if (pinned?.once === true && !oneShotSpent) servedOnce.add(model)
+    const toolOverride = oneShotSpent ? undefined : pinned?.tool
+    const replyTool = pinned === undefined
+      ? toolName
+      : (toolOverride === undefined ? '' : String(toolOverride))
+    const replyArgs = pinned?.args !== undefined ? JSON.stringify(pinned.args) : toolArgs
+    const replyPreset = pinned?.preset !== undefined ? String(pinned.preset) : preset
+    const replyAnswer = pinned?.answer !== undefined
+      ? String(pinned.answer)
+      : (pinned?.preset !== undefined ? PRESETS[pinned.preset] : answer)
+    record({ path: url.pathname, model, stream, tool: replyTool, preset: replyPreset, authPresent: request.headers.authorization !== undefined, port })
     if (stream) {
       response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
-      if (toolName !== '') {
-        const call = { index: 0, id: 'call_probe', type: 'function', function: { name: toolName, arguments: toolArgs } }
+      if (replyTool !== '') {
+        const call = { index: 0, id: 'call_probe', type: 'function', function: { name: replyTool, arguments: replyArgs } }
         response.write(`data: ${JSON.stringify({ id: 'probe', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [call] }, finish_reason: null }] })}\n\n`)
         response.write(`data: ${JSON.stringify({ id: 'probe', object: 'chat.completion.chunk', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })}\n\n`)
         response.end('data: [DONE]\n\n')
         return
       }
-      const chunk = { id: 'probe', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', content: answer }, finish_reason: null }] }
+      const chunk = { id: 'probe', object: 'chat.completion.chunk', choices: [{ index: 0, delta: { role: 'assistant', content: replyAnswer }, finish_reason: null }] }
       response.write(`data: ${JSON.stringify(chunk)}\n\n`)
       response.write(`data: ${JSON.stringify({ ...chunk, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`)
       response.end('data: [DONE]\n\n')
@@ -136,9 +175,9 @@ const server = createServer(async (request, response) => {
       object: 'chat.completion',
       created: Math.floor(Date.now() / 1000),
       model: model === '' ? 'probe-model' : model,
-      choices: [{ index: 0, message: toolName === ''
-        ? { role: 'assistant', content: answer }
-        : { role: 'assistant', content: null, tool_calls: [{ id: 'call_probe', type: 'function', function: { name: toolName, arguments: toolArgs } }] }, finish_reason: toolName === '' ? 'stop' : 'tool_calls' }],
+      choices: [{ index: 0, message: replyTool === ''
+        ? { role: 'assistant', content: replyAnswer }
+        : { role: 'assistant', content: null, tool_calls: [{ id: 'call_probe', type: 'function', function: { name: replyTool, arguments: replyArgs } }] }, finish_reason: replyTool === '' ? 'stop' : 'tool_calls' }],
       usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
     }))
     return

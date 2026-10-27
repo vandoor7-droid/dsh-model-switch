@@ -66,3 +66,24 @@ route under test instead.
 
 `@log.li/dsh-automode` is not part of the provider groups: `src/provider-group.ts` has no automode key. `src/automode-compat.ts` fills the row's `classifier.provider` / `classifier.model` from this plugin's **Auto-review** route, and only when the row leaves them empty (an explicit pair is kept, reported as `routeSkipped: 'user-set'`). So the automode classifier inherits the auto-review route and can be measured without the official auto-review gate being installed — point `autoReviewProvider/Model` at the recorder with a unique model name and trigger one automation. Not yet run: the lab installation of `@log.li/dsh-automode@0.17.0` succeeded, but the profile has no automode row yet, so the plugin is not loaded.
 
+
+## Virtual two-way replay (2026-10-28, 0.4.47 lab attempt)
+
+- **Probe capability**: `tools/route-probe.mjs` now takes `--map` so one probe answers
+  several measured models at once (`{"gpt-6.1-sol":{"tool":"exit_plan_mode","once":true,"args":{…}},"probe-review":{"preset":"classifier-allow"}}`).
+  `once: true` replays the tool call on the first request for that model only — a
+  tool call on every request makes the agent retry it until stopped by hand (observed:
+  539 steps in one turn).
+- **Lab virtualization**: the rc.3 lab profile (`~/.dsh-lab3`) points its `apigoto`
+  provider at `http://127.0.0.1:4719/v1` with `PROBE_API_KEY=sk-probe-virtual-0`;
+  `.scratch/start-lab3.sh` no longer imports desktop credentials, and a `plan-mode`
+  row was added so the exit tool exists. Recorded requests, no real API: zero quota.
+- **What it proved**: `model=gpt-6.1-sol` received the replayed `exit_plan_mode` call
+  and the next request came back as text, i.e. the tool executed — but the Plan
+  review card never rendered because the pending question was settled automatically
+  in this profile (no answerer). So the card, its 720 px layout, and the new
+  "keep also commits the picked model" behaviour stay **unverified at runtime** here;
+  they are covered only by `tests/picker/plan-review-card.spec.tsx` (32 cases).
+- **Not run this round**: the Auto review and automode-classifier rows above. Next
+  attempt needs a profile where the plan question is not auto-cancelled (desktop-shaped
+  client set, or a registered answerer in the lab).
