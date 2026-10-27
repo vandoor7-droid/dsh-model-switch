@@ -87,3 +87,24 @@ route under test instead.
 - **Not run this round**: the Auto review and automode-classifier rows above. Next
   attempt needs a profile where the plan question is not auto-cancelled (desktop-shaped
   client set, or a registered answerer in the lab).
+
+### automode classifier: 2026-10-28 attempt (still unmeasured)
+
+Re-ran the virtual automode measurement on the rc.3 lab: session preset `Auto mode`,
+main model on the probe (`gpt-6.1-sol` → replayed `bash` call, one-shot), classifier
+model mapped to `classifier-allow` (`mimo-v2.6-flash`). The probe recorded only two
+requests — the replayed `bash` call and the follow-up text — and the automode audit log
+gained no per-call rows (`~/.dsh/auto-mode/decisions.jsonl`: boot lines only).
+
+So the gate allowed the call **before** classification, exactly as it did on 2026-10-24,
+and no classifier request was ever issued. What *is* established:
+
+- the adapter's injected route reaches the row (`model-switch: adapted dsh-automode
+  (route apigoto/mimo-v2.6-flash, …)` plus the gate's own config dump from the
+  2026-10-24 probe run), and
+- the gate's audit/boot line proves the plugin is active in an `auto-mode` session.
+
+What is **not** established: a real classifier request carrying our route. Forcing it
+needs a call the gate treats as an escalation (a write outside the workspace, a denied
+band, or an unknown tool) — not a plain `bash` command, which its allow path settles
+silently. Row stays "no" until such a call is captured.
