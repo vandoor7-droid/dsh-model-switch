@@ -234,18 +234,23 @@ async function pushMemoryRoute(
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        // The global chain covers the un-layered paths; the per-layer chains are
-        // what the L1/L2/L3 pipelines actually read, and a layer chain replaces
-        // the global one for its layer. Both are written so no layer falls back to
-        // the deployment default model.
-        distillChain: [{ provider: route.provider, model: route.model }],
+        // `effectiveCfg` (runner.js:47) decides in this order: a static
+        // `cfg.llm.provider+model` pair ("pinned") disables every chain form,
+        // a non-empty `distillChain` takes over, and only while neither is set
+        // does `distillProvider`/`distillModel` supply the route. Sending both a
+        // chain and a pin therefore cancelled itself: the pin disabled the chain
+        // and this payload used to clear the pair that would have survived.
+        // So: no chain here, and the legacy pair carries the route.
+        distillChain: [],
+        // Layer chains survive a pinned-free profile too (`lc && !pinned`), and
+        // they are what the layered pipelines read first, so they stay.
         distillLayerChains: {
           l1: [{ provider: route.provider, model: route.model }],
           l2: [{ provider: route.provider, model: route.model }],
           l3: [{ provider: route.provider, model: route.model }],
         },
-        distillProvider: '',
-        distillModel: '',
+        distillProvider: route.provider,
+        distillModel: route.model,
         reasoningEffort: '',
       }),
     })
@@ -362,11 +367,16 @@ export function installPrimeMemoryCompat(
       primeMemoryCompatStatus.route = wanted
       delete primeMemoryCompatStatus.routeSkipped
     }
-    // The runtime chain only reaches the layers that re-resolve per call. The
-    // plugin's static pin (`config.llm.provider` + `config.llm.model`) is returned
-    // by `resolveModelRoute` before anything else, and the lab confirmed a call on
-    // the pinned model once the pin was in the profile. It is configuration, so it
-    // applies from the next start — written where that start reads it.
+    // The live RPC is authoritative when it worked: a static pin sets `pinned`
+    // and disables exactly the chain/pair forms the push just wrote
+    // (`effectiveCfg`, runner.js:47, gates both on `!pinned`), so writing both is
+    // what kept the route from moving. The pin stays as the fallback for a host
+    // where that RPC is absent or refused — there it is the only form that
+    // survives a restart.
+    if (pushed === 'pushed') return
+    // The static pin (`config.llm.provider` + `config.llm.model`) is returned by
+    // `resolveModelRoute` before anything else; it is configuration, so it applies
+    // from the next start — written where that start reads it.
     const documentPath = forms.documentPath
     if (typeof documentPath === 'string' && documentPath !== '') {
       try {
@@ -376,7 +386,6 @@ export function installPrimeMemoryCompat(
         ctx.logger.warn(`model-switch: could not pin the dsh-prime-memory route (${String(cause)})`)
       }
     }
-    if (pushed === 'pushed') return
     const section = sectionOf(forms)
     if (section === undefined || asRecord(section.value) === undefined) {
       scheduleRetry()
