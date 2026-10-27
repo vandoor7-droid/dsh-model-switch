@@ -192,6 +192,21 @@ function capabilityChoices(groups: readonly ModelProviderGroup[], route: Capabil
   return choices
 }
 
+/**
+ * Whether the memory-distillation card and its provider-group row render.
+ *
+ * Withdrawn for the 0.4.47 hotfix: the card shipped before the route was proven
+ * to move the plugin's distillation calls (`docs/route-verification.md`, memory
+ * row), which is the "UI without function" the withdrawal exists to undo. The
+ * adapter and the `memoryProvider`/`memoryModel` settings stay so the backend
+ * can be finished without a schema change; this flips back to `true` only after
+ * the probe records L1/L2/L3 on the pinned route.
+ *
+ * Typed as `boolean` on purpose: a literal `false` would let the bundler drop
+ * the card's code, and the point is to restore exactly this UI later.
+ */
+const MEMORY_CAPABILITY_UI: boolean = false
+
 export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode {
   const { groups, catalogError } = useSettingsCatalog(props)
   const subagent = props.useSubagentSettings(value => value)
@@ -678,12 +693,12 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
         </div><Actions t={props.t} busy={busy === 'sessionTitle'} disabled={titleDisabled} {...(message?.route === 'sessionTitle' ? { message: message.text } : {})} onCancel={() => { resetTitle(); setMessage(undefined) }} onSave={saveTitle} /></>}
       </RouteCard>
 
-      <RouteCard title={props.t('memory')} summary={memoryDraft === undefined ? props.t('loading') : routePairConfigured(memoryDraft) ? routeName(groups, memoryDraft) : props.t('memoryFollow')} hint={props.t('memoryHelp')} note={groupNote(props.t, groupPins.memory)} icon="memory" open={open === 'memory'} onToggle={() => { toggle('memory') }}>
+      {MEMORY_CAPABILITY_UI ? <RouteCard title={props.t('memory')} summary={memoryDraft === undefined ? props.t('loading') : routePairConfigured(memoryDraft) ? routeName(groups, memoryDraft) : props.t('memoryFollow')} hint={props.t('memoryHelp')} note={groupNote(props.t, groupPins.memory)} icon="memory" open={open === 'memory'} onToggle={() => { toggle('memory') }}>
         {memoryDraft === undefined ? <p className={css.hint}>{props.t('loading')}</p> : <><p className={css.hint}>{props.t('memoryRouteHelp')}</p><div className={css.formGrid}>
           <Field label={props.t('provider')} value={memoryDraft.provider ?? ''} disabled={busy !== undefined || !memory.writable} choices={memoryChoices.providers} onChange={provider => { const first = groups.find(group => group.id === provider)?.models[0]; setMemoryDraft({ provider, ...(first === undefined ? {} : { model: first.id }) }) }} />
           <Field label={props.t('model')} value={memoryDraft.model ?? ''} disabled={busy !== undefined || !memory.writable} choices={memoryChoices.models} onChange={model => { setMemoryDraft({ ...memoryDraft, model }) }} />
         </div><Actions t={props.t} busy={busy === 'memory'} disabled={busy !== undefined || !memory.writable} {...(message?.route === 'memory' ? { message: message.text } : {})} onCancel={() => { resetMemory(); setMessage(undefined) }} onSave={() => { void run('memory', () => props.saveCapability('memory', pairOps(memoryDraft))) }} /></>}
-      </RouteCard>
+      </RouteCard> : null}
     </section>
 
     <section className={css.group}><h2 className={css.groupLabel}>{props.t('reviewAllowlistGroup')}</h2>
@@ -765,6 +780,7 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
             <Field label={props.t('model')} value={groupTitle.model} disabled={groupControlsDisabled} choices={groupTitleChoices.models} onChange={model => { setGroupDraft(draft => draft === undefined ? draft : { ...draft, titleModel: model }) }} />
           </div>}
 
+          {MEMORY_CAPABILITY_UI ? <>
           <div className={css.rowCard}>
             <div className={css.rowCopy}>
               <span className={css.rowTitle}>{props.t('memory')}</span>
@@ -776,6 +792,7 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
             <Field label={props.t('provider')} value={groupMemory.provider} disabled={groupControlsDisabled} choices={groupMemoryChoices.providers} onChange={provider => { const first = groups.find(item => item.id === provider)?.models[0]; setGroupDraft(draft => draft === undefined ? draft : { ...draft, memoryProvider: provider, memoryModel: first?.id ?? '' }) }} />
             <Field label={props.t('model')} value={groupMemory.model} disabled={groupControlsDisabled} choices={groupMemoryChoices.models} onChange={model => { setGroupDraft(draft => draft === undefined ? draft : { ...draft, memoryModel: model }) }} />
           </div>}
+          </> : null}
 
           <div className={css.rowCard}>
             <div className={css.rowCopy}>

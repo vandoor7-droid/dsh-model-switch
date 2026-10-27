@@ -20,6 +20,14 @@ This repository inherits `../AGENTS.md`; read it before changing this checkout.
 - 参考检出放在 git-ignored 的 `reference/` 目录或 `%TEMP%` 下，不进入本仓库、不参与构建；DSH Core 与任何官方 tag/检出一律只读，修改只发生在本插件仓库。
 - 拉取或检索失败时按全局搜索回退规则处理（原生 `web_search` ↔ `web_search_pro`）；仍不可用时直接核对已安装的官方包实现（node_modules 或运行时安装目录）。
 
+## Lab 验证：全程虚拟请求/虚拟答复，零真实额度（2026-10-28 用户要求固化）
+
+- 任何 lab / 运行时验证（能力路由、automode 分类器、记忆蒸馏、计划卡、兼容性检查）**只允许**打本地虚拟端点：`tools/route-probe.mjs`（OpenAI 兼容、记录 `model`/`stream`、返回固定回复）或等价假端点。禁止把 lab profile 的任何 provider 指向真实 API（apigoto / deepseek 官方账号 / 其他真实供应商）。
+- 禁止把桌面 profile 的真实凭据（`llm.*.apiKey`、`baseURL`、token）导入 lab profile；lab 里只出现假凭据（如 `sk-probe`）与 `http://127.0.0.1:<port>` 假端点。
+- lab 的模型选择器、自动化任务、子代理、压缩、命名、审查、记忆蒸馏等一切会发起 LLM 调用的路径，都必须落在虚拟端点上；需要特定回复形态时用 `route-probe --preset`（`ok` / `classifier-allow` / `classifier-deny` / `title` / `memory` / `plan`）或 `--tool` 回放工具调用。
+- 验证结论必须写明「virtual / 零真实额度消耗」以及记录器日志路径；**不得**把虚拟实测写成真实调用验收。
+- 确需真实调用时（例如核实供应商侧行为），先向用户说明目的与预期消耗，取得明确同意后单独成轮执行，不与常规 lab 验证混在一起。
+
 ## 运行时 UI 验证：用 dsh-browser-cdp，禁止另起可见窗口
 
 - 需要在运行时验证 Web UI（设置页、会话面板、插件卡片、热更新后的界面）时，**用已安装的 `dsh-browser-cdp` 插件提供的 `bcdp_*` 工具**（`bcdp_status` / `bcdp_navigate` / `bcdp_snapshot` / `bcdp_script` / `bcdp_space`），在独立 task space 里操作。

@@ -1,3 +1,13 @@
+## v0.4.47
+
+两件用户可见修正（撤卡 + 计划卡换模型），均为热修。
+
+- **设置页撤下「记忆蒸馏模型」卡片与供应商分组第五行**：该能力此前只有界面，路由未证实会改变 `dsh-prime-memory` 的实际蒸馏调用（见 `docs/route-verification.md` 的 memory 行与 `docs/prime-memory.md` 的负结果）。适配层 `src/prime-memory-compat.ts` 与 `memoryProvider` / `memoryModel` 设置字段**保留休眠**，等虚拟探针记录到 L1/L2/L3 命中配置路由后再恢复 UI（开关 `MEMORY_CAPABILITY_UI`）；分组说明文案同步收回到「压缩、自动审查、会话命名、子代理」四项。
+- **计划审阅卡换模型后点「拒绝」/「讨论」，会话仍用旧模型**：卡片内的执行模型选择器只写草稿，唯一提交点原本只在「接受」路径。现在四个出口（接受 / 拒绝 / 讨论 / 作为目标执行）统一先提交草稿再执行 —— `commitThen()` 复用 `approvePlanReview` 的「未变更短路、提交被拒则不答复」；提交被拒时卡片保持打开并显示原因，不再静默回退旧模型。
+- **测试**：计划卡新增 3 例（拒绝时提交、提交被拒保持打开且不答复、讨论前提交），`tests/picker/plan-review-card.spec.tsx` 32 例全绿；`pnpm run check` 全绿。
+- **规则固化**：`AGENTS.md` 新增「Lab 验证：全程虚拟请求/虚拟答复，零真实额度」；`tools/route-probe.mjs` 增加 `--preset`（`classifier-allow` / `classifier-deny` / `title` / `memory` / `plan`）与 `--tool` 工具调用回放；每日巡检 prompt 同步该约束。
+- **未在本次完成**（按计划随后续版本走）：记忆蒸馏路由落地与虚拟实测、DSH `0.2.1-rc.4` 的验证与声明、Auto review 与 automode 分类器的虚拟实测。
+
 ## v0.4.46
 
 设置页「记忆蒸馏模型」的说明补上生效条件：**改完需重启一次 DSH**（该插件在启动时读取路由）。文案与实际行为对齐，避免再次出现"界面显示已改、实际调用没变"的误解。

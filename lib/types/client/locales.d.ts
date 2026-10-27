@@ -49,8 +49,8 @@ export declare const zh: {
     readonly providerGroups: "供应商配置组";
     readonly providerGroupsCard: "按供应商预设路由";
     readonly providerGroupsSummary: "使用该供应商的会话自动采用对应组";
-    readonly providerGroupsHelp: "为压缩、自动审查、会话命名、记忆蒸馏与子代理按供应商分别保存路由。";
-    readonly providerGroupsBodyHelp: "每个供应商保存一组压缩、自动审查、会话命名与子代理路由。会话自身的供应商与该组一致时，这五项能力（含记忆蒸馏）按组实时解析，未固定项回落到上方卡片里的全局设置。切换某个会话的模型不会写入任何全局设置，因此不同供应商的多个会话并行时互不影响，会话中切换供应商后下一次调用也会立即跟随新供应商的配置组。";
+    readonly providerGroupsHelp: "为压缩、自动审查、会话命名与子代理按供应商分别保存路由。";
+    readonly providerGroupsBodyHelp: "每个供应商保存一组压缩、自动审查、会话命名与子代理路由。会话自身的供应商与该组一致时，这四项能力按组实时解析，未固定项回落到上方卡片里的全局设置。切换某个会话的模型不会写入任何全局设置，因此不同供应商的多个会话并行时互不影响，会话中切换供应商后下一次调用也会立即跟随新供应商的配置组。";
     readonly providerGroupPick: "选择供应商以编辑其配置组。";
     readonly providerGroupDelete: "删除该组";
     readonly groupOverridesLabel: "组覆盖：{pins}；无组时用上方默认值";

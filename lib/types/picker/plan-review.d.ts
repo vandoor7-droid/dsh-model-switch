@@ -30,6 +30,21 @@ export interface PlanCommitOutcome {
  * @returns The message, prefixed with the nearest available code.
  */
 export declare function planErrorText(cause: unknown): string;
+/**
+ * Commit the execution model a Plan card holds, then run its exit.
+ *
+ * Shared by every exit (approve, keep, discuss, run-as-goal): the card's picker
+ * is a draft, so an exit that skipped this call left the session on the model
+ * the review opened with. An unchanged selection short-circuits without a
+ * second commit, and a refused commit returns `false` **without** running the
+ * exit, so the caller can keep the card open and show the error.
+ *
+ * @param args.select - commits one selection onto the session.
+ * @param args.selection - the execution model the card currently holds.
+ * @param args.current - the session's committed selection, for the short-circuit.
+ * @param args.answer - the exit to run once the commit landed.
+ * @returns whether the exit ran.
+ */
 export declare function approvePlanReview(args: {
     select: (selection: ModelSelection) => Promise<PlanCommitOutcome>;
     selection: ModelSelection;

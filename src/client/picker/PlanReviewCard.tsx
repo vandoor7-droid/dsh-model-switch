@@ -256,19 +256,46 @@ function PlanReviewState({
     )
   const action = planActionView({ busy, blocked, error }, available, executionAllowed)
 
-  /** Approve this review after committing its execution model; a refused commit keeps the Plan pending. */
-  const approveWith = async (model: ModelSelection): Promise<void> => {
+  /**
+   * Commit one execution model, then run the card exit.
+   *
+   * The picker on this card only holds a **draft** (`onDraftChange`), so a
+   * model chosen here reaches the session only when something commits it. That
+   * used to be Approve alone: keeping the plan or withdrawing to the composer
+   * silently discarded the change and the conversation continued on the
+   * previous model. Every exit now runs through this helper instead.
+   *
+   * @param model - the execution model to commit; `undefined` means the card
+   *   has not resolved a picker yet, so the exit runs uncommitted.
+   * @param act - the exit to perform once the commit landed.
+   * @returns nothing; a refused commit throws so the card stays open with the
+   *   error, exactly like a refused approval, instead of dropping the choice.
+   */
+  const commitThen = async (model: ModelSelection | undefined, act: () => Promise<void>): Promise<void> => {
+    if (model === undefined) {
+      await act()
+      return
+    }
     const committed = await approvePlanReview({
       select,
       selection: model,
       current: snapshot.current,
-      answer: () => respondAnswer(matched, review.id, review.approve.label, t('plan.responseRejected'), true),
+      answer: act,
     })
     if (!committed) {
       const message = getDirectorySnapshot().error
       throw new Error(message === null ? t('plan.modelFailed') : t('error.action', { message }))
     }
   }
+
+  /** Commit whatever the picker currently holds, then run the exit. */
+  const commitDraftThen = (act: () => Promise<void>): Promise<void> => commitThen(execution, act)
+
+  /** Approve this review after committing its execution model; a refused commit keeps the Plan pending. */
+  const approveWith = (model: ModelSelection): Promise<void> => commitThen(
+    model,
+    () => respondAnswer(matched, review.id, review.approve.label, t('plan.responseRejected'), true),
+  )
 
   const onApprove = (): void => {
     if (execution === undefined || !executionAllowed || !available || busy || blocked) return
@@ -387,13 +414,17 @@ function PlanReviewState({
                 onClick={() => {
                   // Interrupt (not dismiss): an aborted turn keeps the work
                   // details expanded, which is the whole point of this action.
+                  // The draft model is committed first for the same reason as
+                  // Keep: withdrawing must not throw the choice away.
                   settle(
                     async () => {
-                      await discussPlan(
-                        cancelTurn,
-                        matched.sessionId,
-                        () => respondDismiss(matched, t('plan.cancelRejected'), t('plan.dismissUnsupported')),
-                      )
+                      await commitDraftThen(async () => {
+                        await discussPlan(
+                          cancelTurn,
+                          matched.sessionId,
+                          () => respondDismiss(matched, t('plan.cancelRejected'), t('plan.dismissUnsupported')),
+                        )
+                      })
                     },
                     true,
                   )
@@ -408,7 +439,11 @@ function PlanReviewState({
                   disabled={busy || blocked}
                   title={decline.description ?? t('plan.keep')}
                   onClick={() => {
-                    settle(() => respondAnswer(matched, review.id, decline.label, t('plan.responseRejected'), false, feedback.trim()))
+                    // Keep closes the review; the model picked above must
+                    // survive the exit, so it is committed before the answer.
+                    settle(() => commitDraftThen(
+                      () => respondAnswer(matched, review.id, decline.label, t('plan.responseRejected'), false, feedback.trim()),
+                    ))
                   }}
                 >
                   {t('plan.keep')}

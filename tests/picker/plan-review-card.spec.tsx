@@ -111,6 +111,14 @@ function textContent(node: { children: ReadonlyArray<unknown> }): string {
 function approve(card: ReturnType<typeof create>, label = 'plan.approve') {
   return card.root.findAllByType('button').find(button => button.children.includes(label))!
 }
+/** The Keep (decline) action; the plan review's non-terminal exit. */
+function keep(card: ReturnType<typeof create>, label = 'plan.keep') {
+  return card.root.findAllByType('button').find(button => button.children.includes(label))!
+}
+/** The Discuss (withdraw) action; interrupts the turn instead of answering. */
+function discuss(card: ReturnType<typeof create>, label = 'plan.discuss') {
+  return card.root.findAllByType('button').find(button => button.children.includes(label))!
+}
 function locale(dictionary: Record<PickerKey, string>) {
   return (key: PickerKey, params?: Record<string, string>) => {
     const template = dictionary[key]
@@ -271,8 +279,54 @@ describe('PlanReviewCard', () => {
     expect(approve(card).props.disabled).toBe(true)
   })
 
-  it('uses PendingQuestion.answer as a one-way local settlement', async () => {
+  it('commits the model picked on the card even when the plan is kept', async () => {
     const answer = vi.fn(async () => undefined)
+    const select = vi.fn(async () => COMMITTED)
+    const fixture = props({ matched: wait(answer), select, t: locale(zh) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+    await act(async () => { chooseExecution(card) })
+    expect(select).not.toHaveBeenCalled()
+
+    await act(async () => { keep(card, zh['plan.keep']).props.onClick(); await Promise.resolve(); await Promise.resolve() })
+    expect(select).toHaveBeenCalledWith(executionSelection)
+    expect(select).toHaveBeenCalledTimes(1)
+    expect(answer).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the plan open when the kept model cannot be committed', async () => {
+    const answer = vi.fn(async () => undefined)
+    const select = vi.fn(async () => REFUSED)
+    const fixture = props({ matched: wait(answer), select, t: locale(zh) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+    await act(async () => { chooseExecution(card) })
+
+    await act(async () => { keep(card, zh['plan.keep']).props.onClick(); await Promise.resolve(); await Promise.resolve() })
+    // The review stays pending and says why; the stale model is never answered.
+    expect(card.root.findByProps({ 'data-plan-review-key': 'plan-1' })).toBeDefined()
+    expect(card.root.findAllByProps({ role: 'status' }).some(node =>
+      node.children.includes(zh['plan.modelFailed']),
+    )).toBe(true)
+    expect(answer).not.toHaveBeenCalled()
+    expect(keep(card, zh['plan.keep']).props.disabled).toBe(false)
+  })
+
+  it('commits the model picked on the card before withdrawing to the composer', async () => {
+    const answer = vi.fn(async () => undefined)
+    const select = vi.fn(async () => COMMITTED)
+    const cancel = vi.fn(async () => undefined)
+    const fixture = props({ matched: wait(answer), select, cancelTurn: cancel, t: locale(zh) })
+    let card!: ReturnType<typeof create>
+    await act(async () => { card = create(<PlanReviewCard {...fixture as never} />) })
+    await act(async () => { chooseExecution(card) })
+
+    await act(async () => { discuss(card, zh['plan.discuss']).props.onClick(); await Promise.resolve(); await Promise.resolve() })
+    expect(select).toHaveBeenCalledWith(executionSelection)
+    expect(cancel).toHaveBeenCalledWith('session-1')
+  })
+
+  it('uses PendingQuestion.answer as a one-way local settlement', async () => {    const answer = vi.fn(async () => undefined)
     const select = vi.fn(async () => COMMITTED)
     const fixture = props({ matched: wait(answer), select, t: locale(en) })
     let card!: ReturnType<typeof create>
