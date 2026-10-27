@@ -144,3 +144,29 @@ a pinned-free profile; writing the static row config only lands at the next star
 Next implementation step: write both `distillProvider` and `distillModel` via that RPC,
 then assert with `tools/route-probe.mjs` that L1/L2/L3 requests carry the configured
 model. Unverified until that run exists.
+
+### Why the shipped adapter could not move the route (0.4.44–0.4.48 code)
+
+`src/prime-memory-compat.ts` sends `dsh-memory/rpc/settings-set` with
+
+```js
+distillChain: [{ provider: route.provider, model: route.model }],  // line 241
+distillProvider: '',                                               // line 247 (cleared)
+```
+
+and separately persists a static pin through `distillChainPatch(...)` (line 393).
+Against `effectiveCfg` that is self-defeating:
+
+- the static pin makes `pinned === true`, and `pinned` disables **both** chain forms
+  (`chainMode = chain.length > 0 && !pinned`, and the layer chains are also gated on
+  `!pinned`), so the pushed chain is ignored;
+- the legacy pair that *would* survive a pinned-free profile is deliberately cleared.
+
+Fix for the next round (in this order):
+
+1. Stop writing the static pin from this adapter, or write it only as a
+   last-resort fallback for profiles that never mount the live path.
+2. Send `distillChain: []` and `distillProvider/distillModel` = the resolved route, so
+   `effectiveCfg`'s third branch supplies the route (`!chain.length && !pinned`).
+3. Assert with `tools/route-probe.mjs` that L1/L2/L3 carry that model, then decide
+   whether a restart is still required (the pair is live, so it should not be).
