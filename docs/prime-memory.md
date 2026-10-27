@@ -170,3 +170,31 @@ Fix for the next round (in this order):
    `effectiveCfg`'s third branch supplies the route (`!chain.length && !pinned`).
 3. Assert with `tools/route-probe.mjs` that L1/L2/L3 carry that model, then decide
    whether a restart is still required (the pair is live, so it should not be).
+
+## Ready-to-run virtual measurement recipe (next round)
+
+```bash
+# 1) install the memory plugin into the isolated rc.3 lab (virtual only)
+cd /d/项目/dsh-model-switch
+npm pack dsh-prime-memory@0.26.11 --pack-destination /tmp/pm
+mkdir -p /tmp/pm/x && tar -xzf /tmp/pm/dsh-prime-memory-0.26.11.tgz -C /tmp/pm/x
+cp -a /tmp/pm/x/package /c/Users/15726/.dsh-lab3/profiles/lab/node_modules/dsh-prime-memory
+# add a row to the lab patch (name: 'dsh-prime-memory'), no real key anywhere
+
+# 2) probe: give the memory route its own model id so attribution is unambiguous
+node tools/route-probe.mjs --port 4719 --log .scratch/probe.jsonl --clear \
+  --map '{"gpt-6.1-sol":{"answer":"ok"},"probe-memory":{"preset":"memory"}}'
+
+# 3) host (already virtualized: apigoto -> 127.0.0.1:4719, PROBE_API_KEY)
+bash .scratch/start-lab3.sh
+
+# 4) in the UI: 设置 → 模型切换 → 记忆蒸馏模型 = apigoto/probe-memory, then
+#    run one `memory_ruminate` (or send one turn) and read the probe log:
+node -e "const l=require('fs').readFileSync('.scratch/probe.jsonl','utf8').trim().split('\n');for(const x of l){const j=JSON.parse(x);if(j.model==='probe-memory')console.log('HIT',j.ts)}"
+```
+
+Pass criterion: at least three `HIT` lines (L1 extraction, L2 integration, L3 profile)
+with `model=probe-memory`, no `mimo-v2.6-flash`/deployment-default rows for those calls;
+then repeat after changing the route once — a second route should take effect **without a
+restart** (that is the point of the live pair). Only then set `MEMORY_CAPABILITY_UI = true`
+and release v0.4.49.
