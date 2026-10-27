@@ -1,3 +1,13 @@
+## v0.4.48
+
+兼容门限从「逐版本列举」改为「下界 + 区间」：
+
+- **新增 `dsh.compatibility.dshRuntime: ">=0.2.0-rc.2"`**：凡 ≥ 该下界的 DSH 运行时都按已验证处理（不再逐个版本写白名单）；`blocklist` 仍最优先、加载仍 fail-open——区间只消除「未验证运行时」的警告噪音，不改变任何挂载行为。
+- **实现**：`src/compatibility.ts` 新增 `compareDshVersions()`（含预发布排序：`rc.2 < rc.3 < 正式版`）与 `runtimeFloorOf()`（只认开区间 `>=x.y.z`，有界范围视为另一种承诺、忽略不半执行）；`allowDshRuntime()` 把区间透传给判定。
+- **测试**：`tests/compatibility.spec.ts` 增 5 例（预发布排序、区间解析、≥下界不告警、低于下界仍告警、blocklist 仍拦截、清单里确有该键），11 例全绿。
+- **工具**：`tools/route-probe.mjs` 随本版发布 `--map`（按模型分流回复）与 `once`（每模型只回放一次工具调用，避免自激循环）。
+- **尚未取证**：DSH `0.2.1-rc.4` 的运行时验证仍待做（区间已覆盖其语义，但未单独实测，不据此声称已验收）；记忆蒸馏路由、Auto review 与 automode 分类器的虚拟实测同样待做。
+
 ## v0.4.47
 
 两件用户可见修正（撤卡 + 计划卡换模型），均为热修。
