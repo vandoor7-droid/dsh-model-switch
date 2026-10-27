@@ -80,6 +80,20 @@ interface Loader {
     entries?(): Iterable<Entry>;
 }
 /**
+ * Hand the route to the memory plugin through the RPC it registers for its own
+ * settings page.
+ *
+ * Writing the config document (what `settings.update` does) only changes what the
+ * next start reads; the plugin resolves its route from the runtime settings object
+ * it built at `apply`. This endpoint is the documented runtime write path — the
+ * same one its own "distillation parameters" panel posts to — so it takes effect
+ * without a restart, which is exactly what a provider switch needs.
+ */
+export declare function pushMemoryRoute(ctx: Context, route: {
+    provider: string;
+    model: string;
+}): Promise<'pushed' | 'absent' | 'rejected'>;
+/**
  * Install the adapter for the whole profile.
  *
  * Writes the memory plugin's own `live` section on activation, on every

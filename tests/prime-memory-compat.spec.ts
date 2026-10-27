@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { planPrimeMemoryRoute } from '../src/prime-memory-compat.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { planPrimeMemoryRoute, pushMemoryRoute } from '../src/prime-memory-compat.js'
 import { memoryRouteOf, type RouteBearingSettings } from '../src/session-route.js'
 
 /** The row config dsh-prime-memory ships with when it follows its own default. */
@@ -68,5 +68,35 @@ describe('memoryRouteOf', () => {
 
   it('resolves nothing when neither layer is set', () => {
     expect(memoryRouteOf({}, 'apigoto')).toBeUndefined()
+  })
+})
+
+describe('pushMemoryRoute payload', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('sends the legacy pair with an empty chain and the per-layer chains', async () => {
+    const bodies: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: { body?: string }) => {
+      bodies.push(String(init?.body ?? ''))
+      return { ok: true, status: 200 } as unknown as Response
+    }))
+    const outcome = await pushMemoryRoute({ get: () => ({ port: 4321 }) } as never, { provider: 'apigoto', model: 'probe-memory' })
+    expect(outcome).toBe('pushed')
+    const body = JSON.parse(bodies[0]!) as Record<string, unknown>
+    // A non-empty chain plus a static pin is the combination that cancels itself
+    // out in effectiveCfg, so the chain must stay empty and the pair carries it.
+    expect(body.distillChain).toEqual([])
+    expect(body.distillProvider).toBe('apigoto')
+    expect(body.distillModel).toBe('probe-memory')
+    expect(body.distillLayerChains).toEqual({
+      l1: [{ provider: 'apigoto', model: 'probe-memory' }],
+      l2: [{ provider: 'apigoto', model: 'probe-memory' }],
+      l3: [{ provider: 'apigoto', model: 'probe-memory' }],
+    })
+  })
+
+  it('reports an absent endpoint instead of pretending to push', async () => {
+    const outcome = await pushMemoryRoute({ get: () => ({}) } as never, { provider: 'a', model: 'b' })
+    expect(outcome).toBe('absent')
   })
 })

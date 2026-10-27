@@ -222,7 +222,7 @@ const MEMORY_RPC_PATH = '/dsh-memory/rpc/settings-set'
  * same one its own "distillation parameters" panel posts to — so it takes effect
  * without a restart, which is exactly what a provider switch needs.
  */
-async function pushMemoryRoute(
+export async function pushMemoryRoute(
   ctx: Context,
   route: { provider: string; model: string },
 ): Promise<'pushed' | 'absent' | 'rejected'> {
