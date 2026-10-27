@@ -1,3 +1,9 @@
+## Unreleased
+
+- **记忆蒸馏路由修复（已提交，未发版）**：`fix(memory): stop the pin and the live push from cancelling each other`（`8e59fda`）。适配层不再"推链 + 清空 legacy 对 + 写静态 pin"三者互相抵消：live RPC 被接受时只发 `distillChain: []` + `distillProvider`/`distillModel` + 分层链，静态 pin 降级为 RPC 不可用时的兜底。`src/`、`lib/` 与测试（586 通过）已更新；**npm 上的 0.4.48 不含此修复**。
+- **发版前置条件**：在隔离 lab（全虚拟探针）里证明 L1/L2/L3 的蒸馏调用确实带着配置路由、且改动即时生效；通过后才恢复「记忆蒸馏模型」卡片（`MEMORY_CAPABILITY_UI`）并随 v0.4.49 发布。未通过则保持撤卡。
+- **其余待做**：DSH `0.2.1-rc.4` 运行时验证；Auto review 与 automode 分类器的虚拟取证；计划审阅卡两张截图（需 answerer）。
+
 ## v0.4.48
 
 兼容门限从「逐版本列举」改为「下界 + 区间」：
