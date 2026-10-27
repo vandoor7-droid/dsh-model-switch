@@ -116,3 +116,31 @@ Next step if this is ever picked up again: find where the plugin resolves `cfg` 
 a distillation call (its `effectiveCfg` path) and inject there, or drop the
 capability from the settings page.
 
+
+## Route resolution in dsh-prime-memory 0.26.11 (source read, 2026-10-28)
+
+The earlier negative result was read against 0.26.10 through the config-mutation
+door only. Reading 0.26.11's own sources narrows the real seam:
+
+- `dist/llm.js:58 resolveModelRoute(ctx, cfg)` — `cfg.llm.provider && cfg.llm.model`
+  wins; otherwise `requireExplicitRoute` checks apply, then
+  `ctx.get('agentDefaultModel').currentSelection()` supplies the fallback.
+- `dist/index.js:278` — `const cfgView = effectiveCfg(config, live)` is computed **per
+  call**, so a live settings value is honoured without a restart.
+- `dist/pipeline/runner.js:47 effectiveCfg(cfg, live)` — precedence:
+  `pinned` (static `cfg.llm.provider+model`) disables every chain form, then a
+  non-empty `live.distillChain` takes over, then
+  **`live.distillProvider` + `live.distillModel`** (only while `!pinned` and no chain),
+  then the static config.
+- `dist/config.js:41` declares `distillProvider` / `distillModel` in the plugin's own
+  settings schema, and `dist/settings.js:14` projects that pair into a single-entry
+  chain when `distillChain` is empty.
+
+So the lever we never tried is `live.distillProvider` / `live.distillModel` written
+through the plugin's own `dsh-memory/settings-set` RPC (the client itself resets with
+that exact shape, `dist/client.js:38514`). Writing `distillChain` was the wrong key for
+a pinned-free profile; writing the static row config only lands at the next start.
+
+Next implementation step: write both `distillProvider` and `distillModel` via that RPC,
+then assert with `tools/route-probe.mjs` that L1/L2/L3 requests carry the configured
+model. Unverified until that run exists.
