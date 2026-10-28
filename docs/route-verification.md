@@ -157,3 +157,33 @@ field with `set null` was refused by the host schema instead of unsetting it.
   pinned the provider group. The next run must set the flat pair before measuring
   the classifier call.
 
+### automode: why it is still unmeasured
+
+The lab is fully prepared for this measurement (virtual endpoints only, zero real
+quota): `tools/route-probe.mjs --preset classifier-allow` on 4731, the lab profile's
+providers pointed at it, the reviewer route pinned as the **flat**
+`autoReviewProvider/Model` pair (that is the pair `automode-compat` reads), and
+`@log.li/dsh-automode` installed. Two blockers remain, both outside the adapter:
+
+1. **The `Auto mode` preset must be selected**, and that is a session setting with no
+   headless or profile-level equivalent: `defaultPreset: auto-mode` is validated at
+   activation against the presets that exist then, while the `auto-mode` preset is
+   registered later by the automode row — setting it in the patch fails the boot.
+2. **The browser lane is unavailable to this agent.** `bcdp_navigate` and
+   `bcdp_script` are review-gated, and the reviewer request for those plugin tools
+   cannot be built: `auto-review: the pending native tool schema is missing or
+   ambiguous`. Because the gate fails closed, the tool never runs.
+
+That second item is a real limitation of the takeover, not of automode: **a plugin
+tool whose schema cannot be serialised into the reviewer request is blocked under the
+`Auto` preset.** Recording it here so the next change either serialises those schemas
+correctly or documents an exemption path.
+
+Ready-to-run recipe once a UI-capable lane exists (all virtual):
+
+```
+node tools/route-probe.mjs --port 4731 --log probe-automode.jsonl \
+  --map '{"deepseek-flash":{"tool":"pwsh","args":{"command":"New-Item -Force C:\\temp\\probe.txt"}},"gpt-6-luna":{"preset":"classifier-allow"}}'
+# boot the lab host, select the 自动审查/Auto mode preset, then ask for one command
+# that writes outside the workspace; expect a gpt-6-luna row in the recorder.
+```
