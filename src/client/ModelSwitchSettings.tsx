@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { deriveAutoReviewAllowlist, routePairConfigured, subagentModeForEnabled, type CapabilityRouteView, type ModelSwitchSettingsView, type ReviewStatusView, type SubagentSettingsView, type ToolCatalogRow } from '../client-contract.js'
+import { deriveAutoReviewAllowlist, routePairConfigured, subagentModeForEnabled, UPSTREAM_MAX_IDLE_TIMEOUT_MS, type CapabilityRouteView, type ModelSwitchSettingsView, type ReviewStatusView, type SubagentSettingsView, type ToolCatalogRow } from '../client-contract.js'
 import { DEFAULT_READ_ONLY_TOOLS, isAllowedByList, resolveToolSource, validateAllowEntry } from '../tool-allowlist.js'
 import { groupOf, normalizeProviderGroups, type ProviderGroupConfig } from '../provider-group.js'
 import { capabilityGroupPins, type CapabilityGroupPin } from '../session-route.js'
@@ -26,6 +26,8 @@ export interface ModelSwitchSettingsFace {
   saveCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction' | 'title' | 'memory', ops: readonly ConfigViewOp<CapabilityRouteView>[]) => Promise<void>
   /** Persist the read-only skip switch and its allowlist as one atomic write. */
   saveReviewAllowlist: (value: { enabled: boolean; tools: readonly string[] }) => Promise<void>
+  /** Persist the reviewer stream idle timeout; undefined restores provider default. */
+  saveReviewTimeout: (value: number | undefined) => Promise<void>
   /** The Host's live tool catalog; absent on a Host without the `tools` RPC endpoint. */
   scanTools?: () => Promise<{ rows: readonly ToolCatalogRow[]; status?: ReviewStatusView }>
   /** Replace or remove (undefined) one provider's saved capability group. */
@@ -39,7 +41,7 @@ export interface ModelSwitchSettingsFace {
 }
 
 export type ModelSwitchSettingsProps = PropsRuntime<'settings.section'> & InjectFace<ModelSwitchSettingsFace>
-type RouteId = 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction' | 'sessionTitle' | 'memory' | 'providerGroups' | 'allowlist'
+type RouteId = 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction' | 'sessionTitle' | 'memory' | 'providerGroups' | 'allowlist' | 'timeout'
 type RouteIconKind = RouteId
 
 function cx(...values: Array<string | undefined | false>): string { return values.filter(Boolean).join(' ') }
@@ -442,6 +444,30 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     : allowlistEnabled
       ? props.t('reviewAllowlistOnSummary').replace('{count}', String(allowlistTools.length))
       : props.t('reviewAllowlistOffSummary')
+  /**
+   * The reviewer stream idle timeout, stored in seconds for display; undefined
+   * = follow the provider default. The save path converts to milliseconds and
+   * `0` = cancelled (upstream ceiling) before writing.
+   */
+  const storedTimeoutMs = switchSettings.value?.autoReviewTimeoutMs
+  const [timeoutDraft, setTimeoutDraft] = useState<string | undefined>(undefined)
+  const timeoutSeconds = timeoutDraft ?? (storedTimeoutMs === undefined ? undefined : String(Math.round(storedTimeoutMs / 1000)))
+  const timeoutCancelled = storedTimeoutMs === 0
+  const timeoutWritable = switchSettings.status === 'ready' && switchSettings.writable
+  const timeoutSummary = storedTimeoutMs === undefined
+    ? props.t('reviewTimeoutDefault')
+    : storedTimeoutMs === 0
+      ? props.t('reviewTimeoutCancelled')
+      : `${Math.round(storedTimeoutMs / 1000)}s`
+  const saveTimeout = (): void => {
+    if (busy !== undefined || !timeoutWritable) return
+    const trimmed = (timeoutDraft ?? '').trim()
+    if (trimmed === '') { void run('timeout', () => props.saveReviewTimeout(undefined)); return }
+    const seconds = Number(trimmed)
+    if (!Number.isFinite(seconds) || seconds < 1 || !Number.isInteger(seconds)) return
+    const ms = Math.min(seconds, Math.round(UPSTREAM_MAX_IDLE_TIMEOUT_MS / 1000)) * 1000
+    void run('timeout', () => props.saveReviewTimeout(ms))
+  }
   const saveSubagent = (): void => {
     if (subagentDraft === undefined || subagentDraft.mode !== 'fixed') return
     const matched = subagentCatalogModel
@@ -734,6 +760,44 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
           </ul>
         </>}
         {catalogState === 'failed' ? <p className={cx(css.hint, css.message)}>{props.t('reviewAllowlistScanFailed')}</p> : null}
+      </RouteCard>
+      <RouteCard title={props.t('reviewTimeout')} summary={timeoutSummary} hint={props.t('reviewTimeoutHelp')} icon="autoReview" open={open === 'timeout'} onToggle={() => { toggle('timeout') }}>
+        <p className={css.hint}>{props.t('reviewTimeoutScope')}</p>
+        <div className={css.formGrid}>
+          <label className={css.field}>
+            <span className={css.fieldLabel}>{props.t('reviewTimeoutSeconds')}</span>
+            <input
+              className={css.input}
+              type="number"
+              min={1}
+              max={Math.round(UPSTREAM_MAX_IDLE_TIMEOUT_MS / 1000)}
+              step={1}
+              disabled={busy !== undefined || !timeoutWritable || timeoutCancelled}
+              value={timeoutSeconds ?? ''}
+              placeholder={props.t('reviewTimeoutPlaceholder')}
+              onChange={event => { setTimeoutDraft(event.target.value) }}
+            />
+          </label>
+          <label className={css.field}>
+            <span className={css.fieldLabel}>{props.t('reviewTimeoutCancelLabel')}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                type="checkbox"
+                checked={timeoutCancelled}
+                disabled={busy !== undefined || !timeoutWritable}
+                onChange={event => {
+                  if (event.target.checked) { setTimeoutDraft(undefined); void run('timeout', () => props.saveReviewTimeout(0)) }
+                  else void run('timeout', () => props.saveReviewTimeout(undefined))
+                }}
+              />
+              <span className={css.hint}>{props.t('reviewTimeoutCancelHint')}</span>
+            </span>
+          </label>
+        </div>
+        <div className={css.formGrid}>
+          <button type="button" className={cx(css.button, css.secondaryButton)} disabled={busy !== undefined || !timeoutWritable} onClick={saveTimeout}>{props.t('reviewTimeoutSave')}</button>
+        </div>
+        {message?.route === 'timeout' ? <p className={cx(css.hint, css.message)}>{message.text}</p> : null}
       </RouteCard>
     </section>
 

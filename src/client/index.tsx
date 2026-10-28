@@ -78,6 +78,16 @@ export function apply(ctx: ClientContext): void {
         ])
         if (!accepted) throw new Error('settings-rejected')
       },
+      saveReviewTimeout: async (value: number | undefined) => {
+        // Clearing must be an `unset`: the field is a number, so a `set null`
+        // write is refused by the host schema instead of restoring the default.
+        const accepted = await owned.mutate([
+          value === undefined
+            ? { op: 'unset', path: ['autoReviewTimeoutMs'] }
+            : { op: 'set', path: ['autoReviewTimeoutMs'], value },
+        ])
+        if (!accepted) throw new Error('settings-rejected')
+      },
       ...(connectionRpc === undefined ? {} : { scanTools: async () => {
         const rpc = connectionRpc
         const response = await callPluginRpc(rpc, 'plugin-rpc/model-switch', 'tools', {})

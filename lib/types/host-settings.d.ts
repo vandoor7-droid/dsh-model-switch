@@ -29,6 +29,19 @@ export interface ModelSwitchSettings {
      * name). A bare `*` is rejected by the settings editor and never matches.
      */
     autoReviewAllowlist?: readonly string[];
+    /**
+     * Reviewer stream idle timeout, in milliseconds, written to the reviewer
+     * routes' pi-ai provider profiles (`streamIdleTimeoutMs`).
+     *
+     * - absent: follow the provider default (300 s) — the upstream behaviour.
+     * - `0`: "cancel the timeout" — written as the upstream hard maximum
+     *   (2147483647 ms ≈ 24.86 days), the closest legal value to "no timeout".
+     * - otherwise: a positive finite integer, clamped to the upstream ceiling.
+     *
+     * The key lives on the provider profile, so it applies to every call through
+     * that provider (reviewer, main chat, …), not only the reviewer.
+     */
+    autoReviewTimeoutMs?: number;
     /** Summarization provider for `/compact` and automatic compaction; both fields unset = official default (the conversation target). */
     compactProvider?: string;
     /** Summarization model for `/compact` and automatic compaction; set together with `compactProvider`. */
@@ -60,6 +73,8 @@ export interface Config {
     autoReviewSkipReadOnly: Volatile<boolean>;
     /** Tool names (exact, or a trailing `*` pattern) that skip the Auto reviewer. */
     autoReviewAllowlist: Volatile<readonly string[]>;
+    /** Reviewer stream idle timeout in ms; 0 = cancel (upstream ceiling); absent = provider default. */
+    autoReviewTimeoutMs: Volatile<number | undefined>;
     compactProvider: Volatile<string | undefined>;
     compactModel: Volatile<string | undefined>;
     titleProvider: Volatile<string | undefined>;

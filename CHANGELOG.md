@@ -1,8 +1,31 @@
+
 ## Unreleased
 
 - **记忆蒸馏路由修复（已提交，未发版）**：`fix(memory): stop the pin and the live push from cancelling each other`（`8e59fda`）。适配层不再"推链 + 清空 legacy 对 + 写静态 pin"三者互相抵消：live RPC 被接受时只发 `distillChain: []` + `distillProvider`/`distillModel` + 分层链，静态 pin 降级为 RPC 不可用时的兜底。`src/`、`lib/` 与测试（586 通过）已更新；**npm 上的 0.4.48 不含此修复**。
 - **发版前置条件**：在隔离 lab（全虚拟探针）里证明 L1/L2/L3 的蒸馏调用确实带着配置路由、且改动即时生效；通过后才恢复「记忆蒸馏模型」卡片（`MEMORY_CAPABILITY_UI`）并随 v0.4.49 发布。未通过则保持撤卡。
 - **其余待做**：DSH `0.2.1-rc.4` 运行时验证；Auto review 与 automode 分类器的虚拟取证；计划审阅卡两张截图（需 answerer）。
+
+## v0.4.50
+
+设置页新增「审查超时」：自动审查请求的流式空闲超时可自定义、可取消、可恢复默认。
+
+- 作用点：写入审查模型所在 provider 的 `streamIdleTimeoutMs`（`@deepseek-ai/dsh-llm-pi-ai` 的 provider profile）。上游没有 per-request 覆盖，这是唯一入口。
+- 「取消超时」写上游硬上限 `2147483647ms`（≈24.8 天）——上游拒绝 0/负数/Infinity，所以它 **不是真正的无限**；死端点会一直等待，UI 文案已如实标注。
+- 作用范围：该 provider 的**全部调用**（审查、主对话、其他路由），不只是审查请求。
+- 生效时机：写入发生在启动过程中，**下一次启动**才读取新值（实测写入当次仍按旧的 300 秒）；UI 已写明需重启一次。
+- 恢复默认 = 删除该键（本插件是这条键的管理者）；实测删除后回到上游默认行为。
+
+修复（本轮实测发现）：
+
+- `model-switch-review-timeout` 行在激活期 `await` 设置写入会拖死加载器：headless profile 直接起不来，CLI 以 `unsettled top-level await` 退出（exit 13）。改为 fire-and-forget + 延迟重试 + 串行化。
+- 清空超时字段改用 `unset` 而不是 `set null`：字段是数字，null 会被 host schema 拒绝。
+
+lab 实测（virtual / 零真实额度；本地虚拟端点 `tools/route-probe.mjs`，DSH 0.2.1-rc.3）：
+
+- 自定义 5 秒 + 探针挂起 8 秒 → 下次启动报 `TIMEOUT: pi-ai stream idle timeout after 5000ms`（写入当次仍成功，证明需重启）；
+- 取消超时 → 键写为 `2147483647`，同样 8 秒挂起后正常完成；
+- 恢复默认 → 键被删除，后续启动正常完成（回到 300 秒语义）。
+- 复现方式：`node tools/route-probe.mjs --preset ok --hang 8000`（挂起 8 秒不回字节），配合上面三种设置重启各一次即可复跑。
 
 ## v0.4.48
 

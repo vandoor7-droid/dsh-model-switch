@@ -87,3 +87,10 @@
     # "follow the default model" state.
     - id: model-switch-prime-memory-compat
       name: 'dsh-model-switch/prime-memory-compat'
+
+    # Write the configured reviewer stream idle timeout into the reviewer
+    # routes' pi-ai provider profiles (the only place the upstream watchdog
+    # reads it). The write lands in the profile document, so it takes effect on
+    # the next start — same channel as the memory static pin.
+    - id: model-switch-review-timeout
+      name: 'dsh-model-switch/review-timeout'

@@ -9,7 +9,7 @@
  * Usage:
  *   node tools/route-probe.mjs [--port 4719] [--log route-probe.jsonl] [--answer ok]
  *                              [--preset ok|classifier-allow|classifier-deny|title|memory|plan]
- *                              [--tool <name> --args <json>] [--clear]
+ *                              [--tool <name> --args <json>] [--clear] [--hang <ms>]
  *
  * `--preset` picks a canned reply shape for paths that parse one; an explicit
  * `--answer` still wins. `--tool` replays one model-requested tool call instead
@@ -154,6 +154,11 @@ const server = createServer(async (request, response) => {
       ? String(pinned.answer)
       : (pinned?.preset !== undefined ? PRESETS[pinned.preset] : answer)
     record({ path: url.pathname, model, stream, tool: replyTool, preset: replyPreset, authPresent: request.headers.authorization !== undefined, port })
+    // `--hang <ms>` opens nothing for that long: a provider profile with a short
+    // `streamIdleTimeoutMs` must abort here, which is how the review-timeout write
+    // is verified end to end.
+    const hangMs = Number(flag('hang', '0'))
+    if (Number.isFinite(hangMs) && hangMs > 0) await new Promise((resolve) => setTimeout(resolve, hangMs))
     if (stream) {
       response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
       if (replyTool !== '') {

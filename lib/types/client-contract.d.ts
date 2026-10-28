@@ -16,6 +16,11 @@ export interface ModelSwitchSettingsView {
     autoReviewSkipReadOnly?: boolean;
     /** Exact tool names, or trailing-`*` patterns, that skip the reviewer when enabled. */
     autoReviewAllowlist?: readonly string[];
+    /**
+     * Reviewer stream idle timeout in ms; `0` = cancelled (written as the upstream
+     * ceiling); absent = follow the provider default.
+     */
+    autoReviewTimeoutMs?: number;
     compactProvider?: string;
     compactModel?: string;
     titleProvider?: string;
@@ -62,6 +67,12 @@ export declare const AUTO_REVIEW_ALLOWLIST_FIELDS: Readonly<{
     readonly enabled: "autoReviewSkipReadOnly";
     readonly tools: "autoReviewAllowlist";
 }>;
+/** Auto-reviewer stream idle timeout: one stored value; absent keeps the provider default. */
+export declare const AUTO_REVIEW_TIMEOUT_FIELD: "autoReviewTimeoutMs";
+/** Upstream ceiling enforced by `@deepseek-ai/dsh-timeout` (MAX_TIMER_DELAY_MS). */
+export declare const UPSTREAM_MAX_IDLE_TIMEOUT_MS = 2147483647;
+/** Upstream default (300 s) when the provider profile leaves the field unset. */
+export declare const UPSTREAM_DEFAULT_IDLE_TIMEOUT_MS = 300000;
 /** One allowlist editor snapshot (switch + entries). */
 export interface AutoReviewAllowlistView {
     enabled: boolean;

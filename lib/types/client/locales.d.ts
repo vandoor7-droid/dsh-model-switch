@@ -75,6 +75,16 @@ export declare const zh: {
     readonly reviewAllowlistAvailable: "本机存在但未放行的工具：";
     readonly reviewAllowlistRepo: "仓库";
     readonly reviewAllowlistSkipped: "本 Host 进程已为纯读调用跳过 {count} 次审查。";
+    readonly reviewTimeout: "审查超时";
+    readonly reviewTimeoutDefault: "跟随 Provider 默认（300 秒）";
+    readonly reviewTimeoutHelp: "设置自动审查请求的流式空闲超时。留空恢复 Provider 默认值；勾选「取消超时」写入上游上限（约 24.8 天），审查将不会因空闲而超时。该值写在 Provider 配置里，改完需重启一次 DSH 才生效。";
+    readonly reviewTimeoutScope: "注意：该值写入审查模型所在 Provider 的 streamIdleTimeoutMs，对该 Provider 的所有调用（含主对话）生效，不只影响审查请求。";
+    readonly reviewTimeoutSeconds: "超时秒数";
+    readonly reviewTimeoutPlaceholder: "300（默认）";
+    readonly reviewTimeoutCancelLabel: "取消超时";
+    readonly reviewTimeoutCancelHint: "审查调用不再因空闲超时（写入约 24.8 天上限）";
+    readonly reviewTimeoutSave: "保存超时设置";
+    readonly reviewTimeoutCancelled: "已取消超时";
     readonly reviewAutomodeLinked: "Auto mode 已接入：审查路由 {route}，直通 +{added} 个纯读工具（{skipped} 条通配未同步）。";
     readonly reviewAutomodeRouteOwn: "沿用其自身配置";
     readonly reviewAutomodeRouteUnset: "未配置（沿用会话模型）";

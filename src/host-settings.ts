@@ -32,6 +32,19 @@ export interface ModelSwitchSettings {
    * name). A bare `*` is rejected by the settings editor and never matches.
    */
   autoReviewAllowlist?: readonly string[]
+  /**
+   * Reviewer stream idle timeout, in milliseconds, written to the reviewer
+   * routes' pi-ai provider profiles (`streamIdleTimeoutMs`).
+   *
+   * - absent: follow the provider default (300 s) — the upstream behaviour.
+   * - `0`: "cancel the timeout" — written as the upstream hard maximum
+   *   (2147483647 ms ≈ 24.86 days), the closest legal value to "no timeout".
+   * - otherwise: a positive finite integer, clamped to the upstream ceiling.
+   *
+   * The key lives on the provider profile, so it applies to every call through
+   * that provider (reviewer, main chat, …), not only the reviewer.
+   */
+  autoReviewTimeoutMs?: number
   /** Summarization provider for `/compact` and automatic compaction; both fields unset = official default (the conversation target). */
   compactProvider?: string
   /** Summarization model for `/compact` and automatic compaction; set together with `compactProvider`. */
@@ -64,6 +77,8 @@ export interface Config {
   autoReviewSkipReadOnly: Volatile<boolean>
   /** Tool names (exact, or a trailing `*` pattern) that skip the Auto reviewer. */
   autoReviewAllowlist: Volatile<readonly string[]>
+  /** Reviewer stream idle timeout in ms; 0 = cancel (upstream ceiling); absent = provider default. */
+  autoReviewTimeoutMs: Volatile<number | undefined>
   compactProvider: Volatile<string | undefined>
   compactModel: Volatile<string | undefined>
   titleProvider: Volatile<string | undefined>
@@ -93,6 +108,8 @@ export const Config: z<any, Config, 'plain'> = z.object({
   autoReviewModel: z.string().volatile(),
   autoReviewSkipReadOnly: z.boolean().default(false).volatile(),
   autoReviewAllowlist: z.array(z.string()).default([...DEFAULT_READ_ONLY_TOOLS]).volatile(),
+  /** Reviewer stream idle timeout in ms; 0 = cancel (upstream ceiling); absent = provider default. */
+  autoReviewTimeoutMs: z.number().step(1).min(0).max(2147483647).volatile(),
   compactProvider: z.string().volatile(),
   compactModel: z.string().volatile(),
   titleProvider: z.string().volatile(),
@@ -127,6 +144,7 @@ export function readConfig(config: Config): ModelSwitchSettings {
   const autoReviewModel = config.autoReviewModel.get()
   const autoReviewSkipReadOnly = config.autoReviewSkipReadOnly.get()
   const autoReviewAllowlist = config.autoReviewAllowlist.get()
+  const autoReviewTimeoutMs = config.autoReviewTimeoutMs.get()
   const compactProvider = config.compactProvider.get()
   const compactModel = config.compactModel.get()
   const titleProvider = config.titleProvider.get()
@@ -147,6 +165,7 @@ export function readConfig(config: Config): ModelSwitchSettings {
     ...(autoReviewModel === undefined || autoReviewModel === '' ? {} : { autoReviewModel }),
     ...(autoReviewSkipReadOnly ? { autoReviewSkipReadOnly } : {}),
     ...(Array.isArray(autoReviewAllowlist) ? { autoReviewAllowlist: [...autoReviewAllowlist] } : {}),
+    ...(autoReviewTimeoutMs === undefined ? {} : { autoReviewTimeoutMs }),
     ...(compactProvider === undefined || compactProvider === '' ? {} : { compactProvider }),
     ...(compactModel === undefined || compactModel === '' ? {} : { compactModel }),
     ...(titleProvider === undefined || titleProvider === '' ? {} : { titleProvider }),

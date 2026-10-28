@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-switch",
-  "version": "0.4.48",
+  "version": "0.4.50",
   "description": "Explicit model routing plus composer/Plan picker for DeepSeek Harness",
   "repository": {
     "type": "git",
@@ -65,6 +65,10 @@
     "./prime-memory-compat": {
       "types": "./lib/types/prime-memory-compat.d.ts",
       "default": "./lib/prime-memory-compat.js"
+    },
+    "./review-timeout": {
+      "types": "./lib/types/review-timeout.d.ts",
+      "default": "./lib/review-timeout.js"
     },
     "./package.json": "./package.json"
   },

@@ -20,21 +20,29 @@ a saved setting, or a value read back from the settings document does **not** co
 | Subagent | yes | `mimo-v2.6-flash` requests during the subagent run, while the main model was official |
 | Compaction | yes | `/compact` reported "已压缩 5 条历史记录（约 1788 tokens）"; recorder rows at the same second |
 | Memory distillation | yes | `memory.log`: L1 extraction, L2 integration and L3 profile all ran on `apigoto/mimo-v2.6-flash` and returned real output. See `prime-memory.md` |
-| Auto review | **no** | The official gate `@deepseek-ai/dsh-experimental-auto-review` is not part of this lab profile, so the reviewer override never mounts. Installing it is rejected: `0.1.6-alpha.1` declares `^0.1.6-alpha.1` peers against DSH `0.2.1-rc.3`. Forcing it needs `dsh plugin allow-version … --accept-risk` |
-| automode | **no** | `@log.li/dsh-automode` was not installed in the lab; untested |
+| Auto review | **no** | The optional bundle is shipped with DSH (`@deepseek-ai/dsh-experimental-auto-review@0.2.1-rc.3` is already in the runtime): adding it to `dsh.profile.bundles` makes the preset appear in the access-mode menu (`自动审查 EXP`). But the host's `permissionPresets/catalog` RPC still returns only four presets — no `auto` — while the plugin reports `held: true`, and selecting that menu entry sends no session-settings call at all. Root cause open; see the note below |
+| automode | **no** | `@log.li/dsh-automode` installs into the lab profile without a compatibility rejection, and its `Auto mode` preset does switch and run. The adapter reported `routeSkipped: 'no-route'` because it reads this plugin's **flat** `autoReviewProvider/Model` pair and the lab only pinned the provider group — so the classifier never received a route and the recorder stayed empty |
 
 ## Notes on the two unmeasured rows
 
-Both are environment gaps, not observed failures. Nothing in this repository claims
-they work: the plugin only rewrites the route of whichever gate is active, and when the
-gate is absent the adapter logs
-`model-switch: auto-review bundle is not active in this profile; the reviewer route override stays unmounted`.
+Both are open questions, not observed failures of the router itself.
 
-To measure auto review, either accept the risk of forcing
-`@deepseek-ai/dsh-experimental-auto-review@0.1.6-alpha.1` onto DSH `0.2.1-rc.3`, or run
-the check in a profile that already has a compatible gate. Until then the reviewer route
-stays "unverified" here even though its rewrite path is covered by unit tests
-(`tests/auto-review.spec.ts`).
+- **Auto review.** Enabling the bundle is necessary but not sufficient here: the menu
+  lists `自动审查 EXP` while the server catalog omits `auto`, and clicking the entry has
+  no effect (the page issues no preset-switch request). Our takeover reports `held: true`,
+  so the gate did claim the registration in its own context; the catalog appears to be
+  served from a different `permission-presets` instance. Until that is settled, the
+  reviewer route stays "unverified" here even though its rewrite path is covered by unit
+  tests (`tests/auto-review.spec.ts`).
+- **automode.** The next run must set the flat `autoReviewProvider`/`autoReviewModel`
+  (not only the provider group) so `routeOf()` hands the classifier a route, then trigger
+  an escalating action while the `Auto mode` preset is selected and confirm the recorder
+  sees the reviewer-unique model.
+
+A related defect this measurement surfaced: the plugin could not boot the **headless**
+profile at all — the review-timeout row awaited a settings write during activation and
+deadlocked the loader (`unsettled top-level await`, CLI exit 13). Fixed in v0.4.47 by
+firing the write without awaiting it.
 
 ## UI layout checks
 
@@ -65,6 +73,7 @@ route under test instead.
 ## automode route
 
 `@log.li/dsh-automode` is not part of the provider groups: `src/provider-group.ts` has no automode key. `src/automode-compat.ts` fills the row's `classifier.provider` / `classifier.model` from this plugin's **Auto-review** route, and only when the row leaves them empty (an explicit pair is kept, reported as `routeSkipped: 'user-set'`). So the automode classifier inherits the auto-review route and can be measured without the official auto-review gate being installed — point `autoReviewProvider/Model` at the recorder with a unique model name and trigger one automation. Not yet run: the lab installation of `@log.li/dsh-automode@0.17.0` succeeded, but the profile has no automode row yet, so the plugin is not loaded.
+
 
 
 ## Virtual two-way replay (2026-10-28, 0.4.47 lab attempt)
@@ -108,3 +117,43 @@ What is **not** established: a real classifier request carrying our route. Forci
 needs a call the gate treats as an escalation (a write outside the workspace, a denied
 band, or an unknown tool) — not a plain `bash` command, which its allow path settles
 silently. Row stays "no" until such a call is captured.
+
+## Review timeout
+
+`model-switch-review-timeout` writes the configured value into the reviewer
+providers' `streamIdleTimeoutMs` in the profile document. Upstream reads that key
+only from the pi-ai provider profile (no per-request override; `@deepseek-ai/dsh-timeout`
+rejects 0, negatives and Infinity), so the legal range is (0, 2147483647] ms,
+"cancel" is written as the ceiling, the key belongs to the provider (it covers
+every call through it), and the write is read at the **next** start.
+
+Measured in the lab (DSH 0.2.1-rc.3, virtual / zero real quota: the chat model is
+hung 8 s before replying). Reproduce with
+`node tools/route-probe.mjs --preset ok --hang 8000`.
+
+| Setting | Key written | Same start | Next start |
+| --- | --- | --- | --- |
+| 5 s | `streamIdleTimeoutMs: 5000` | completes (300 s still in force) | `TIMEOUT: pi-ai stream idle timeout after 5000ms` |
+| cancel | `streamIdleTimeoutMs: 2147483647` | — | completes after the 8 s hang |
+| reset | key removed | — | completes (upstream default) |
+
+Two defects this measurement surfaced, both fixed in v0.4.50: awaiting the
+settings write during row activation deadlocked the loader (the headless profile
+could not boot — CLI exit 13 with an unsettled top-level await), and clearing the
+field with `set null` was refused by the host schema instead of unsetting it.
+
+## Update (2026-10-28): auto-review and automode
+
+- Enabling `@deepseek-ai/dsh-experimental-auto-review` is done by listing it in the
+  profile's `dsh.profile.bundles` (already shipped in the runtime at 0.2.1-rc.3);
+  the access-mode menu then shows `自动审查 EXP`. **But** the host's
+  `permissionPresets/catalog` RPC still returns only four presets (no `auto`) while
+  the plugin reports `held: true`, and clicking the entry issues no preset-switch
+  request. Root cause open (the catalog appears to be served from a different
+  permission-presets instance than the one the takeover claimed).
+- automode: the row installs without a compatibility rejection and its `Auto mode`
+  preset switches and runs, but the adapter reported `routeSkipped: 'no-route'` —
+  it reads this plugin's **flat** `autoReviewProvider/Model` pair, and the lab only
+  pinned the provider group. The next run must set the flat pair before measuring
+  the classifier call.
+
