@@ -236,6 +236,14 @@ export function installAutoReviewTakeover(ctx: Context, seam: AutoReviewSeam): (
     if (entry === undefined || typeof nextFn !== 'function' || !isOfficialAutoReviewRow(entry)) {
       return nextFn === undefined ? undefined : nextFn()
     }
+    // A row the composition already disabled never runs `apply`, so there is no
+    // registration to yield and nothing to displace. Reclaiming it anyway would
+    // call `Entry.update({ disabled: true })` on every compose — a profile write
+    // that reloads the composition and re-fires this listener: a self-sustaining
+    // recompose loop (observed at ~1.5 writes/s with the optional bundle enabled).
+    if (alreadyDisabled(entry)) {
+      return nextFn()
+    }
     // The yield must land before `next()` returns: the loader runs this entry's
     // plugin `apply` — and with it the official `registerAuto` — immediately
     // after the waterfall completes. **Every** activation yields again: the

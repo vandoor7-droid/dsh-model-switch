@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { planPrimeMemoryRoute, pushMemoryRoute } from '../src/prime-memory-compat.js'
+import { memoryLiveMatchesRoute, planPrimeMemoryRoute, pushMemoryRoute } from '../src/prime-memory-compat.js'
 import { memoryRouteOf, type RouteBearingSettings } from '../src/session-route.js'
 
 /** The row config dsh-prime-memory ships with when it follows its own default. */
@@ -98,5 +98,38 @@ describe('pushMemoryRoute payload', () => {
   it('reports an absent endpoint instead of pretending to push', async () => {
     const outcome = await pushMemoryRoute({ get: () => ({}) } as never, { provider: 'a', model: 'b' })
     expect(outcome).toBe('absent')
+  })
+})
+
+describe('memoryLiveMatchesRoute', () => {
+  const layer = { provider: 'apigoto', model: 'mimo-v2.6-flash' }
+  const live = {
+    distillProvider: 'apigoto',
+    distillModel: 'mimo-v2.6-flash',
+    distillChain: [],
+    distillLayerChains: { l1: [layer], l2: [layer], l3: [layer] },
+  }
+
+  it('matches a live section that already carries the route', () => {
+    expect(memoryLiveMatchesRoute(live, 'apigoto', 'mimo-v2.6-flash')).toBe(true)
+  })
+
+  it('rejects a different provider or model', () => {
+    expect(memoryLiveMatchesRoute(live, 'probe', 'mimo-v2.6-flash')).toBe(false)
+    expect(memoryLiveMatchesRoute(live, 'apigoto', 'gpt-6-luna')).toBe(false)
+  })
+
+  it('rejects a non-empty distillChain', () => {
+    expect(memoryLiveMatchesRoute({ ...live, distillChain: [layer] }, 'apigoto', 'mimo-v2.6-flash')).toBe(false)
+  })
+
+  it('rejects missing or partial layer chains', () => {
+    expect(memoryLiveMatchesRoute({ ...live, distillLayerChains: undefined }, 'apigoto', 'mimo-v2.6-flash')).toBe(false)
+    expect(memoryLiveMatchesRoute({ ...live, distillLayerChains: { l1: [layer], l2: [layer] } }, 'apigoto', 'mimo-v2.6-flash')).toBe(false)
+  })
+
+  it('rejects non-object values', () => {
+    expect(memoryLiveMatchesRoute(undefined, 'apigoto', 'mimo-v2.6-flash')).toBe(false)
+    expect(memoryLiveMatchesRoute('nope', 'apigoto', 'mimo-v2.6-flash')).toBe(false)
   })
 })

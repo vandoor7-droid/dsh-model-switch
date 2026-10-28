@@ -213,6 +213,37 @@ interface WebServerLike {
 const MEMORY_RPC_PATH = '/dsh-memory/rpc/settings-set'
 
 /**
+ * Whether the memory row's live section already carries exactly our route.
+ *
+ * The RPC write path persists the live section to the profile document on every
+ * call, and a document change reloads the composition — so pushing an unchanged
+ * route re-triggers this adapter forever (a ~6 s recompose loop, observed with
+ * `dsh-prime-memory@0.26.10`). Comparing first is what makes the push idempotent
+ * across reloads.
+ *
+ * @param value - the memory row's live settings object, as the forms describe it.
+ * @param provider - route provider to compare against.
+ * @param model - route model to compare against.
+ * @returns true when a push would change nothing.
+ */
+export function memoryLiveMatchesRoute(value: unknown, provider: string, model: string): boolean {
+  if (value === null || typeof value !== 'object') return false
+  const live = value as Record<string, unknown>
+  if (live.distillProvider !== provider || live.distillModel !== model) return false
+  const chain = live.distillChain
+  if (Array.isArray(chain) && chain.length !== 0) return false
+  const layers = live.distillLayerChains
+  if (layers === null || typeof layers !== 'object') return false
+  for (const key of ['l1', 'l2', 'l3']) {
+    const layer = (layers as Record<string, unknown>)[key]
+    if (!Array.isArray(layer) || layer.length !== 1) return false
+    const first = layer[0] as Record<string, unknown> | undefined
+    if (first === undefined || first.provider !== provider || first.model !== model) return false
+  }
+  return true
+}
+
+/**
  * Hand the route to the memory plugin through the RPC it registers for its own
  * settings page.
  *
@@ -356,6 +387,16 @@ export function installPrimeMemoryCompat(
       return
     }
     const wanted = `${provider}/${model}`
+    // Pushing an unchanged route makes the memory plugin rewrite its live section,
+    // the document change reloads the composition, and the reload runs this
+    // adapter again — a self-sustaining recompose loop. Skip when already applied.
+    if (memoryLiveMatchesRoute(sectionOf(forms)?.value, provider, model)) {
+      adoptedRoute = wanted
+      primeMemoryCompatStatus.installed = true
+      primeMemoryCompatStatus.route = wanted
+      delete primeMemoryCompatStatus.routeSkipped
+      return
+    }
     // The plugin resolves its route from the runtime settings object it built at
     // `apply`, so a document write alone stays invisible until the next start.
     // Its own settings RPC is the runtime write path — the one its panel posts to —

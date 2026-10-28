@@ -1,3 +1,12 @@
+## v0.4.51
+
+两处幂等加固，消除对 profile 文档的冗余写入：
+
+- 记忆蒸馏适配层在推送前先比对 live 配置：路由、空链与三层分层链都已一致时**不再推送**（`memoryLiveMatchesRoute`，5 个新单测）。此前每次激活都无条件推送，而 memory 插件的 settings-set 每次都会把 live 段落盘。
+- auto-review 接管在 `loader/patch-context` 里对**组合期已禁用**的官方行不再执行 `Entry.update({disabled:true})`（启动扫描原本就有这个判断，监听器漏了）。
+
+已知未决问题（如实记录，不宣称已修复）：lab 里启用可选 auto-review bundle + automode + memory 的组合曾观察到间歇性 recompose 抖动（automode 的 `boot` 决策记录 ~1.5 条/秒、profile 文档 mtime ~5-6 秒一跳）。二分显示：移除本插件后抖动消失（30 秒 0 跳）；加入上述两处加固后**同一构建两次测量不一致**（一次 30 秒 6 跳、一次 25 秒快照窗口 0 次改写），写入者未能 conclusively 定位。详见 `docs/route-verification.md` 的 recompose churn 小节。
+
 
 ## Unreleased
 

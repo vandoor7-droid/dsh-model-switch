@@ -244,3 +244,23 @@ process itself did not restart (uptime was 169 minutes), and the burst stopped a
 as the lab host was killed. A lab profile that carries automode plus this plugin can
 therefore re-activate automode repeatedly; worth isolating before drawing conclusions
 from any automode timing.
+
+### Recompose churn (open issue, 2026-10-28)
+
+With the optional auto-review bundle, `@log.li/dsh-automode` and `dsh-prime-memory`
+all enabled in the lab profile, two churn signals appeared intermittently:
+automode's `boot` decision records at ~1.5/s and the profile document's mtime
+ticking every ~5-6 s, while the host process itself never restarted. Bisect:
+
+| Composition | 30-40 s idle observation |
+| --- | --- |
+| without `dsh-model-switch` | 0 mtime ticks |
+| with `dsh-model-switch` (0.4.50) | ~5-6 ticks, 68-136 automode boot records per window |
+| with 0.4.51 hardening, run 1 | 6 ticks, 75 boot records |
+| with 0.4.51 hardening, run 2 | 1 snapshot in a 25 s per-second watch (no rewrite) |
+
+The two 0.4.51 hardening changes (skip the memory RPC push when the live section
+already matches; skip `Entry.update({disabled:true})` for rows the composition
+already disabled) remove redundant profile writes, but the inconsistent runs mean
+the churn's writer is **not conclusively identified**. Treat any automode timing
+measurement taken in such a profile as unreliable until this is closed.

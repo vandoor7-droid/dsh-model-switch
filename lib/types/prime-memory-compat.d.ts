@@ -80,6 +80,21 @@ interface Loader {
     entries?(): Iterable<Entry>;
 }
 /**
+ * Whether the memory row's live section already carries exactly our route.
+ *
+ * The RPC write path persists the live section to the profile document on every
+ * call, and a document change reloads the composition — so pushing an unchanged
+ * route re-triggers this adapter forever (a ~6 s recompose loop, observed with
+ * `dsh-prime-memory@0.26.10`). Comparing first is what makes the push idempotent
+ * across reloads.
+ *
+ * @param value - the memory row's live settings object, as the forms describe it.
+ * @param provider - route provider to compare against.
+ * @param model - route model to compare against.
+ * @returns true when a push would change nothing.
+ */
+export declare function memoryLiveMatchesRoute(value: unknown, provider: string, model: string): boolean;
+/**
  * Hand the route to the memory plugin through the RPC it registers for its own
  * settings page.
  *

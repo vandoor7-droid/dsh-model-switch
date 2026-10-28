@@ -522,9 +522,12 @@ describe('takeover choreography', () => {
     expect(listener).toBeTypeOf('function')
     const next = vi.fn(() => undefined)
     // Startup activation, then the plugin manager's re-enable: both must yield
-    // before the loader runs the official apply.
+    // before the loader runs the official apply. The re-enable flips the row
+    // back on through `Entry.update({ disabled: false })` before the loader's
+    // patch-context, so mirror that order here.
     listener!.call(entry, next)
     await new Promise(resolve => setTimeout(resolve, 0))
+    entry.disabled = false
     listener!.call(entry, next)
     await new Promise(resolve => setTimeout(resolve, 0))
 
@@ -534,6 +537,41 @@ describe('takeover choreography', () => {
     // on every activation cannot loop.
     expect(claim).toHaveBeenCalled()
     expect(entry.update).toHaveBeenCalledWith({ disabled: true })
+  })
+
+  it('leaves a compose-disabled official row untouched (no rewrite, no reclaim)', () => {
+    // The loop fix: a row the bundle patch already disabled never runs apply, so
+    // reclaiming it would only rewrite the profile (and reload the composition)
+    // without displacing anything.
+    const listeners = new Map<string, (...args: unknown[]) => unknown>()
+    const ctx = {
+      on: (event: string, listener: (...args: unknown[]) => unknown) => {
+        listeners.set(event, listener)
+        return () => { listeners.delete(event) }
+      },
+      effect: (body: () => unknown) => {
+        const generator = body() as Generator<unknown>
+        for (let step = generator.next(); !step.done; step = generator.next()) { /* disposer collected */ }
+        return () => undefined
+      },
+      get: () => undefined,
+      logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
+    }
+    const entry = {
+      options: { id: 'auto-review', name: '@deepseek-ai/dsh-experimental-auto-review', config: {} },
+      disabled: true,
+      update: vi.fn(async () => undefined),
+    }
+    const yieldRegistration = vi.fn()
+    const claim = vi.fn(async () => true)
+    installAutoReviewTakeover(ctx as never, { yieldRegistration, claim, preserveAuto: async action => { await action() } })
+    const listener = listeners.get('loader/patch-context')
+    const next = vi.fn(() => undefined)
+    listener!.call(entry, next)
+    expect(yieldRegistration).not.toHaveBeenCalled()
+    expect(claim).not.toHaveBeenCalled()
+    expect(entry.update).not.toHaveBeenCalled()
+    expect(next).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the yield away from rows that are not the official auto-review entry', () => {
