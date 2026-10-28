@@ -213,3 +213,34 @@ also routes) replaces the header the gate inspects, making the lookup fail.
 Practical answer until this is settled: run plugin tools under 请求批准 or 完全放开,
 or put a genuinely read-only plugin tool on the review allowlist (纯读工具免审查),
 where the gate never builds a review request.
+
+### automode, attempt 2 (2026-10-28, UI lane restored)
+
+The browser lane works again once `bcdp_status` is called first (the plugin runs
+`lazy` tool injection; see the user-level AGENTS.md rule). With that:
+
+- a fresh lab session starts on 请求批准 and the `Auto mode` preset switches over
+  successfully in the access-mode menu (**automode's own preset works**);
+- the lab profile pins the **flat** `autoReviewProvider/Model` = probe/gpt-6-luna, and
+  the plugin's own status confirms the adapter wrote it:
+  `automode: {installed: true, route: "probe/gpt-6-luna", added: 0, skipped: 0}`;
+- the scripted probe returned one `pwsh` tool call (delete a scratch directory
+  outside the workspace), which the session executed/answered;
+- **the recorder saw no `gpt-6-luna` request in three attempts** — only main-model
+  rows. automode's own decision log (`~/.dsh/auto-mode/decisions.jsonl`) contains
+  `boot` events only, no tool decision, so in these runs the classifier was not
+  consulted at all.
+
+Conclusion so far: the *route* is filled correctly, but a classifier call has never
+been observed. Whether automode skipped these actions via its deterministic bands, or
+resolves the classifier out of band, is still open — do not read this as "automode
+routing works".
+
+### Observation: automode re-activation burst
+
+During that session the same decision log accumulated **at least 20 `boot` records
+inside one ~15 s window** (the file holds 1868 `boot` records in total). The host
+process itself did not restart (uptime was 169 minutes), and the burst stopped as soon
+as the lab host was killed. A lab profile that carries automode plus this plugin can
+therefore re-activate automode repeatedly; worth isolating before drawing conclusions
+from any automode timing.
