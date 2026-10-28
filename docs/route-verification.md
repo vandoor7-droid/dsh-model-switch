@@ -268,3 +268,27 @@ re-activates the adapter. Snapshot diffs during a churn window showed exactly th
 consecutive writes differing only in key order (`mdExportMaxRecords` moving). With the
 guard accepting the nested shape, a 40 s window shows a single write (the initial
 memory-row creation) and then silence.
+
+### automode, attempt 3 (2026-10-28, post-churn, virtual / zero real quota)
+
+With the recompose loop fixed (0.4.52) the measurement is trustworthy again. In the
+lab (DSH 0.2.1-rc.3, automode v0.17.0, recorder `C:\dsh-artifacts\probe-am.jsonl`),
+session on the `Auto mode` preset, four escalation-shaped scripted actions were run
+through `route-probe --map`:
+
+| Action | Observed handling | Classifier (gpt-6-luna) seen? |
+| --- | --- | --- |
+| `Remove-Item -Recurse -Force` outside workspace | denied in ~10 ms (bands.js: deletion is a hard-deny band) | no |
+| `New-Item` file outside workspace | executed, then `[sandbox: file access denied under workspace-write mode]` | no |
+| `Invoke-RestMethod` to a localhost endpoint | result in ~8 ms (allowed/executed) | no |
+| same delete under 请求批准 (control) | executed, exit 1 from the sandbox | n/a |
+
+automode's decision log (`~/.dsh/auto-mode/decisions.jsonl`) contains **only `boot`
+records** across the whole window — no tool decision was ever written.
+
+Conclusion: the classifier route that `automode-compat` injects
+(`status.automode.route = probe/gpt-6-luna`, verified) is **not on the observed
+decision path** of automode v0.17.0 for these action classes; escalations are resolved
+by the deterministic bands and the sandbox instead. Until an action class that reaches
+the classifier is found, the injection stays "written, not proven consumed" — do not
+advertise automode routing as verified.
