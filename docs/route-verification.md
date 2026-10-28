@@ -187,3 +187,29 @@ node tools/route-probe.mjs --port 4731 --log probe-automode.jsonl \
 # boot the lab host, select the 自动审查/Auto mode preset, then ask for one command
 # that writes outside the workspace; expect a gpt-6-luna row in the recorder.
 ```
+
+## Auto preset blocks plugin tools whose schema the gate cannot resolve
+
+Observed 2026-10-28 in the desktop profile with the session already on the Auto
+preset:
+
+| Tool | Lane | Outcome |
+| --- | --- | --- |
+| `pwsh` (core) | reviewed | runs after the reviewer answers |
+| `bcdp_navigate` (plugin) | reviewed | never runs: `auto-review: the pending native tool schema is missing or ambiguous` |
+| `bcdp_status`, `memory_list`, `read`, `grep` | pure-read allowlist | skipped by the gate, always run |
+
+The message comes from the official gate's `nativeAction()` in
+`@deepseek-ai/dsh-experimental-auto-review/lib/index.js`: it resolves the tool
+schema out of `session.requestHeader().tools` and requires exactly one entry whose
+`name` matches the pending call. Zero or two matches both throw, and the gate fails
+closed, so the tool body never executes.
+
+Leading hypothesis, not yet proven: `requestHeader()` is the session's most recent
+LLM request, so an auxiliary request issued inside that session that carries no
+`tools` array (session naming, memory distillation, compaction — calls this plugin
+also routes) replaces the header the gate inspects, making the lookup fail.
+
+Practical answer until this is settled: run plugin tools under 请求批准 or 完全放开,
+or put a genuinely read-only plugin tool on the review allowlist (纯读工具免审查),
+where the gate never builds a review request.
