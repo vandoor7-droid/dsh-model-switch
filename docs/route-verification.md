@@ -245,7 +245,7 @@ as the lab host was killed. A lab profile that carries automode plus this plugin
 therefore re-activate automode repeatedly; worth isolating before drawing conclusions
 from any automode timing.
 
-### Recompose churn (open issue, 2026-10-28)
+### Recompose churn (root-caused and fixed in v0.4.52)
 
 With the optional auto-review bundle, `@log.li/dsh-automode` and `dsh-prime-memory`
 all enabled in the lab profile, two churn signals appeared intermittently:
@@ -259,8 +259,12 @@ ticking every ~5-6 s, while the host process itself never restarted. Bisect:
 | with 0.4.51 hardening, run 1 | 6 ticks, 75 boot records |
 | with 0.4.51 hardening, run 2 | 1 snapshot in a 25 s per-second watch (no rewrite) |
 
-The two 0.4.51 hardening changes (skip the memory RPC push when the live section
-already matches; skip `Entry.update({disabled:true})` for rows the composition
-already disabled) remove redundant profile writes, but the inconsistent runs mean
-the churn's writer is **not conclusively identified**. Treat any automode timing
-measurement taken in such a profile as unreliable until this is closed.
+v0.4.52 root-caused it: the memory adapter's idempotence guard read the forms
+descriptor value as the live section, while the descriptor returns the whole row
+config (`{ llm, live }`); the guard therefore never matched and every activation
+re-pushed the route through the memory plugin's settings-set RPC, which re-persists
+its live section with a different key order — a document change that recomposes and
+re-activates the adapter. Snapshot diffs during a churn window showed exactly that:
+consecutive writes differing only in key order (`mdExportMaxRecords` moving). With the
+guard accepting the nested shape, a 40 s window shows a single write (the initial
+memory-row creation) and then silence.

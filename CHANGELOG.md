@@ -1,3 +1,11 @@
+## v0.4.52
+
+修复一个自维持的 recompose 循环（lab 实测定位，DSH 0.2.1-rc.3 + dsh-prime-memory 0.26.10）：
+
+- **根因**：记忆蒸馏适配层的幂等守卫把 `forms.describe()` 返回的值当 live 段顶层读，而该值是整行配置（`{ llm, live }`）→ 守卫永不命中 → 每次激活都向 memory 的 settings-set RPC 重推路由；memory 插件每次 set 都会把 live 段重新落盘（键序与上一次不同）→ profile 文档变化触发 recompose → 适配层再次激活 → 再次重推。表现为 profile 文档 mtime 约每 5-6 秒一跳、automode 的 `boot` 决策记录约 1.5 条/秒，宿主进程并不重启。
+- **修复**：`memoryLiveMatchesRoute` 同时接受 live 段与整行两种形态（嵌套时取 `live`）；命中即跳过推送。新增嵌套形态单测。
+- **证据**：修复前 40 秒窗口 3 次内容变化，相邻快照 diff 仅为 `mdExportMaxRecords` 键序位移（内容相同）；修复后 40 秒窗口 **1 次**变化（首启创建 memory 行），之后稳定。二分另确认：移除本插件后 30 秒 0 跳。
+
 ## v0.4.51
 
 两处幂等加固，消除对 profile 文档的冗余写入：

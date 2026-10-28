@@ -227,8 +227,13 @@ const MEMORY_RPC_PATH = '/dsh-memory/rpc/settings-set'
  * @returns true when a push would change nothing.
  */
 export function memoryLiveMatchesRoute(value: unknown, provider: string, model: string): boolean {
-  if (value === null || typeof value !== 'object') return false
-  const live = value as Record<string, unknown>
+  const outer = value === null || typeof value !== 'object' ? undefined : (value as Record<string, unknown>)
+  if (outer === undefined) return false
+  // The forms descriptor hands back either the live section itself or the whole
+  // row config (`{ llm, live }`); accept both, or the idempotence guard never
+  // matches and every activation re-pushes (a rewrite/reload loop).
+  const inner = outer.live
+  const live = (inner !== null && typeof inner === 'object' ? inner : outer) as Record<string, unknown>
   if (live.distillProvider !== provider || live.distillModel !== model) return false
   const chain = live.distillChain
   if (Array.isArray(chain) && chain.length !== 0) return false

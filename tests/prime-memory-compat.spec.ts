@@ -114,6 +114,10 @@ describe('memoryLiveMatchesRoute', () => {
     expect(memoryLiveMatchesRoute(live, 'apigoto', 'mimo-v2.6-flash')).toBe(true)
   })
 
+  it('accepts the whole-row shape with the live section nested', () => {
+    expect(memoryLiveMatchesRoute({ llm: { provider: 'apigoto', model: 'mimo-v2.6-flash' }, live }, 'apigoto', 'mimo-v2.6-flash')).toBe(true)
+  })
+
   it('rejects a different provider or model', () => {
     expect(memoryLiveMatchesRoute(live, 'probe', 'mimo-v2.6-flash')).toBe(false)
     expect(memoryLiveMatchesRoute(live, 'apigoto', 'gpt-6-luna')).toBe(false)
