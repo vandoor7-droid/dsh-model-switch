@@ -344,3 +344,22 @@ The card summary follows the same states (300 s default → "5s" → default). E
 rewrote the provider row through the settings path only; no restart was needed for the
 config write itself (the provider picks the new `streamIdleTimeoutMs` up on next boot,
 as the card's own copy states).
+
+### narrow-window plan card: not verifiable in this runtime (2026-10-29)
+
+The plan card renders fine at the default 1256×774 viewport, but the CDP runtime
+exposes no way to shrink it: `Emulation.setDeviceMetricsOverride(420×860)` returns
+success while `window.innerWidth` stays 1256, and `Browser.getWindowForTarget` fails
+with "No web contents in the target" (the tool targets the browser, not the page).
+Opening a second visible browser is not allowed (see AGENTS.md), so the narrow-window
+layout stays **unverified**. A viewport option on the task space (or metrics emulation
+on the page target) would be enough to close it.
+
+### default reviewer idle timeout blocks tools for 5 minutes (observed live, 2026-10-29)
+
+During the same lab session the desktop gate itself hit
+`TIMEOUT: pi-ai stream idle timeout after 300000ms` on a `bcdp_cdp` call: the reviewer
+model stalled and the official gate held the tool body for the full default 300 s before
+failing closed. This is the concrete failure mode the configurable `streamIdleTimeoutMs`
+in this plugin addresses — with the card set, the same stall fails in seconds instead of
+five minutes.
