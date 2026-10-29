@@ -292,3 +292,39 @@ decision path** of automode v0.17.0 for these action classes; escalations are re
 by the deterministic bands and the sandbox instead. Until an action class that reaches
 the classifier is found, the injection stays "written, not proven consumed" — do not
 advertise automode routing as verified.
+
+### auto review preset (自动审查 EXP): request-level proof (2026-10-29, virtual / zero real quota)
+
+Lab: DSH 0.2.1-rc.3 + plugin 0.4.52, virtual probe on :4731, flat and group review
+routes both pinned to `probe/gpt-6-luna`, log `C:\dsh-artifacts\probe-am.jsonl`.
+
+**Reachability.** The catalog returns `options` = [read-only, workspace-write,
+danger-full-access, auto-mode, **auto**] while `defaultOptions` stops at auto-mode. The
+composer menu renders `catalog.options` (`client.js` `optionsOf`), so 自动审查EXP is
+listed; choosing it opens a confirmation dialog (`choose()` → `setConfirmation('auto')`)
+and only the dialog's 启用自动审查 button submits. Earlier "unreachable" readings were
+this dialog being left unconfirmed — with the acknowledge checkbox ticked and the button
+pressed, the session mode becomes 自动审查.
+
+**Allow path** (`probe-am.jsonl`, 2026-10-29T07:32Z):
+
+| # | model | tool | preset |
+| --- | --- | --- | --- |
+| 1 | deepseek-flash | `pwsh` | ok |
+| 2 | **gpt-6-luna** | — | classifier-allow |
+| 3 | deepseek-flash | — | ok |
+
+**Deny path** (07:38Z, reviewer set to `classifier-deny`, tool writes a marker file):
+
+| # | model | tool | preset |
+| --- | --- | --- | --- |
+| 1 | deepseek-flash | `pwsh` | ok |
+| 2 | **gpt-6-luna** | — | classifier-deny |
+| 3 | deepseek-flash | — | ok |
+
+Marker file absent after the deny run — the review verdict blocked execution.
+
+Conclusion: under the `auto` preset the configured review route is consumed (request
+arrives at `probe/gpt-6-luna` ~60-180 ms after the tool call) and a deny verdict prevents
+the tool body from running. This is the takeover working end-to-end; `auto-mode`
+(automode's own two-stage classifier) remains the unverified one.
