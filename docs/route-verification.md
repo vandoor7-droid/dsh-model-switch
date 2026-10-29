@@ -7,7 +7,7 @@ a saved setting, or a value read back from the settings document does **not** co
 
 - Plugin: `dsh-model-switch@0.4.46`
 - DSH: `0.2.1-rc.3`
-- Plane: `DSH_HOME=%USERPROFILE%\.dsh-lab`, port 3082
+- Plane: `DSH_HOME=D:\dsh-lab`, port 3082
 - Recorder: `tools/route-probe.mjs` (local OpenAI-compatible endpoint that records
   `model`, `stream`, and timestamp per request). `apigoto`'s `baseURL` was pointed at
   the recorder; the main model stayed on the official `deepseek-account`, so any
@@ -272,7 +272,7 @@ memory-row creation) and then silence.
 ### automode, attempt 3 (2026-10-28, post-churn, virtual / zero real quota)
 
 With the recompose loop fixed (0.4.52) the measurement is trustworthy again. In the
-lab (DSH 0.2.1-rc.3, automode v0.17.0, recorder `C:\dsh-artifacts\probe-am.jsonl`),
+lab (DSH 0.2.1-rc.3, automode v0.17.0, recorder `D:\dsh-artifacts\probe-am.jsonl`),
 session on the `Auto mode` preset, four escalation-shaped scripted actions were run
 through `route-probe --map`:
 
@@ -296,7 +296,7 @@ advertise automode routing as verified.
 ### auto review preset (自动审查 EXP): request-level proof (2026-10-29, virtual / zero real quota)
 
 Lab: DSH 0.2.1-rc.3 + plugin 0.4.52, virtual probe on :4731, flat and group review
-routes both pinned to `probe/gpt-6-luna`, log `C:\dsh-artifacts\probe-am.jsonl`.
+routes both pinned to `probe/gpt-6-luna`, log `D:\dsh-artifacts\probe-am.jsonl`.
 
 **Reachability.** The catalog returns `options` = [read-only, workspace-write,
 danger-full-access, auto-mode, **auto**] while `defaultOptions` stops at auto-mode. The

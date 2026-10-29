@@ -2,7 +2,7 @@
 
 How Model Switch can pin `dsh-prime-memory`'s distillation model without taking
 over anything. Everything below was verified on DSH **0.2.1-rc.3** with
-`dsh-prime-memory@0.26.10` in the lab plane (`DSH_HOME=~/.dsh-lab`, port 3082).
+`dsh-prime-memory@0.26.10` in the lab plane (`DSH_HOME=D:\dsh-lab`, port 3082).
 
 ## Why no takeover
 
@@ -45,7 +45,7 @@ Rules the planner keeps:
 
 ## Verified recipe (works today, no code changes)
 
-Profile patch (`~/.dsh-lab/profiles/lab/cordis.patch.yml`) — a top-level row, not
+Profile patch (`D:\dsh-lab/profiles/lab/cordis.patch.yml`) — a top-level row, not
 an `insert:` (an insert with the same id fails startup with a duplicate-entry
 error):
 

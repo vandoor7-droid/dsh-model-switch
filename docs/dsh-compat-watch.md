@@ -94,7 +94,7 @@ time from the resolved row, never by hard-coding one line.
 4. Add the new line's adapters **beside** the existing ones (old lines stay
    green); run `pnpm run check`.
 5. Install the built artifact into the lab profile
-   (`DSH_HOME=~/.dsh-lab`, port 3082), boot it, and drive one real tool call
+   (`DSH_HOME=D:\dsh-lab`, port 3082), boot it, and drive one real tool call
    (CDP: Edge with `--remote-debugging-port`, submit via the「发送消息」button).
 6. Record the verified line here, add a `CHANGELOG.md` entry, and follow
    `AGENTS.md`: functional change → tag `vX.Y.Z` and publish; docs-only → push
