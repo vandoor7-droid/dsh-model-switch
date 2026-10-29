@@ -328,3 +328,19 @@ Conclusion: under the `auto` preset the configured review route is consumed (req
 arrives at `probe/gpt-6-luna` ~60-180 ms after the tool call) and a deny verdict prevents
 the tool body from running. This is the takeover working end-to-end; `auto-mode`
 (automode's own two-stage classifier) remains the unverified one.
+
+### review-timeout card: UI click path (2026-10-29, lab `D:\dsh-lab`, virtual)
+
+Card: 设置 → 模型切换 → 审查超时. Three writes made through the card's own controls;
+each verified by reading `profiles/lab/cordis.patch.yml` afterwards.
+
+| UI action | `autoReviewTimeoutMs` | `streamIdleTimeoutMs` (review provider) | patch mtime |
+| --- | --- | --- | --- |
+| type `5` → 保存超时设置 | `5000` | `5000` | 16:39:24 |
+| tick 取消超时 → 保存超时设置 | `0` | `2147483647` | ~16:41 |
+| untick + clear the field → 保存超时设置 | removed | removed | 16:42:01 |
+
+The card summary follows the same states (300 s default → "5s" → default). Each save
+rewrote the provider row through the settings path only; no restart was needed for the
+config write itself (the provider picks the new `streamIdleTimeoutMs` up on next boot,
+as the card's own copy states).
