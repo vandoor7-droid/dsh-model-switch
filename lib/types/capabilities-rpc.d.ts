@@ -15,6 +15,16 @@ export interface ReviewStatus {
         readonly routeSkipped?: string | undefined;
         readonly added: number;
         readonly skipped: number;
+        readonly hot?: 'applied' | 'restart-required' | undefined;
+        readonly hotReason?: string | undefined;
+    } | undefined;
+    /** Review-timeout adapter state: the write and the runtime reload behind it. */
+    readonly reviewTimeout?: {
+        readonly configuredMs?: number | undefined;
+        readonly applied: readonly string[];
+        readonly hotApplied: readonly string[];
+        readonly hot?: 'applied' | 'restart-required' | undefined;
+        readonly hotReason?: string | undefined;
     } | undefined;
 }
 export declare const CAPABILITIES_RPC_METHOD = "plugin-rpc/model-switch";

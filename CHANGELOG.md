@@ -1,3 +1,14 @@
+## v0.4.53
+
+「自动审查模型」与「审查超时」两项设置改为**热生效**，不再需要重启 DSH。
+
+- **机制**：用 Cordis 已发布的 `Fiber.update(config, noSave)`（`cordis/lib/types/fiber.d.ts:187-199`：校验→`internal/update` 瀑布→重挂该行，`noSave` 提示不写回持久化）把新配置推给正在运行的行。新增 `src/fiber-hot-update.ts`：只对 `ACTIVE` 的 fiber 动作，返回 `updated` / `no-fiber` / `not-active` / `failed`，异常全部包住，自身不持久化任何东西。
+- **automode 分类器路由**：设置变化且路由相对上次写入发生变化时才重挂。必须走重挂——该行的 `apply(ctx, rawConfig)` 用 zod `Config()` 解析出闭包副本，只替换 `entry.options.config` 触达不到运行中的实例。**副作用**：重挂会清空该行的判定缓存与每会话断路器计数。
+- **审查超时**：文档写入成功后重挂 `llm-pi-ai` 行使新值立即生效；文档仍是持久副本，重挂不可用（无活实例 / 校验失败 / 被瀑布否决）时回落到下次启动，状态里标注 `restart-required`。**副作用**：重挂会中断该 provider 的在途调用，因此只在值真正变化时触发。
+- **状态面**：capabilities RPC 的 `status` 新增 `automode.hot/hotReason` 与 `reviewTimeout{configuredMs,applied,hotApplied,hot,hotReason}`；设置页文案改为“立即生效 + 副作用 + 回落说明”。
+- **lab 证据（virtual / 零真实额度，`D:\dsh-lab`）**：编辑 profile 触发 loader volatile-update 后**未重启**——automode 路由 `probe/gpt-6-luna` → `probe/deepseek-flash` 且 `hot: applied`；`autoReviewTimeoutMs` 设为 5 → 文档写入 `streamIdleTimeoutMs: 5`、`hotApplied: ["probe"]`、`hot: applied`；随后 30 秒 profile 哈希稳定（无重挂循环），profile 里没有 `classifier`（内存态未持久化）。
+- **未验证（如实记录）**：热生效之后「下一次审查请求确实使用新路由/新超时」的请求级行为没有单独取证；重挂被上游否决时的回落只有单测覆盖。
+
 ## v0.4.52
 
 修复一个自维持的 recompose 循环（lab 实测定位，DSH 0.2.1-rc.3 + dsh-prime-memory 0.26.10）：

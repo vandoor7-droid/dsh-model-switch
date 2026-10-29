@@ -37,6 +37,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Entry, Loader } from '@deepseek-ai/cordis-plugin-loader'
+import { applyFiberConfig } from './fiber-hot-update.js'
 import type { ModelSwitchSettings } from './host-settings.js'
 import { DEFAULT_READ_ONLY_TOOLS } from './tool-allowlist.js'
 
@@ -93,6 +94,10 @@ export const automodeCompatStatus = {
   skipped: [] as string[],
   /** How many rows were rewritten (remounts included). */
   applied: 0,
+  /** Last hot-reload outcome, once a changed route was pushed into the live row. */
+  hot: undefined as 'applied' | 'restart-required' | undefined,
+  /** Why the last hot reload did not take, when it did not. */
+  hotReason: undefined as string | undefined,
 }
 
 type AnyRecord = Record<string, unknown>
@@ -283,6 +288,10 @@ export interface AutomodeCompatView {
   readonly added: number
   /** How many pattern-shaped entries could not transfer. */
   readonly skipped: number
+  /** Last hot-reload outcome, when a changed route was pushed into the live row. */
+  readonly hot?: 'applied' | 'restart-required' | undefined
+  /** Why the last hot reload did not take, when it did not. */
+  readonly hotReason?: string | undefined
 }
 
 /**
@@ -297,6 +306,8 @@ export function automodeCompatView(): AutomodeCompatView | undefined {
     routeSkipped: automodeCompatStatus.routeSkipped,
     added: automodeCompatStatus.added.length,
     skipped: automodeCompatStatus.skipped.length,
+    hot: automodeCompatStatus.hot,
+    hotReason: automodeCompatStatus.hotReason,
   }
 }
 
@@ -323,11 +334,45 @@ export function installAutomodeCompat(
   const applied = new Map<Entry, string>()
   /** Entry → the route this adapter wrote, so a replay may rewrite its own value. */
   const adopted = new Map<Entry, string>()
-  const applying = (entry: Entry): void => {
-    const plan = adaptEntry(entry, settings, log, adopted.get(entry))
+  /** Entries whose fiber reload is in flight, so one change cannot restart twice. */
+  const reloading = new Set<Entry>()
+  /**
+   * Push a changed route into the row that is already running.
+   *
+   * `dsh-automode` passes its raw config through `Config(rawConfig)` (a zod
+   * schema) at activation, so the running instance holds a parsed copy: rewriting
+   * `entry.options.config` cannot reach it. Only a fiber reload re-runs `apply`
+   * with the adapted config. The reload disposes that instance, so its verdict
+   * cache and per-session breaker counters are gone afterwards.
+   *
+   * A reload that cannot run (`no-fiber` / `not-active`) is not an error: nothing
+   * is running that could be stale, and the next mount reads the adapted config.
+   */
+  const hotApply = (entry: Entry, plan: AutomodeCompatPlan, previous: string | undefined): void => {
+    const route = plan.applied.route
+    if (route === undefined || route === previous || reloading.has(entry)) return
+    reloading.add(entry)
+    void applyFiberConfig(entry, plan.config).then((result) => {
+      reloading.delete(entry)
+      if (result.outcome === 'updated') {
+        automodeCompatStatus.hot = 'applied'
+        automodeCompatStatus.hotReason = undefined
+        log.info(`model-switch: reloaded dsh-automode with ${route} (verdict cache and breaker counters were reset)`)
+        return
+      }
+      if (result.outcome !== 'failed') return
+      automodeCompatStatus.hot = 'restart-required'
+      automodeCompatStatus.hotReason = result.error ?? 'reload failed'
+      log.warn(`model-switch: the dsh-automode reload with ${route} failed (${result.error ?? 'unknown error'}); the new route applies after a Host restart`)
+    })
+  }
+  const applying = (entry: Entry, hot: boolean): void => {
+    const previous = adopted.get(entry)
+    const plan = adaptEntry(entry, settings, log, previous)
     if (plan === undefined) return
     if (plan.applied.route !== undefined) adopted.set(entry, plan.applied.route)
     else if (plan.applied.routeSkipped === 'user-set') adopted.delete(entry)
+    if (hot) hotApply(entry, plan, previous)
     const summary = describeAutomodePlan(plan)
     lastSummary = summary
     if (!plan.changed) return
@@ -337,23 +382,23 @@ export function installAutomodeCompat(
   }
 
   if (loader !== undefined && typeof loader.entries === 'function') {
-    for (const entry of loader.entries()) if (isAutomodeEntry(entry)) applying(entry)
+    for (const entry of loader.entries()) if (isAutomodeEntry(entry)) applying(entry, false)
   }
 
   const dispose = ctx.on('loader/patch-context', function (this: unknown, first: unknown, second?: unknown) {
     // Waterfall listeners receive `(entry, next)`; accept a `this`-bound entry too.
     const nextFn = (typeof first === 'function' ? first : second) as (() => unknown) | undefined
     const candidate = typeof first === 'function' ? this : first
-    if (isAutomodeEntry(candidate)) applying(candidate as Entry)
+    if (isAutomodeEntry(candidate)) applying(candidate as Entry, false)
     return nextFn === undefined ? undefined : nextFn()
   })
-  /** Re-adapt every live row (settings changed under us). */
+  /** Re-adapt every live row (settings changed under us) and reload the ones whose route moved. */
   const replay = (): boolean => {
     let any = false
     for (const entry of loader?.entries?.() ?? []) {
       if (!isAutomodeEntry(entry)) continue
       any = true
-      applying(entry)
+      applying(entry, true)
     }
     return any
   }

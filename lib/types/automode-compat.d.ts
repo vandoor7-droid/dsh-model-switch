@@ -85,6 +85,10 @@ export declare const automodeCompatStatus: {
     skipped: string[];
     /** How many rows were rewritten (remounts included). */
     applied: number;
+    /** Last hot-reload outcome, once a changed route was pushed into the live row. */
+    hot: "applied" | "restart-required" | undefined;
+    /** Why the last hot reload did not take, when it did not. */
+    hotReason: string | undefined;
 };
 /**
  * Whether one loader entry is the third-party auto-mode row.
@@ -122,6 +126,10 @@ export interface AutomodeCompatView {
     readonly added: number;
     /** How many pattern-shaped entries could not transfer. */
     readonly skipped: number;
+    /** Last hot-reload outcome, when a changed route was pushed into the live row. */
+    readonly hot?: 'applied' | 'restart-required' | undefined;
+    /** Why the last hot reload did not take, when it did not. */
+    readonly hotReason?: string | undefined;
 }
 /**
  * Snapshot for the RPC/UI layer.

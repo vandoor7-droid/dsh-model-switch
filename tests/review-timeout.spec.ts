@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planReviewTimeout, patchProviderIdleTimeout, readProviderIdleTimeout } from '../src/review-timeout.js'
+import { planProviderConfig, planReviewTimeout, patchProviderIdleTimeout, readProviderIdleTimeout } from '../src/review-timeout.js'
 import { UPSTREAM_MAX_IDLE_TIMEOUT_MS } from '../src/client-contract.js'
 import type { ModelSwitchSettings } from '../src/host-settings.js'
 
@@ -111,6 +111,39 @@ describe('patchProviderIdleTimeout', () => {
   it('reports missing-row when the llm-pi-ai row is absent', () => {
     const result = patchProviderIdleTimeout('- id: other\n  name: x\n', 'apigoto', 60_000)
     expect(result.outcome).toBe('missing-row')
+  })
+})
+
+describe('planProviderConfig', () => {
+  const config = {
+    providers: {
+      apigoto: { baseURL: 'https://api.apigoto.com/v1', models: [{ id: 'mimo-v2.6-flash' }] },
+      xiaomi: { baseURL: 'https://api.example.com/v1' },
+    },
+  }
+
+  it('sets the timeout on one provider and leaves the rest untouched', () => {
+    const next = planProviderConfig(config, 'apigoto', 30_000)
+    expect(next?.providers).toMatchObject({
+      apigoto: { baseURL: 'https://api.apigoto.com/v1', streamIdleTimeoutMs: 30_000 },
+      xiaomi: { baseURL: 'https://api.example.com/v1' },
+    })
+  })
+
+  it('removes the key on a reset', () => {
+    const withKey = planProviderConfig(config, 'apigoto', 30_000)
+    const reset = planProviderConfig(withKey, 'apigoto', undefined)
+    expect((reset?.providers as Record<string, Record<string, unknown>>).apigoto).not.toHaveProperty('streamIdleTimeoutMs')
+  })
+
+  it('creates the provider block when the current config does not carry it', () => {
+    const next = planProviderConfig({ providers: {} }, 'apigoto', 5_000)
+    expect(next?.providers).toEqual({ apigoto: { streamIdleTimeoutMs: 5_000 } })
+  })
+
+  it('refuses a config that is not an object', () => {
+    expect(planProviderConfig(undefined, 'apigoto', 1_000)).toBeUndefined()
+    expect(planProviderConfig([], 'apigoto', 1_000)).toBeUndefined()
   })
 })
 

@@ -44,8 +44,8 @@ export declare const zh: {
     readonly titleRouteHelp: "命名请求固定使用这里的 Provider/模型（不带推理强度）；关闭时跟随会话模型。保存后立即对下一次命名生效，不会中断正在进行的命名，会话日志记录的也是实际使用的模型。";
     readonly memory: "记忆蒸馏模型";
     readonly memoryFollow: "跟随记忆插件默认";
-    readonly memoryHelp: "为 dsh-prime-memory 的记忆蒸馏指定路由；两个字段都留空时跟随该插件自己的默认模型。改完需重启一次 DSH 才生效（该插件在启动时读取路由）。";
-    readonly memoryRouteHelp: "按部署默认供应商的配置组解析；该供应商没有组时使用这里填写的平面默认。写入该行的静态路由（llm.provider/llm.model），启动时生效。";
+    readonly memoryHelp: "为 dsh-prime-memory 的记忆蒸馏指定路由；两个字段都留空时跟随该插件自己的默认模型。保存后立即生效（写入该插件自己的 live 设置，运行中的实例会读到）；它拒收时才回落到静态路由，下次启动生效。";
+    readonly memoryRouteHelp: "按部署默认供应商的配置组解析；该供应商没有组时使用这里填写的平面默认。优先写该行的 live 设置（立即生效），不可用时写静态路由（llm.provider/llm.model），启动时生效。";
     readonly providerGroups: "供应商配置组";
     readonly providerGroupsCard: "按供应商预设路由";
     readonly providerGroupsSummary: "使用该供应商的会话自动采用对应组";
@@ -77,7 +77,7 @@ export declare const zh: {
     readonly reviewAllowlistSkipped: "本 Host 进程已为纯读调用跳过 {count} 次审查。";
     readonly reviewTimeout: "审查超时";
     readonly reviewTimeoutDefault: "跟随 Provider 默认（300 秒）";
-    readonly reviewTimeoutHelp: "设置自动审查请求的流式空闲超时。留空恢复 Provider 默认值；勾选「取消超时」写入上游上限（约 24.8 天），审查将不会因空闲而超时。该值写在 Provider 配置里，改完需重启一次 DSH 才生效。";
+    readonly reviewTimeoutHelp: "设置自动审查请求的流式空闲超时。留空恢复 Provider 默认值；勾选「取消超时」写入上游上限（约 24.8 天），审查将不会因空闲而超时。保存后会立即重挂审查模型所在的 Provider 使其生效，重挂会中断该 Provider 的在途调用；重挂不了时回落到下次启动生效。";
     readonly reviewTimeoutScope: "注意：该值写入审查模型所在 Provider 的 streamIdleTimeoutMs，对该 Provider 的所有调用（含主对话）生效，不只影响审查请求。";
     readonly reviewTimeoutSeconds: "超时秒数";
     readonly reviewTimeoutPlaceholder: "300（默认）";

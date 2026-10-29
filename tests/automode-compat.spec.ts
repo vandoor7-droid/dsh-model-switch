@@ -146,4 +146,62 @@ describe('installAutomodeCompat', () => {
     expect(view?.route).toBe('apigoto/mimo-v2.6-flash')
     expect(automodeCompatStatus.added.length).toBeGreaterThan(0)
   })
+
+  /** A row whose fiber is settled and reloadable. */
+  const liveEntry = (config: Record<string, unknown>): FakeEntry & { fiber: { state: number; update: ReturnType<typeof vi.fn>; await: () => Promise<void> } } => ({
+    ...entryOf(config),
+    fiber: { state: 2, update: vi.fn(), await: () => Promise.resolve() },
+  })
+
+  /** Let the fire-and-forget reload settle. */
+  const settle = () => new Promise<void>(resolve => { setTimeout(resolve, 0) })
+
+  it('does not reload a row on the mount sweep (it is about to start anyway)', () => {
+    const row = liveEntry({ classifier: { provider: '', model: '' } })
+    installAutomodeCompat(contextOf() as never, loaderOf([row]) as never, () => settings())
+    expect(row.fiber.update).not.toHaveBeenCalled()
+  })
+
+  it('reloads the live row when a settings change moves the route', async () => {
+    const row = liveEntry({ classifier: { provider: '', model: '' } })
+    let current = settings()
+    const adapter = installAutomodeCompat(contextOf() as never, loaderOf([row]) as never, () => current)
+    current = settings({ autoReviewModel: 'deepseek-flash' })
+    expect(adapter.replay()).toBe(true)
+    await settle()
+    expect(row.fiber.update).toHaveBeenCalledOnce()
+    expect(row.fiber.update.mock.calls[0]?.[1]).toBe(true)
+    expect((row.fiber.update.mock.calls[0]?.[0] as { classifier: unknown }).classifier).toMatchObject({
+      provider: 'apigoto',
+      model: 'deepseek-flash',
+    })
+    expect(automodeCompatStatus.hot).toBe('applied')
+  })
+
+  it('does not reload again when the route already matches', async () => {
+    const row = liveEntry({ classifier: { provider: '', model: '' } })
+    let current = settings()
+    const adapter = installAutomodeCompat(contextOf() as never, loaderOf([row]) as never, () => current)
+    current = settings({ autoReviewModel: 'deepseek-flash' })
+    adapter.replay()
+    await settle()
+    expect(row.fiber.update).toHaveBeenCalledOnce()
+    // The reload re-runs the patch-context waterfall and the replay; neither may
+    // start a second restart loop.
+    adapter.replay()
+    await settle()
+    expect(row.fiber.update).toHaveBeenCalledOnce()
+  })
+
+  it('reports restart-required when the reload fails', async () => {
+    const row = liveEntry({ classifier: { provider: '', model: '' } })
+    row.fiber.update = vi.fn(() => { throw new Error('vetoed') })
+    let current = settings()
+    const adapter = installAutomodeCompat(contextOf() as never, loaderOf([row]) as never, () => current)
+    current = settings({ autoReviewModel: 'deepseek-flash' })
+    adapter.replay()
+    await settle()
+    expect(automodeCompatStatus.hot).toBe('restart-required')
+    expect(automodeCompatStatus.hotReason).toBe('vetoed')
+  })
 })

@@ -6,6 +6,7 @@ import { readToolCatalog, type ToolCatalogSnapshot } from './tool-catalog.js'
 import { DEFAULT_READ_ONLY_TOOLS } from './tool-allowlist.js'
 import { autoReviewStatus } from './auto-review.js'
 import { automodeCompatView } from './automode-compat.js'
+import { reviewTimeoutStatus } from './review-timeout.js'
 
 /** Live reviewer counters surfaced next to the allowlist editor. */
 export interface ReviewStatus {
@@ -19,6 +20,16 @@ export interface ReviewStatus {
     readonly routeSkipped?: string | undefined
     readonly added: number
     readonly skipped: number
+    readonly hot?: 'applied' | 'restart-required' | undefined
+    readonly hotReason?: string | undefined
+  } | undefined
+  /** Review-timeout adapter state: the write and the runtime reload behind it. */
+  readonly reviewTimeout?: {
+    readonly configuredMs?: number | undefined
+    readonly applied: readonly string[]
+    readonly hotApplied: readonly string[]
+    readonly hot?: 'applied' | 'restart-required' | undefined
+    readonly hotReason?: string | undefined
   } | undefined
 }
 
@@ -123,7 +134,19 @@ export function installCapabilitiesRpc(ctx: Context, registry: ModelSwitchAdapte
       snapshot,
       lifetime.signal,
       () => ({ tools: readToolCatalog(ctx), recommended: [...DEFAULT_READ_ONLY_TOOLS] }),
-      () => ({ held: autoReviewStatus.held, allowedCalls: autoReviewStatus.allowedCalls, skippedReadOnly: autoReviewStatus.skippedReadOnly, automode: automodeCompatView() }),
+      () => ({
+        held: autoReviewStatus.held,
+        allowedCalls: autoReviewStatus.allowedCalls,
+        skippedReadOnly: autoReviewStatus.skippedReadOnly,
+        automode: automodeCompatView(),
+        reviewTimeout: {
+          configuredMs: reviewTimeoutStatus.configuredMs,
+          applied: reviewTimeoutStatus.applied,
+          hotApplied: reviewTimeoutStatus.hotApplied,
+          hot: reviewTimeoutStatus.hot,
+          hotReason: reviewTimeoutStatus.hotReason,
+        },
+      }),
     )
     const dispose = scope.connection.fetch.register({
       path: '/api/plugin-rpc/model-switch',

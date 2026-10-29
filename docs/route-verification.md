@@ -363,3 +363,40 @@ model stalled and the official gate held the tool body for the full default 300 
 failing closed. This is the concrete failure mode the configurable `streamIdleTimeoutMs`
 in this plugin addresses — with the card set, the same stall fails in seconds instead of
 five minutes.
+
+### hot reload via `fiber.update(noSave)` (2026-10-29, 0.4.53 lab, virtual / zero real quota)
+
+Where the seam is: `@deepseek-ai/cordis` `lib/types/fiber.d.ts:187-199` exposes
+`Fiber.update(config, noSave?)` — "Validate and apply new config, then restart the
+plugin. Runs the `internal/update` waterfall first … `noSave` — hint for persistence
+hooks not to write the change back." The loader row carries that fiber
+(`cordis-plugin-loader` `lib/types/config/entry.d.ts:25`), and both adapter rows already
+have `loader`, so `src/fiber-hot-update.ts` can reach a live row without touching DSH.
+
+Why a reload and not an object swap: `dsh-automode` does `const config = Config(rawConfig)`
+with a zod schema (`Config` = `z.object`), so the running instance holds a parsed copy;
+`pi-ai` reads `providers.<id>.streamIdleTimeoutMs` when it builds its client. Only a
+reload re-runs `apply` with the new config.
+
+Lab method (lab was linked to the local build, every route on `127.0.0.1:4731`):
+
+1. Boot `DSH_HOME=D:\dsh-lab … --port 3082`; read `status` through
+   `POST /api/plugin-rpc/model-switch` (`endpoint: tools`, cookie from `/?token=`).
+   Baseline: `automode.route=probe/gpt-6-luna`, no `hot`.
+2. Change the `model-switch` row's `autoReviewModel` in `profiles/lab/cordis.patch.yml`
+   (the loader's volatile-update channel re-reads settings, which is the same path a
+   settings save takes). **Without restarting**: `automode.route=probe/deepseek-flash`,
+   `automode.hot="applied"`.
+3. Add `autoReviewTimeoutMs: 5` to the same row. **Without restarting**: the adapter
+   wrote `streamIdleTimeoutMs: 5` into the pi-ai provider block and status reported
+   `reviewTimeout={configuredMs:5, applied:["probe"], hotApplied:["probe"], hot:"applied"}`.
+4. Loop/idempotence: 30 s after the last change the profile hash was unchanged, and the
+   profile contained no `classifier` key (the automode rewrite stays in memory).
+
+Caveats recorded: the reload drops the automode verdict cache and per-session breaker
+counters, and it aborts the pi-ai provider's in-flight calls — that is why the timeout
+reload only runs on an actual value change. What is **not** measured: that the *next*
+review request actually uses the new route/timeout (request-level attribution), and the
+`restart-required` fallback path only has unit coverage. `noSave` is documented as a
+hint; in this run the profile was not rewritten by the loader.
+

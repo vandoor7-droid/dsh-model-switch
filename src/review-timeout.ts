@@ -15,8 +15,11 @@
  * - "Cancel the timeout" is legal only as the upstream ceiling
  *   (`MAX_TIMER_DELAY_MS` = 2147483647 ms ≈ 24.86 days); upstream rejects 0,
  *   negatives and Infinity, so the UI writes the ceiling and says so.
- * - The profile document is read at Host start (same channel as the memory
- *   static pin), so a written value takes effect **after a restart**.
+ * - The profile document is the durable copy. After writing it, the running
+ *   pi-ai row is reloaded through the loader fiber so the value applies without
+ *   a Host restart; that reload drops the provider's in-flight calls. When the
+ *   reload cannot run (no live row, a vetoed update, a failed validation) the
+ *   value still lands at the next Host start, and the status line says so.
  *
  * Restoring is symmetric: the value a provider carried before the first
  * overwrite is recorded in this plugin's own settings
@@ -27,6 +30,8 @@
  * @module
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { Entry, Loader } from '@deepseek-ai/cordis-plugin-loader'
+import { applyFiberConfig } from './fiber-hot-update.js'
 import type { ModelSwitchSettings } from './host-settings.js'
 import { UPSTREAM_MAX_IDLE_TIMEOUT_MS } from './client-contract.js'
 
@@ -39,11 +44,20 @@ export const inject = ['settings', 'modelSwitch']
 /** The pi-ai row whose provider profiles carry `streamIdleTimeoutMs`. */
 export const PI_AI_ROW = 'llm-pi-ai'
 
+/** The package the pi-ai row loads; matching by name survives a profile id rename. */
+const PI_AI_PACKAGE = '@deepseek-ai/dsh-llm-pi-ai'
+
 /** Live state surfaced next to the reviewer card through the capabilities RPC. */
 export const reviewTimeoutStatus = {
   configuredMs: undefined as number | undefined,
   applied: [] as string[],
   skipped: [] as string[],
+  /** Providers whose running row was reloaded with the new timeout. */
+  hotApplied: [] as string[],
+  /** Whether the running row took the value, or the next start has to. */
+  hot: undefined as 'applied' | 'restart-required' | undefined,
+  /** Why the running row did not take the value, when it did not. */
+  hotReason: undefined as string | undefined,
 }
 
 /** One resolved write decision. */
@@ -179,6 +193,100 @@ interface SettingsFormsLike {
 }
 
 /**
+ * Build the pi-ai row config with one provider's idle timeout set or removed.
+ *
+ * Pure: the caller decides whether to hand the result to the loader, and a shape
+ * this function does not recognize returns `undefined` instead of a guess.
+ *
+ * @param config - the row's current config object.
+ * @param provider - the pi-ai provider id inside `providers`.
+ * @param timeoutMs - the value to set, or undefined to remove the key.
+ * @returns the next config, or undefined when the current one is not an object.
+ */
+export function planProviderConfig(
+  config: unknown,
+  provider: string,
+  timeoutMs: number | undefined,
+): Record<string, unknown> | undefined {
+  if (config === null || typeof config !== 'object' || Array.isArray(config)) return undefined
+  const base = config as Record<string, unknown>
+  const providers = base.providers === null || typeof base.providers !== 'object' || Array.isArray(base.providers)
+    ? {}
+    : base.providers as Record<string, unknown>
+  const current = providers[provider] === null || typeof providers[provider] !== 'object' || Array.isArray(providers[provider])
+    ? {}
+    : providers[provider] as Record<string, unknown>
+  const nextProvider: Record<string, unknown> = { ...current }
+  if (timeoutMs === undefined) delete nextProvider.streamIdleTimeoutMs
+  else nextProvider.streamIdleTimeoutMs = timeoutMs
+  return { ...base, providers: { ...providers, [provider]: nextProvider } }
+}
+
+/**
+ * Find the loader row that owns the pi-ai provider profiles.
+ *
+ * @param loader - the Host loader service, when present.
+ * @returns the row entry, or undefined when the profile does not load it.
+ */
+export function findPiAiEntry(loader: Loader | undefined): Entry | undefined {
+  if (loader === undefined || typeof loader.entries !== 'function') return undefined
+  for (const entry of loader.entries()) {
+    if (entry.options?.name === PI_AI_PACKAGE || entry.id === PI_AI_ROW) return entry
+  }
+  return undefined
+}
+
+/**
+ * Reload the pi-ai row so a changed timeout applies without a Host restart.
+ *
+ * The document write already happened; this is the runtime half. One reload
+ * carries every provider that changed. A reload aborts the provider's in-flight
+ * calls, which is why it only runs on an actual value change.
+ *
+ * @param loader - the Host loader service.
+ * @param log - row logger for the one-line report.
+ * @param providers - providers whose `streamIdleTimeoutMs` the document write changed.
+ * @param timeoutMs - the value the document now carries, or undefined for a reset.
+ */
+async function pushHotTimeout(
+  loader: Loader | undefined,
+  log: { info(line: string): void; warn(line: string): void },
+  providers: readonly string[],
+  timeoutMs: number | undefined,
+): Promise<void> {
+  const entry = findPiAiEntry(loader)
+  if (entry === undefined) {
+    reviewTimeoutStatus.hot = 'restart-required'
+    reviewTimeoutStatus.hotReason = 'the pi-ai row is not loaded'
+    return
+  }
+  let config = entry.options?.config
+  for (const provider of providers) {
+    const next = planProviderConfig(config, provider, timeoutMs)
+    if (next === undefined) {
+      reviewTimeoutStatus.hot = 'restart-required'
+      reviewTimeoutStatus.hotReason = 'the pi-ai row config is not an object'
+      return
+    }
+    config = next
+  }
+  const result = await applyFiberConfig(entry, config)
+  const label = timeoutMs === undefined ? 'reset (provider defaults restored)' : `${timeoutMs}ms`
+  if (result.outcome === 'updated') {
+    reviewTimeoutStatus.hot = 'applied'
+    reviewTimeoutStatus.hotReason = undefined
+    for (const provider of providers) if (!reviewTimeoutStatus.hotApplied.includes(provider)) reviewTimeoutStatus.hotApplied.push(provider)
+    log.info(`model-switch: reloaded ${PI_AI_ROW} so the review timeout (${label}) applies now to [${providers.join(', ')}]; its in-flight calls were dropped`)
+    return
+  }
+  reviewTimeoutStatus.hot = 'restart-required'
+  reviewTimeoutStatus.hotReason = result.outcome === 'failed'
+    ? result.error ?? 'reload failed'
+    : result.outcome === 'no-fiber' ? 'the pi-ai row has no live instance' : 'the pi-ai row is mid-transition'
+  if (result.outcome === 'failed') log.warn(`model-switch: the pi-ai reload for the review timeout failed (${reviewTimeoutStatus.hotReason}); the value applies after a Host restart`)
+}
+
+/**
  * Row entry point: apply the configured timeout to the reviewer providers'
  * pi-ai profiles in the profile document.
  *
@@ -194,6 +302,9 @@ export function apply(ctx: Context): void {
     reviewTimeoutStatus.configuredMs = undefined
     reviewTimeoutStatus.applied = []
     reviewTimeoutStatus.skipped = []
+    reviewTimeoutStatus.hotApplied = []
+    reviewTimeoutStatus.hot = undefined
+    reviewTimeoutStatus.hotReason = undefined
     const settings = ctx.modelSwitch.currentSettings()
     const plan = planReviewTimeout(settings)
     reviewTimeoutStatus.configuredMs = settings.autoReviewTimeoutMs
@@ -209,6 +320,7 @@ export function apply(ctx: Context): void {
       const { readFile, writeFile } = await import('node:fs/promises')
       let text = await readFile(documentPath, 'utf8')
       let changed = false
+      const changedProviders: string[] = []
       for (const provider of plan.providers) {
         // `timeoutMs === undefined` means "follow the provider default", which is
         // exactly the absence of the key — this adapter owns that key on the
@@ -216,12 +328,18 @@ export function apply(ctx: Context): void {
         // the settings service does not reliably round-trip our bookkeeping, and a
         // reset that depends on it can leave the key orphaned.
         const patched = patchProviderIdleTimeout(text, provider, plan.timeoutMs)
-        if (patched.outcome === 'written') { text = patched.text; changed = true }
+        if (patched.outcome === 'written') { text = patched.text; changed = true; changedProviders.push(provider) }
         if (patched.outcome === 'written' || patched.outcome === 'unchanged') reviewTimeoutStatus.applied.push(provider)
         else reviewTimeoutStatus.skipped.push(provider)
       }
       if (changed) await writeFile(documentPath, text, 'utf8')
-      log.info(`model-switch: review timeout ${plan.timeoutMs === undefined ? 'reset (provider defaults restored)' : `${plan.timeoutMs}ms`} applied to [${reviewTimeoutStatus.applied.join(', ')}]; skipped [${reviewTimeoutStatus.skipped.join(', ')}]; effective after restart`)
+      log.info(`model-switch: review timeout ${plan.timeoutMs === undefined ? 'reset (provider defaults restored)' : `${plan.timeoutMs}ms`} applied to [${reviewTimeoutStatus.applied.join(', ')}]; skipped [${reviewTimeoutStatus.skipped.join(', ')}]`)
+      // Runtime half: reload the running pi-ai row so the change does not wait for
+      // the next Host start. Fire-and-forget on purpose — this row must never hold
+      // the loader settle open, and an idempotent replay has nothing to reload.
+      if (changedProviders.length > 0) {
+        void pushHotTimeout(ctx.get('loader', false) as Loader | undefined, log, changedProviders, plan.timeoutMs)
+      }
     } catch (cause: unknown) {
       log.warn(`model-switch: the review timeout write failed (${String(cause)})`)
     }
