@@ -240,3 +240,25 @@ from backup after the attempt; nothing in the desktop profile was touched.
 
 So the last rc.5 interface item needs either a copy of that preset block into the lab profile or a
 decision to accept it as a documented gap.
+
+#### Second attempt: a minimal plan preset is not enough
+
+The next try built a lab-only agent preset (`@deepseek-ai/dsh-agent-preset`, id `plan`, one
+`planning` group with `isolate: { planMode: true }` around `@deepseek-ai/dsh-plan-mode`):
+
+| variant | result |
+| --- | --- |
+| plan-mode row at top level | plan artifact card only |
+| row inside `cordis:group` + `isolate.planMode` | plan artifact card only |
+| minimal preset → 「计划模式（lab）」 in the mode menu, session really runs it | still the artifact card (「三步计划 · 计划 · Markdown · 打开」), no 确认执行 / 拒绝 / 去聊天里说 |
+| same preset plus `@deepseek-ai/dsh-user-questions` | the preset no longer appears in the mode menu at all |
+
+Two things follow. First, the approval surface needs the **full preset composition** — the
+desktop's working preset is a ~200-line copy of the standard plugin list
+(`preset-YiXuan`, marked "复制自 standard") rather than a two-row stub; a stub gives the session
+plan-mode and the tool but nothing that can present an approval. Second, rc.5's plan approval
+speaks through `userQuestions` (`dsh-plan-mode` references it, and the rc.5 static diff added
+`PendingUserQuestion` / `state: open|continued`), so the 「去聊天里说」 exit this plugin added in
+v0.4.47 may need re-wiring to that surface rather than the older plan card.
+
+The lab patch was restored from backup; nothing in the desktop profile was touched.
