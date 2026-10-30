@@ -280,3 +280,35 @@ resolved route is ours, live and after restart. **Still unproven end-to-end**: a
 L1/L2/L3 request carrying `probe-memory`, because producing L0 needs a turn inside a web
 session, and driving one needs a browser client. The earlier "writes only changed the
 settings display" claim (CHANGELOG v0.4.44) is superseded for 0.26.11.
+
+### Correction (same day, after the hot-switch test): it was the static pin, not the live pair
+
+The run above showed the route resolving to `probe-memory`, and I first read that as "the live
+pair works". The hot-switch test disproved it: while the host kept running, writing
+`distillProvider: apigoto, distillModel: gpt-6.1-sol` returned 200 and the plugin's own
+`llm-providers` RPC showed `current = gpt-6.1-sol`, **but `effectiveChain` stayed
+`probe-memory`** and the next three rebuild calls still went to `probe-memory`.
+
+The patch explained it: the `dsh-memory` row carried
+
+```yaml
+    llm:
+      provider: apigoto
+      model: probe-memory
+```
+
+`effectiveCfg` sets `pinned = Boolean(cfg.llm.provider && cfg.llm.model)` and, while pinned,
+ignores **both** the runtime chain and the `distillProvider`/`distillModel` pair. So the route
+that "worked" was the static pin this plugin had written on an earlier start; every live push
+was dead on arrival, which is exactly the "the card changed, the calls did not" report.
+
+Removing the pin by hand and restarting did not help either: the adapter re-pinned on the next
+start (its live push happens before the memory row's RPC is reachable, so it falls back to the
+pin immediately).
+
+Fix shipped in this round (`src/prime-memory-compat.ts`): once a live push is confirmed, the
+adapter now **removes** its own stale `llm:` block from the memory row (`clearStaticPin`), so
+the live pair can actually win; three tests cover write → clear → idempotent clear
+(`tests/prime-memory-pin.spec.ts`). Still open: the adapter should retry the live push before
+ever falling back to the pin, otherwise a slow start re-creates the pin and the fix never gets
+a chance to run (observed in this lab: the pin came back after restart).

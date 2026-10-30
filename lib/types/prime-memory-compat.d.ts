@@ -44,6 +44,33 @@ export interface PrimeMemoryCompatStatus {
 /** The state the settings page reads. */
 export declare const primeMemoryCompatStatus: PrimeMemoryCompatStatus;
 /**
+ * Write the memory row's static route into the profile patch itself.
+ *
+ * `settings.update` only accepts the entry's *live* schema fields, so the static
+ * `llm` pin never survives that call. The pin is what `resolveModelRoute` returns
+ * first, and it is the only key every distillation layer honours — so it has to be
+ * written where the next start reads it: the row config in the profile document.
+ * @param documentPath - the profile patch file.
+ * @param provider - route provider to pin.
+ * @param model - route model to pin.
+ * @returns whether the document changed.
+ */
+/**
+ * Remove this plugin's own static pin from the memory row.
+ *
+ * `effectiveCfg` (dsh-prime-memory `pipeline/runner.js`) treats a non-empty
+ * `cfg.llm.provider + cfg.llm.model` pair as "pinned" and then ignores *both* the runtime
+ * chain and the legacy `distillProvider`/`distillModel` pair. A pin written earlier — for a
+ * host whose live RPC was not ready yet — is therefore not harmless: it keeps winning over
+ * every later live push, which is exactly the "the card changed, the calls did not" report.
+ * Once a live push is confirmed, the pin has to go.
+ *
+ * @param documentPath - the profile patch document that holds the memory row.
+ * @returns what happened, so the caller can log it without guessing.
+ */
+export declare function clearStaticPin(documentPath: string): Promise<'cleared' | 'absent' | 'missing'>;
+export declare function writeStaticPin(documentPath: string, provider: string, model: string): Promise<'written' | 'unchanged' | 'missing'>;
+/**
  * The distillation chain a settings section currently carries.
  *
  * Accepts the chain form and the legacy provider/model pair, so a user who set

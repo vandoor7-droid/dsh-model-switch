@@ -73,7 +73,43 @@ interface SettingsForms {
  * @param model - route model to pin.
  * @returns whether the document changed.
  */
-async function writeStaticPin(
+/**
+ * Remove this plugin's own static pin from the memory row.
+ *
+ * `effectiveCfg` (dsh-prime-memory `pipeline/runner.js`) treats a non-empty
+ * `cfg.llm.provider + cfg.llm.model` pair as "pinned" and then ignores *both* the runtime
+ * chain and the legacy `distillProvider`/`distillModel` pair. A pin written earlier — for a
+ * host whose live RPC was not ready yet — is therefore not harmless: it keeps winning over
+ * every later live push, which is exactly the "the card changed, the calls did not" report.
+ * Once a live push is confirmed, the pin has to go.
+ *
+ * @param documentPath - the profile patch document that holds the memory row.
+ * @returns what happened, so the caller can log it without guessing.
+ */
+export async function clearStaticPin(documentPath: string): Promise<'cleared' | 'absent' | 'missing'> {
+  const { readFile, writeFile } = await import('node:fs/promises')
+  let text: string
+  try {
+    text = await readFile(documentPath, 'utf8')
+  } catch {
+    return 'missing'
+  }
+  const rows = text.split(/(?=^- id: )/m)
+  const index = rows.findIndex(row => /^- id: dsh-memory\r?\n/.test(row))
+  if (index < 0) return 'missing'
+  const row = rows[index] as string
+  const trimmed = row.replace(/^ {4}llm:\r?\n(?: {6}.*\r?\n)*/m, '')
+  if (trimmed === row) return 'absent'
+  rows[index] = trimmed
+  try {
+    await writeFile(documentPath, rows.join(''), 'utf8')
+  } catch {
+    return 'missing'
+  }
+  return 'cleared'
+}
+
+export async function writeStaticPin(
   documentPath: string,
   provider: string,
   model: string,
@@ -419,7 +455,21 @@ export function installPrimeMemoryCompat(
     // what kept the route from moving. The pin stays as the fallback for a host
     // where that RPC is absent or refused — there it is the only form that
     // survives a restart.
-    if (pushed === 'pushed') return
+    if (pushed === 'pushed') {
+      // A pin left over from an earlier start keeps overriding the live pair
+      // (`effectiveCfg` ignores the chain *and* the pair while `pinned`), so drop it as soon
+      // as the live push is confirmed — otherwise the card changes nothing on this host.
+      const pinnedDocument = forms.documentPath
+      if (typeof pinnedDocument === 'string' && pinnedDocument !== '') {
+        try {
+          if ((await clearStaticPin(pinnedDocument)) === 'cleared')
+            ctx.logger.info('model-switch: removed the stale dsh-prime-memory static pin; the live route decides now')
+        } catch (cause: unknown) {
+          ctx.logger.warn(`model-switch: could not clear the dsh-prime-memory static pin (${String(cause)})`)
+        }
+      }
+      return
+    }
     // The static pin (`config.llm.provider` + `config.llm.model`) is returned by
     // `resolveModelRoute` before anything else; it is configuration, so it applies
     // from the next start — written where that start reads it.
