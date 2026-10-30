@@ -256,3 +256,27 @@ push silently degrades to the static pin, which needs a restart and explains the
 Next step is therefore narrow and testable in a web lab: log the status code of that POST
 while a memory row is live, and if it is 404/405, implement the push through the connection
 service (or the official settings service) instead of HTTP.
+
+## 2026-10-30 runtime evidence: the takeover does move the resolved route
+
+Lab `C:\Users\15726\.dsh-lab3` (DSH 0.2.1-rc.3, `dsh-prime-memory@0.26.11`, our 0.4.53
+installed from a local pack), every provider pointed at the local probe. With the web host
+up on 3083:
+
+1. `POST /dsh-memory/rpc/settings-set` with `{"distillChain":[],"distillProvider":"apigoto",
+   "distillModel":"probe-memory"}` → **HTTP 200**, and the echoed settings show
+   `distillProvider: apigoto`, `distillModel: probe-memory`, `chain len: 0`. So the write
+   path this plugin uses is the right one after all (the alternative
+   `/api/plugin-rpc/dsh-memory` answers 404).
+2. The memory plugin's own log (`<home>/memory/memory.log`) records the resolved route:
+   - `11:28:58 [memory] 蒸馏模型路由: apigoto/gpt-6.1-sol` — before the write (deployment default)
+   - `11:28:59 … apigoto/probe-memory` — one second after the write
+   - `11:31:36 … apigoto/probe-memory` — after a host restart (persisted)
+3. `rebuild-start` answered "L0 无任何消息,无需重建", i.e. there was nothing to distil without
+   a real turn.
+
+So the chain reads: write lands → the plugin re-resolves per turn from live settings → the
+resolved route is ours, live and after restart. **Still unproven end-to-end**: an actual
+L1/L2/L3 request carrying `probe-memory`, because producing L0 needs a turn inside a web
+session, and driving one needs a browser client. The earlier "writes only changed the
+settings display" claim (CHANGELOG v0.4.44) is superseded for 0.26.11.
