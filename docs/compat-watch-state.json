@@ -1,10 +1,10 @@
 {
   "$schema-note": "Baseline for the scheduled compatibility watch (see docs/dsh-compat-watch.md). `latest` is the npm dist-tag an ordinary install gets.",
   "schema": "dsh-model-switch/compat-watch-state/v1",
-  "checkedAt": "2026-10-24T10:36:00Z",
+  "checkedAt": "2026-10-30T10:09:00Z",
   "dsh": {
     "distTagWatched": "latest",
-    "latest": "0.2.1-rc.2",
+    "latest": "0.2.1-rc.5",
     "verifiedDeclared": [
       "0.1.7-alpha.2",
       "0.1.7-rc.1",
@@ -12,13 +12,22 @@
       "0.2.0-rc.2",
       "0.2.1-rc.2",
       "0.2.1-rc.3"
-    ]
+    ],
+    "pendingVerification": {
+      "version": "0.2.1-rc.5",
+      "staticSurface": "reviewed — cordis 4.0.5 and loader 1.0.6 keep the seams; sub-packages additive only (see docs/dsh-compat-watch.md)",
+      "runtime": "server side verified in the virtual lab (mount without unverified warning, capabilities RPC, 58-entry read-only default, client bundle served)",
+      "untested": "settings-page rendering, read/glob skip counter, write still reviewed, model picker switch, plan card 去聊天里说 → aborted",
+      "why": "no browser lane in that session (Edge exited during startup); rc.5 is therefore NOT declared"
+    },
+    "declaredFloor": ">=0.2.0-rc.2"
   },
   "automode": {
     "package": "@log.li/dsh-automode",
     "distTagWatched": "latest",
     "latest": "0.17.0",
     "adapter": "model-switch-automode-compat (v0.4.42)",
-    "lastVerifiedWith": "0.17.0"
+    "lastVerifiedWith": "0.17.0",
+    "checkedAtNote": "unchanged since 0.17.0"
   }
 }
