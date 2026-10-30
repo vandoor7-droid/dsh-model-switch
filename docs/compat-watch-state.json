@@ -18,11 +18,13 @@
       "staticSurface": "reviewed — cordis 4.0.5 and loader 1.0.6 keep the seams; sub-packages additive only (see docs/dsh-compat-watch.md)",
       "runtime": "server side verified in the virtual lab (mount without unverified warning, capabilities RPC, 58-entry read-only default, client bundle served)",
       "untested": [
-        "rc.5 write-review path (needs an approval-requiring action, e.g. a write outside the workspace)",
-        "rc.5 plan card 「去聊天里说」"
+        "rc.5 plan card 「去聊天里说」 (needs a plan-mode session; this profile has no plan entry)"
       ],
       "why": "no browser lane in that session (Edge exited during startup); rc.5 is therefore NOT declared",
-      "ui": "settings page, model picker, memory card, exemption card (58) verified 2026-10-30 over CDP"
+      "ui": "settings page, model picker, memory card, exemption card (58), reviewed write via 自动审查 verified 2026-10-30 over CDP",
+      "anomalies": [
+        "allowedCalls/skippedReadOnly stay 0 on rc.5 although the reviewer is invoked and read is skipped"
+      ]
     },
     "declaredFloor": ">=0.2.0-rc.2"
   },

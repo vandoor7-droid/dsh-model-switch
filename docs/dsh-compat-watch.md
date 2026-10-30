@@ -195,3 +195,27 @@ stray agent-profile processes, while an equivalent headless launch answers CDP o
 So rc.5 stays **unverified for declaration**: the settings surface, the model picker, both cards
 and the automode wiring all work, but the two remaining items need an approval-requiring action
 and a plan-mode card. Screenshots: `D:\dsh-artifacts\ui-01-home.png` … `ui-05-picker.png`.
+
+### Follow-up (same day): the reviewed write path, and two anomalies
+
+Enabling the **自动审查** preset (the picker asks for an explicit risk confirmation) makes the
+review path visible. With the recorder replaying one `write` call:
+
+```
+12:52:08 gpt-6.1-sol      tool=write      ← the agent asks for the write
+12:52:08 mimo-v2.6-flash  tool=-          ← the reviewer, using OUR configured route
+12:52:08 gpt-6.1-sol      tool=-          ← the answer
+```
+
+So a write **is** reviewed on rc.5 and the reviewer is the route this plugin configures
+(`autoReviewProvider/Model`). Two anomalies stay on the record:
+
+- The plugin's own counters do **not** move: `allowedCalls: 0` and `skippedReadOnly: 0` after
+  both a reviewed write and a skipped read, so on rc.5 the decision is taken by the host path
+  while our route is honoured — the counter is a display-only mismatch, not a route failure.
+- A plain read is cleared without any reviewer call even in 自动审查 mode, which matches the
+  纯读免审查 policy but again bypasses our counter.
+- The plan card could not be reproduced: this profile's UI offers no plan-mode entry (the
+  composer exposes 只读/请求批准/完全放开/Auto mode/自动审查/EXP only), and replaying a plan-shaped
+  answer renders it as ordinary prose ("虚拟计划 · 检查输入 · 执行变更 · 复核结果"), so the
+  「去聊天里说」 exit was never on screen.
