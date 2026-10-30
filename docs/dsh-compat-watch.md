@@ -281,3 +281,29 @@ Conclusion: verifying 「去聊天里说」 on rc.5 needs a preset that carries 
 composition** plus the planning group. The lab patch has been restored; the cheapest check left
 is the desktop profile, whose `preset-YiXuan` already has that composition and where plan mode
 is known to work.
+
+#### Static contract check: rc.5 keeps the plan-review surface our card hooks
+
+The host raises a plan review as a user question; rc.5's own
+`@deepseek-ai/dsh-client-ui-user-questions` ships the panel for it, and its predicate is
+line-for-line the one this plugin already uses:
+
+| check | rc.5 `lib/client.js` `planReviewOf(questions)` | this plugin `src/picker/plan-review.ts` |
+| --- | --- | --- |
+| single question | `questions.length !== 1` → undefined | same |
+| intent kind | `intent?.kind !== "plan-review"` | `intent?.kind !== 'plan-review'` |
+| plan body | `question.detail === undefined` | `question.detail === undefined` |
+| multiple choice | `question.multiSelect === true` | `question.multiSelect === true` |
+| option count | `options.length > 2` → undefined | same rule |
+
+The kind the host sets is derived from that same helper (`this.kind = planReviewOf(questions) ===
+undefined ? "question" : "plan-review"`), so a question that reaches the client as a plan review
+carries exactly what our composer seat looks for. rc.5 also renders its own controls in that
+panel — 同意执行 / 拒绝 / 要求修改, where 要求修改 dismisses the pending question — while this
+plugin's seat adds the execution-model picker plus its own three exits.
+
+What remains unverifiable in the lab is only the **host raising** the question: `exit_plan_mode`
+refuses to do so unless the session is plan-mode active, and `planMode` is a preset-scoped
+isolate. So the surface contract is verified by code comparison, the render is verified for every
+other rc.5 surface, and this one render needs a session whose preset carries the full standard
+composition (the desktop profile has one).
