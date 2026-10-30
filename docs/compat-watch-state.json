@@ -17,8 +17,12 @@
       "version": "0.2.1-rc.5",
       "staticSurface": "reviewed — cordis 4.0.5 and loader 1.0.6 keep the seams; sub-packages additive only (see docs/dsh-compat-watch.md)",
       "runtime": "server side verified in the virtual lab (mount without unverified warning, capabilities RPC, 58-entry read-only default, client bundle served)",
-      "untested": "settings-page rendering, read/glob skip counter, write still reviewed, model picker switch, plan card 去聊天里说 → aborted",
-      "why": "no browser lane in that session (Edge exited during startup); rc.5 is therefore NOT declared"
+      "untested": [
+        "rc.5 write-review path (needs an approval-requiring action, e.g. a write outside the workspace)",
+        "rc.5 plan card 「去聊天里说」"
+      ],
+      "why": "no browser lane in that session (Edge exited during startup); rc.5 is therefore NOT declared",
+      "ui": "settings page, model picker, memory card, exemption card (58) verified 2026-10-30 over CDP"
     },
     "declaredFloor": ">=0.2.0-rc.2"
   },

@@ -171,3 +171,27 @@ settings-page rendering, `read`/`glob` incrementing the skip counter, `write` st
 reviewed, model picker switching a session, and the plan card's "去聊天里说" ending aborted.
 No version was tagged for this check; the evidence above is recorded so a UI-capable session
 can finish the list without redoing A/B.
+
+## 2026-10-30 rc.5 UI pass (virtual, Headless Edge over CDP)
+
+The host ran the rc.5 lab (`DSH_HOME=D:\dsh-lab`, port 3082) with our 0.4.54 and every provider
+pointed at `tools/route-probe.mjs` (zero real quota). The page was driven by a small CDP client
+(`D:\tmp\cdp.mjs`): headless Edge, no window, no focus change — the bundled browser lane still
+fails with `BROWSER_LANE_UNAVAILABLE: Edge exited during startup (0)` even after clearing 24
+stray agent-profile processes, while an equivalent headless launch answers CDP on port 9333.
+
+| item | result |
+| --- | --- |
+| Settings page renders | **yes** — 设置 → 通用设置, with the 模型切换 section |
+| Model picker switches | **yes** — `gpt-6.1-sol · Default` ↔ `MiMo-V2.6-Flash · Default` |
+| Memory card | **yes** — 「记忆蒸馏模型 · apigoto · probe-memory」 with the new fallback wording |
+| Exemption card | **yes** — 「已开启 · 名单内 58 条免审查」; the `tools` RPC reports `recommended: 58` |
+| automode row seen by the adapter | **yes** — `automode: {installed: true, route: "apigoto/mimo-v2.6-flash", added: 53, skipped: 2}` |
+| `read` needs no review | **yes** — the recorder shows only `gpt-6.1-sol` rows (tool=read, then the answer) |
+| skip counter increments | **no** — `skippedReadOnly` stayed 0 after the read, so the call was cleared by the host/official reviewer path rather than by our allowlist counter |
+| `write` still reviewed | **not exercised** — a write inside the workspace needs no approval under 「请求批准」, so no reviewer call happens at all; the review path needs an action that asks for approval (outside the workspace) or an auto-review mode |
+| plan card 「去聊天里说」 | **not exercised** |
+
+So rc.5 stays **unverified for declaration**: the settings surface, the model picker, both cards
+and the automode wiring all work, but the two remaining items need an approval-requiring action
+and a plan-mode card. Screenshots: `D:\dsh-artifacts\ui-01-home.png` … `ui-05-picker.png`.
