@@ -22,7 +22,7 @@ a saved setting, or a value read back from the settings document does **not** co
 | Memory distillation (the plugin's own route) | yes | `memory.log`: L1 extraction, L2 integration and L3 profile all ran on `apigoto/mimo-v2.6-flash` and returned real output. This proves the memory plugin distils on whatever route it resolves — **not** that this plugin can set that route |
 | Memory distillation takeover by this plugin | **yes** | 2026-10-30 lab (DSH 0.2.1-rc.3, `dsh-prime-memory` 0.26.11): our `settings-set` POST returns 200 and the plugin logs `[memory] 蒸馏模型路由: apigoto/gpt-6.1-sol` before the write and `apigoto/probe-memory` one second after it, still there after a restart — so the takeover moves the route the plugin resolves per turn. `rebuild-start` over six synthetic L0 turns then produced real requests: recorder `D:dsh-artifactsprobe-hot.jsonl` shows the configured model (`gpt-6.1-sol: 3`) and the plugin logs `LLM 调用 apigoto/gpt-6.1-sol`. Fixed in 0.4.54 (stale-pin clearing). See `prime-memory.md` |
 | Auto review | **no** | The optional bundle is shipped with DSH (`@deepseek-ai/dsh-experimental-auto-review@0.2.1-rc.3` is already in the runtime): adding it to `dsh.profile.bundles` makes the preset appear in the access-mode menu (`自动审查 EXP`). But the host's `permissionPresets/catalog` RPC still returns only four presets — no `auto` — while the plugin reports `held: true`, and selecting that menu entry sends no session-settings call at all. Root cause open; see the note below |
-| automode | **no** | `@log.li/dsh-automode` installs into the lab profile without a compatibility rejection, and its `Auto mode` preset does switch and run. The adapter reported `routeSkipped: 'no-route'` because it reads this plugin's **flat** `autoReviewProvider/Model` pair and the lab only pinned the provider group — so the classifier never received a route and the recorder stayed empty |
+| automode | **yes** | Attempt 4 (2026-10-30, headless lab, virtual): under the `auto-mode` preset a `bash` call that writes **outside** the workspace reaches the classifier — the recorder shows `mimo-v2.6-flash` with the injected route, `classifier-allow` lets the call through and `classifier-deny` blocks it (file never created). Earlier attempts failed only because they used action classes the deterministic bands or the sandbox settle first (`rm -rf` = hard deny, `Invoke-RestMethod` = allow band, `New-Item` = sandbox deny) |
 
 ## Notes on the two unmeasured rows
 
@@ -401,3 +401,24 @@ review request actually uses the new route/timeout (request-level attribution), 
 `restart-required` fallback path only has unit coverage. `noSave` is documented as a
 hint; in this run the profile was not rewritten by the loader.
 
+
+### automode classifier, attempt 4 (2026-10-30, headless lab `D:\dsh-lab`, virtual / zero real quota)
+
+Previous attempts concluded "the classifier is not on the decision path for these action
+classes" — true, but the classes were wrong: a recursive delete is a hard-deny band, an
+`Invoke-RestMethod` call is inside the allow band, and `New-Item` outside the workspace is a
+sandbox denial. None of them asks the classifier.
+
+This attempt used a plain `bash` command that writes outside the workspace
+(`touch /d/outside-am4.txt`), replayed once by `tools/route-probe.mjs`, with our review route
+`apigoto/mimo-v2.6-flash` injected by `automode-compat`:
+
+| run | classifier answer | recorder rows | tool outcome |
+| --- | --- | --- | --- |
+| 1 | `classifier-allow` | `gpt-6.1-sol`(tool=bash) → **`mimo-v2.6-flash`(preset=classifier-allow)** → `gpt-6.1-sol` | call executed; the sandbox then refused the outside write |
+| 2 | `classifier-deny` | `gpt-6.1-sol`(tool=bash) → **`mimo-v2.6-flash`(preset=classifier-deny)** → `gpt-6.1-sol` | blocked, the file was never created |
+
+So automode v0.17.0 **does** consult the classifier for this class, it uses the route this
+plugin injects, and its verdict governs the call. Recorders `D:\dsh-artifacts\probe-am4.jsonl`
+and `probe-am5.jsonl`; automode's own `decisions.jsonl` still records only boot rows, so the
+recorder is what proves the consultation.
