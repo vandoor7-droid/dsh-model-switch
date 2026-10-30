@@ -198,3 +198,30 @@ with `model=probe-memory`, no `mimo-v2.6-flash`/deployment-default rows for thos
 then repeat after changing the route once — a second route should take effect **without a
 restart** (that is the point of the live pair). Only then set `MEMORY_CAPABILITY_UI = true`
 and release v0.4.49.
+
+## Runtime prerequisites discovered 2026-10-30 (block the measurement, not our code)
+
+1. **The plugin's own `engines.dsh` caps out below the current latest.**
+   `dsh-prime-memory@0.26.15` declares `engines.dsh` up to `0.2.1-rc.4`. On DSH
+   `0.2.1-rc.5` the host gate refuses the bundle:
+   `skipping profile bundle "dsh-prime-memory": … incompatible with dsh 0.2.1-rc.5`
+   (the message offers `dsh plugin allow-version` to accept the risk). So rc.5 cannot
+   host it without forcing an exemption — and forcing one would contaminate the
+   measurement with "does an unsupported plugin even work".
+2. **It needs `connection` + `webServer`.** In a headless profile the row stays
+   `dsh-memory (dsh-prime-memory): pending (waiting for services: connection, webServer)`
+   and never distils. Any measurement must run in a **web** profile.
+3. **A web session is driven over the WebSocket connection service.** Plain HTTP only
+   exposes `/api/file`, `/auth-api/*` and plugin-registered tunnels such as
+   `/api/plugin-rpc/model-switch`; there is no REST endpoint for creating a session,
+   sending a turn, or answering a plan card. Driving a turn therefore needs a browser
+   client (`bcdp_*`), which is exactly what a browser-less session lacks.
+
+Useful by-product: `dsh <profile> "<prompt>"` (headless) does boot, run one turn and hit
+the probe (`gpt-6.1-sol` + `mimo-v2.6-flash` title call observed, log
+`D:\dsh-artifacts\probe-mem.jsonl`) — cheap for paths that do not need `connection`.
+
+Lab layout after this session (all virtual, zero real quota):
+`D:\dsh-lab` = rc.5 (`profiles/lab` web, `profiles/labh` headless);
+`C:\Users\15726\.dsh-lab3` = rc.3 (`profiles/lab` web with 0.4.47, `profiles/labh3` headless
+with our 0.4.53 + `dsh-prime-memory@0.26.11`).
