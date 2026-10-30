@@ -219,3 +219,24 @@ So a write **is** reviewed on rc.5 and the reviewer is the route this plugin con
   composer exposes 只读/请求批准/完全放开/Auto mode/自动审查/EXP only), and replaying a plan-shaped
   answer renders it as ordinary prose ("虚拟计划 · 检查输入 · 执行变更 · 复核结果"), so the
   「去聊天里说」 exit was never on screen.
+
+### Plan card attempt (2026-10-30): the tool is there, the approval UI is not reachable in this lab
+
+Replaying an `exit_plan_mode` call (the rc.5 tool name, args `{plan}`) renders a **plan
+artifact card** — 「三步计划 · 计划 · Markdown · 打开」 — so the tool and its client renderer both
+work. The **approval** card that carries our 「去聊天里说」 exit did not appear, and neither did
+确认执行 / 拒绝 / 查看完整计划.
+
+Tried, in order:
+
+1. mount `@deepseek-ai/dsh-plan-mode` as a plain row → plan artifact only;
+2. wrap it in a `cordis:group` with `isolate: { planMode: true }` → same.
+
+Reason: the approval surface is driven by an **agent preset** that carries `planMode: true`
+(the desktop profile defines one — a ~200-line preset block, `isolate: { planMode: true }` plus
+the plan-mode row with its long system section). The lab profile has no such preset, so sessions
+never enter plan mode and the host only files the plan as a document. The lab patch was restored
+from backup after the attempt; nothing in the desktop profile was touched.
+
+So the last rc.5 interface item needs either a copy of that preset block into the lab profile or a
+decision to accept it as a documented gap.
