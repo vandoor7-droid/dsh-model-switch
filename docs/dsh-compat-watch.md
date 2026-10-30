@@ -262,3 +262,22 @@ speaks through `userQuestions` (`dsh-plan-mode` references it, and the rc.5 stat
 v0.4.47 may need re-wiring to that surface rather than the older plan card.
 
 The lab patch was restored from backup; nothing in the desktop profile was touched.
+
+#### Third attempt: mounting the approval service does not enter plan mode either
+
+Reading the tool explains the earlier results: `exit_plan_mode` first checks
+`loggedActive(agent.session)` and only then `ctx.get('userQuestions')`, throwing
+"only available in plan mode" or "no user-questions channel is available to review the plan"
+before it can raise the review question. So the artifact card is the **error path**, not a
+different approval surface.
+
+Mounting both parts at profile level (`@deepseek-ai/dsh-user-questions` plus a
+`cordis:group` with `isolate: { planMode: true }` around `@deepseek-ai/dsh-plan-mode`) still
+renders the artifact card, i.e. the session never becomes "active" for plan mode. `planMode`
+appears nowhere outside the plan-mode plugin itself, so it is a preset-scoped isolate that a
+top-level row cannot reproduce.
+
+Conclusion: verifying 「去聊天里说」 on rc.5 needs a preset that carries the **full standard
+composition** plus the planning group. The lab patch has been restored; the cheapest check left
+is the desktop profile, whose `preset-YiXuan` already has that composition and where plan mode
+is known to work.
