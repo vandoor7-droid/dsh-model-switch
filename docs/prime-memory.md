@@ -225,3 +225,34 @@ Lab layout after this session (all virtual, zero real quota):
 `D:\dsh-lab` = rc.5 (`profiles/lab` web, `profiles/labh` headless);
 `C:\Users\15726\.dsh-lab3` = rc.3 (`profiles/lab` web with 0.4.47, `profiles/labh3` headless
 with our 0.4.53 + `dsh-prime-memory@0.26.11`).
+
+## Source-level re-check 2026-10-30: the read path was never the problem
+
+Earlier notes (and the CHANGELOG v0.4.44 correction) attributed the failed takeover to
+"the plugin snapshots its config at start". That attribution is **wrong**. Running the
+installed modules and reading two versions shows:
+
+- `pipeline/runner.js` `runTurn()` starts with
+  `const cfg = effectiveCfg(this.cfg, this.live)` — **0.26.11 and 0.26.10 both** — so the
+  route is recomputed per turn from the live settings object, not frozen at start-up.
+- Driven through the real `effectiveCfg()` from the shipped package
+  (`D:\tmp\mem-route-probe.mjs`), both payload shapes resolve to the requested route:
+  - `{ distillChain: [], distillProvider, distillModel, distillLayerChains }` →
+    `{ provider: 'apigoto', model: 'probe-memory' }`, and `distillLayerChains` lands in
+    `llm.layerChainsRuntime` (so the per-layer injection works too);
+  - the older `{ distillChain: [{provider, model}], distillProvider: '' }` → same route;
+  - with no settings at all → `resolveModelRoute` throws (no default available in the stub).
+- `settings.js validateDistillChain` accepts an empty chain (`DISTILL_CHAIN_MAX = 8`), so the
+  write gate does not reject our payload either.
+
+**Therefore the open question is the write transport, not the config shape.** This plugin
+(correctly) resolves settings per turn; the untested link is that our adapter POSTs to the
+plain HTTP path `/dsh-memory/rpc/settings-set`, while the memory plugin's own client reaches
+`dsh-memory/settings-set` over the host **connection service** (WebSocket) — its host code
+registers no `fetch.register` route. If that HTTP path does not exist on a real host, the
+push silently degrades to the static pin, which needs a restart and explains the observed
+"settings card changed, calls did not".
+
+Next step is therefore narrow and testable in a web lab: log the status code of that POST
+while a memory row is live, and if it is 404/405, implement the push through the connection
+service (or the official settings service) instead of HTTP.
