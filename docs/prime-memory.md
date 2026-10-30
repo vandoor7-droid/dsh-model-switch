@@ -312,3 +312,22 @@ the live pair can actually win; three tests cover write → clear → idempotent
 (`tests/prime-memory-pin.spec.ts`). Still open: the adapter should retry the live push before
 ever falling back to the pin, otherwise a slow start re-creates the pin and the fix never gets
 a chance to run (observed in this lab: the pin came back after restart).
+
+## 2026-10-30 final: takeover proven end-to-end (virtual, zero real quota)
+
+After the two fixes above (clear the stale pin; only pin after the live attempts are spent),
+the lab run closes the loop:
+
+| step | observation |
+| --- | --- |
+| Start with a stale pin in the row | patch cleaned itself; no `llm:` block written back after 10 s |
+| Change **our** `memoryModel` (probe-memory → gpt-6.1-sol), restart | `[memory] 蒸馏模型路由: apigoto/gpt-6.1-sol` |
+| `rebuild-start` on seeded L0 (6 synthetic turns) | probe rows `{"probe-memory":4,"gpt-6.1-sol":3}` and `[memory] LLM 调用 apigoto/gpt-6.1-sol` |
+
+So the route those calls use is the one this plugin configures, delivered through the memory
+plugin's own live settings (no static pin involved any more), for real L1/L2/L3 distillation
+requests. Recorder `D:\dsh-artifacts\probe-hot.jsonl`, plugin log `<home>/memory/memory.log`.
+Two limits stay on the record: the memory row must re-run for a new route to be pushed (a
+restart, or a settings change through our service — the card was hidden, so the file-edit path
+in the lab did not trigger it), and `dsh-prime-memory` still declares `engines.dsh` only up to
+`0.2.1-rc.4`, so on rc.5 the host skips the bundle regardless of this plugin.

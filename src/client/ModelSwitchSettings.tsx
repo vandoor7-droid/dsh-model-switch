@@ -207,7 +207,7 @@ function capabilityChoices(groups: readonly ModelProviderGroup[], route: Capabil
  * Typed as `boolean` on purpose: a literal `false` would let the bundler drop
  * the card's code, and the point is to restore exactly this UI later.
  */
-const MEMORY_CAPABILITY_UI: boolean = false
+const MEMORY_CAPABILITY_UI: boolean = true
 
 export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode {
   const { groups, catalogError } = useSettingsCatalog(props)

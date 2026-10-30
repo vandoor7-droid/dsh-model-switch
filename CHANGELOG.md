@@ -1,3 +1,14 @@
+## v0.4.54
+
+记忆蒸馏路由**做通了并重新上线**（此前因未证实而撤卡）。
+
+- **根因（lab 实测定位）**：`dsh-prime-memory` 的 `effectiveCfg` 只要 `cfg.llm.provider+model` 非空就视为 pinned，**同时忽略运行时链与 `distillProvider/distillModel` 对**。本插件早期写入的静态 pin 因此一直压过后续所有 live 写入——表现为「卡片改了、实际调用没变」。
+- **修复**：①live 推送被确认成功后，主动删除自己写过的 `llm:` 块（`clearStaticPin`），让 live 对真正生效；②静态 pin 不再抢先写入，改为 **live 尝试耗尽后**的最后手段（`pinAsFallback`，4 次重试后）。
+- **证据（virtual / 零真实额度，记录器 `D:\dsh-artifacts\probe-hot.jsonl`）**：删 pin 后启动不再回写 pin；把本插件的记忆路由改成 `apigoto/gpt-6.1-sol` 重启 → 插件日志 `蒸馏模型路由: apigoto/gpt-6.1-sol`；`rebuild-start` 对 6 条合成 L0 触发真实蒸馏 → 探针记录 `gpt-6.1-sol: 3`、插件日志 `LLM 调用 apigoto/gpt-6.1-sol`。
+- **卡恢复**：`MEMORY_CAPABILITY_UI = true`，「记忆蒸馏模型」卡片与分组行重新上线；文案改为「反复重试仍写不进去时才回落静态路由」。
+- **已知限制（如实记录）**：新的路由要等本插件该行重跑才会被推送（重启，或经我们设置服务的改动）；`dsh-prime-memory` 自身 `engines.dsh` 只声明到 `0.2.1-rc.4`，在 rc.5 上宿主会跳过该 bundle，与本插件无关。
+- **新增测试**：`tests/prime-memory-pin.spec.ts` 3 例（写入 → 清除 → 幂等清除 / 无该行 / 文档缺失）。
+
 ## v0.4.53
 
 「自动审查模型」与「审查超时」两项设置改为**热生效**，不再需要重启 DSH。

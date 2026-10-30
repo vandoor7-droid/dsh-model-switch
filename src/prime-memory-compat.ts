@@ -355,6 +355,9 @@ function formsOf(ctx: Context): SettingsForms | undefined {
   }
 }
 
+/** Live attempts to spend before falling back to the static pin. */
+const PIN_AFTER_ATTEMPTS = 4
+
 /**
  * Install the adapter for the whole profile.
  *
@@ -400,6 +403,38 @@ export function installPrimeMemoryCompat(
     const timer = setTimeout(() => { void run() }, delay)
     timer.unref?.()
     timers.push(timer)
+  }
+
+  /**
+   * Last resort for a host whose live seams never accept the route.
+   *
+   * Writing the static pin disables every live form (`pinned` in `effectiveCfg`), so it must
+   * not happen while the live attempts still have a chance: a pin written on a slow start is
+   * what kept overriding later pushes. It therefore waits for the retry budget to run out.
+   *
+   * @param forms - the settings service describing the memory row.
+   * @param provider - route provider to pin.
+   * @param model - route model to pin.
+   * @param wanted - `provider/model`, for the log line.
+   */
+  const pinAsFallback = async (
+    forms: SettingsForms,
+    provider: string,
+    model: string,
+    wanted: string,
+  ): Promise<void> => {
+    if (attempt < PIN_AFTER_ATTEMPTS) {
+      scheduleRetry()
+      return
+    }
+    const documentPath = forms.documentPath
+    if (typeof documentPath !== 'string' || documentPath === '') return
+    try {
+      if ((await writeStaticPin(documentPath, provider, model)) === 'written')
+        ctx.logger.info(`model-switch: pinned the dsh-prime-memory distillation route to ${wanted} after ${attempt} live attempts (applies from the next start)`)
+    } catch (cause: unknown) {
+      ctx.logger.warn(`model-switch: could not pin the dsh-prime-memory route (${String(cause)})`)
+    }
   }
 
   /**
@@ -470,21 +505,13 @@ export function installPrimeMemoryCompat(
       }
       return
     }
-    // The static pin (`config.llm.provider` + `config.llm.model`) is returned by
-    // `resolveModelRoute` before anything else; it is configuration, so it applies
-    // from the next start — written where that start reads it.
-    const documentPath = forms.documentPath
-    if (typeof documentPath === 'string' && documentPath !== '') {
-      try {
-        if ((await writeStaticPin(documentPath, provider, model)) === 'written')
-          ctx.logger.info(`model-switch: pinned the dsh-prime-memory distillation route to ${wanted} (applies from the next start)`)
-      } catch (cause: unknown) {
-        ctx.logger.warn(`model-switch: could not pin the dsh-prime-memory route (${String(cause)})`)
-      }
-    }
+    // No pin here on purpose. A pin sets `pinned`, which makes `effectiveCfg` ignore both the
+    // live chain and the distillProvider/distillModel pair, so writing one this early would
+    // disable the very paths the lines below are about to try. The pin is the last resort in
+    // `pinAsFallback`, after those attempts have really failed.
     const section = sectionOf(forms)
     if (section === undefined || asRecord(section.value) === undefined) {
-      scheduleRetry()
+      await pinAsFallback(forms, provider, model, wanted)
       return
     }
     const current = chainOf(section.value)
@@ -496,11 +523,11 @@ export function installPrimeMemoryCompat(
     }
     const chain = planDistillChain({ provider, model }, current)
     pending = forms.update(MEMORY_ENTRY_ID, distillChainPatch(chain), section.revision)
-      .then(() => {
+      .then(async () => {
         const applied = chainOf(sectionOf(forms)?.value)
         const appliedRoute = applied.length > 0 ? `${text(applied[0]?.provider)}/${text(applied[0]?.model)}` : ''
         if (appliedRoute !== wanted) {
-          scheduleRetry()
+          await pinAsFallback(forms, provider, model, wanted)
           return
         }
         adoptedRoute = wanted
@@ -509,10 +536,10 @@ export function installPrimeMemoryCompat(
         primeMemoryCompatStatus.route = wanted
         delete primeMemoryCompatStatus.routeSkipped
       })
-      .catch((cause: unknown) => {
+      .catch(async (cause: unknown) => {
         primeMemoryCompatStatus.routeSkipped = 'no-route'
         ctx.logger.warn(`model-switch: could not write the dsh-prime-memory distillation route (${String(cause)})`)
-        scheduleRetry()
+        await pinAsFallback(forms, provider, model, wanted)
       })
       .finally(() => { pending = undefined })
     return pending

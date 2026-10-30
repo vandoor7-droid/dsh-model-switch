@@ -44,7 +44,7 @@ export declare const zh: {
     readonly titleRouteHelp: "命名请求固定使用这里的 Provider/模型（不带推理强度）；关闭时跟随会话模型。保存后立即对下一次命名生效，不会中断正在进行的命名，会话日志记录的也是实际使用的模型。";
     readonly memory: "记忆蒸馏模型";
     readonly memoryFollow: "跟随记忆插件默认";
-    readonly memoryHelp: "为 dsh-prime-memory 的记忆蒸馏指定路由；两个字段都留空时跟随该插件自己的默认模型。保存后立即生效（写入该插件自己的 live 设置，运行中的实例会读到）；它拒收时才回落到静态路由，下次启动生效。";
+    readonly memoryHelp: "为 dsh-prime-memory 的记忆蒸馏指定路由；两个字段都留空时跟随该插件自己的默认模型。保存后立即生效（写入该插件自己的 live 设置，运行中的实例会读到）；只有反复重试仍写不进去时才回落到静态路由（下次启动生效）。";
     readonly memoryRouteHelp: "按部署默认供应商的配置组解析；该供应商没有组时使用这里填写的平面默认。优先写该行的 live 设置（立即生效），不可用时写静态路由（llm.provider/llm.model），启动时生效。";
     readonly providerGroups: "供应商配置组";
     readonly providerGroupsCard: "按供应商预设路由";
