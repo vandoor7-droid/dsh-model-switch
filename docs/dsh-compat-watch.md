@@ -210,9 +210,12 @@ review path visible. With the recorder replaying one `write` call:
 So a write **is** reviewed on rc.5 and the reviewer is the route this plugin configures
 (`autoReviewProvider/Model`). Two anomalies stay on the record:
 
-- The plugin's own counters do **not** move: `allowedCalls: 0` and `skippedReadOnly: 0` after
-  both a reviewed write and a skipped read, so on rc.5 the decision is taken by the host path
-  while our route is honoured — the counter is a display-only mismatch, not a route failure.
+- The plugin's own counters stay 0 (`allowedCalls`, `skippedReadOnly`) — **by design**, not a
+  regression: they count only the fallback branches. `allowedCalls` moves when the reviewer
+  infrastructure throws and the plugin fails open (`src/auto-review.ts:286`); `skippedReadOnly`
+  moves when the permission service asks for the current preset and the ambient tool is on the
+  read-only allowlist (`src/auto-review.ts:424`). A normal reviewed write takes neither branch,
+  and on rc.5 the host itself clears read-only calls, so both stay 0.
 - A plain read is cleared without any reviewer call even in 自动审查 mode, which matches the
   纯读免审查 policy but again bypasses our counter.
 - The plan card could not be reproduced: this profile's UI offers no plan-mode entry (the
@@ -307,3 +310,18 @@ refuses to do so unless the session is plan-mode active, and `planMode` is a pre
 isolate. So the surface contract is verified by code comparison, the render is verified for every
 other rc.5 surface, and this one render needs a session whose preset carries the full standard
 composition (the desktop profile has one).
+
+#### Resolved: the plan review card does render on rc.5 ( `/plan` is the missing entry )
+
+The three failed attempts above all assumed plan mode had to come from an isolated preset. It does
+not: the rc.5 composer has a **`/plan` command** ("进入或退出计划模式"). Running it turns plan mode
+on ("Plan mode on. Use /plan off to leave."), and then:
+
+1. replaying `exit_plan_mode` raises the review question;
+2. the plan review card shows 查看完整计划, 三步计划, and **this plugin's 「去聊天里说」** next to 拒绝 /
+   设置为目标并执行 / 确认执行 — i.e. the composer seat is live on rc.5;
+3. clicking 「去聊天里说」 dismisses the review, stops the turn, and returns the composer to plan mode
+   ("描述你的任务以生成计划").
+
+Screenshot: `D:\dsh-artifacts\ui-plan-card.png`. Together with the six earlier checks, every rc.5
+interface item is now verified at runtime.

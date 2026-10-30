@@ -19,11 +19,15 @@
 
 **如实记录的未验项与异常**
 
-- 计划审核卡的**运行时渲染**未在 lab 复现：`exit_plan_mode` 要求会话处于 plan 模式，而
-  `planMode` 是预设级 isolate；lab profile 没有携带完整标准组成的预设，工具会先抛错，插件把
-  计划渲染为文档卡。桌面 profile 的 `preset-YiXuan` 具备该组成，可另行确认。
-- rc.5 上本插件自己的审查计数不随决策递增（`allowedCalls` / `skippedReadOnly` 恒为 0），
-  即使审查请求确实发生、纯读也确实被跳过；路由生效，计数仅为展示层偏差，已记录待查。
+- 计划审核卡**已验通**：会话里执行 `/plan`（"Plan mode on. Use /plan off to leave."）后，
+  回放 `exit_plan_mode` 会弹出审批卡，卡上出现本插件的 **「去聊天里说」**、拒绝、设置为目标并执行、
+  确认执行；点「去聊天里说」后审批卡消失、回合停止、输入框切回计划模式（"描述你的任务以生成计划"）。
+  截图 `D:\dsh-artifacts\ui-plan-card.png`。此前三次尝试失败的原因是缺少 `/plan` 这一入口——
+  `planMode` 不是预设 isolate 才能进入，命令即可。
+- `allowedCalls` / `skippedReadOnly` 在 rc.5 上保持 0，**不是回归**：这两个计数只统计兜底路径
+  （前者仅在审查基础设施抛错、本插件失败开放时 +1，`src/auto-review.ts:286`；后者仅在权限服务询问当前
+  预设且环境工具命中纯读白名单时 +1，`src/auto-review.ts:424`）。正常审查不经过这两条分支，纯读跳过在
+  rc.5 上由宿主自身完成，所以计数为 0 是预期结果。
 
 ## v0.4.54
 

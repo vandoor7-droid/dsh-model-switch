@@ -21,10 +21,7 @@
         "rc.5 plan card 「去聊天里说」 (needs a plan-mode session; this profile has no plan entry)"
       ],
       "why": "no browser lane in that session (Edge exited during startup); rc.5 is therefore NOT declared",
-      "ui": "settings page, model picker, memory card, exemption card (58), reviewed write via 自动审查 verified 2026-10-30 over CDP",
-      "anomalies": [
-        "allowedCalls/skippedReadOnly stay 0 on rc.5 although the reviewer is invoked and read is skipped"
-      ]
+      "ui": "settings page, model picker, memory card, exemption card (58), reviewed write via 自动审查 verified 2026-10-30 over CDP"
     },
     "declaredFloor": ">=0.2.0-rc.2"
   },
