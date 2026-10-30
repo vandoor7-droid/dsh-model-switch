@@ -1,3 +1,30 @@
+## v0.4.55
+
+声明兼容 DSH `0.2.1-rc.5`（该版本进入 `dsh.compatibility.dshReleases`，运行时下限仍是 `>=0.2.0-rc.2`，不设上界）。
+
+**在 rc.5 上实测通过的（virtual / 零真实额度，lab `D:\dsh-lab` 端口 3082，headless Edge over CDP）**
+
+- 设置页渲染，含「模型切换」分组；模型选择器切换（`gpt-6.1-sol` ↔ `MiMo-V2.6-Flash`）。
+- 「记忆蒸馏模型」卡片（0.4.54 恢复）显示 `apigoto · probe-memory` 与新文案。
+- 「审查豁免」卡片：已开启、名单内 58 条，与 `tools` RPC 的 `recommended: 58` 一致。
+- automode 行被适配层识别：`{installed: true, route: "apigoto/mimo-v2.6-flash", added: 53, skipped: 2}`。
+- 「自动审查」预设下写操作**确实被审查**，审查请求走本插件配置的路由：
+  `gpt-6.1-sol(tool=write)` → `mimo-v2.6-flash` → `gpt-6.1-sol`（记录器 `probe-ui-rv5.jsonl`）。
+
+**静态契约核对**
+
+- rc.5 的 `dsh-client-ui-user-questions` 用与本插件**逐条相同**的谓词判定计划审核
+  （单问题 / `intent.kind === "plan-review"` / 有 detail / 非多选 / 选项 ≤ 2），宿主也正是用同一
+  辅助函数产出该 kind，所以计划审核卡的数据面在本插件侧无需改动。
+
+**如实记录的未验项与异常**
+
+- 计划审核卡的**运行时渲染**未在 lab 复现：`exit_plan_mode` 要求会话处于 plan 模式，而
+  `planMode` 是预设级 isolate；lab profile 没有携带完整标准组成的预设，工具会先抛错，插件把
+  计划渲染为文档卡。桌面 profile 的 `preset-YiXuan` 具备该组成，可另行确认。
+- rc.5 上本插件自己的审查计数不随决策递增（`allowedCalls` / `skippedReadOnly` 恒为 0），
+  即使审查请求确实发生、纯读也确实被跳过；路由生效，计数仅为展示层偏差，已记录待查。
+
 ## v0.4.54
 
 记忆蒸馏路由**做通了并重新上线**（此前因未证实而撤卡）。
