@@ -25,3 +25,6 @@ coverage/
 
 # Local audit artifacts (never pushed): allowlist review notes
 review/
+
+# Local DSH runtime artifacts (session panel logs, never publish)
+.dsh-ops/
