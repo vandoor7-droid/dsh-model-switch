@@ -7,6 +7,7 @@ import { DEFAULT_READ_ONLY_TOOLS } from './tool-allowlist.js'
 import { autoReviewStatus } from './auto-review.js'
 import { automodeCompatView } from './automode-compat.js'
 import { reviewTimeoutStatus } from './review-timeout.js'
+import { primeMemoryCompatStatus } from './prime-memory-compat.js'
 
 /** Live reviewer counters surfaced next to the allowlist editor. */
 export interface ReviewStatus {
@@ -22,6 +23,13 @@ export interface ReviewStatus {
     readonly skipped: number
     readonly hot?: 'applied' | 'restart-required' | undefined
     readonly hotReason?: string | undefined
+  } | undefined
+  /** Memory-plugin adapter state: whether our distillation route reached the plugin. */
+  readonly primeMemory?: {
+    readonly installed: boolean
+    readonly route?: string | undefined
+    readonly routeSkipped?: string | undefined
+    readonly replays?: number | undefined
   } | undefined
   /** Review-timeout adapter state: the write and the runtime reload behind it. */
   readonly reviewTimeout?: {
@@ -139,6 +147,12 @@ export function installCapabilitiesRpc(ctx: Context, registry: ModelSwitchAdapte
         allowedCalls: autoReviewStatus.allowedCalls,
         skippedReadOnly: autoReviewStatus.skippedReadOnly,
         automode: automodeCompatView(),
+        primeMemory: {
+          installed: primeMemoryCompatStatus.installed,
+          route: primeMemoryCompatStatus.route,
+          routeSkipped: primeMemoryCompatStatus.routeSkipped,
+          replays: primeMemoryCompatStatus.replays,
+        },
         reviewTimeout: {
           configuredMs: reviewTimeoutStatus.configuredMs,
           applied: reviewTimeoutStatus.applied,

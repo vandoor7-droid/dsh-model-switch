@@ -409,21 +409,21 @@ export function installAutomodeCompat(
  * Row entry point: adapt the third-party row on activation and on remount.
  * @param ctx - this row's context.
  */
-export function apply(ctx: Context): void {
-  // Lazy on purpose: see review-timeout.ts — a hard dependency would make this
-  // row (and every row composed after it) pend forever when the provider is absent.
-  const runtime = ctx.get('modelSwitch', false)
-  if (runtime === undefined) {
-    ctx.logger.warn('model-switch: the automode-compat row is mounted without the modelSwitch service; the classifier route is left untouched')
-    return
-  }
-  const loader = ctx.get('loader', false) as Loader | undefined
-  const settings = () => runtime.currentSettings()
-  const adapter = installAutomodeCompat(ctx, loader, settings)
-  ctx.effect(function* () {
-    yield adapter.dispose
-    yield ctx.on('model-switch/settings-update', () => {
-      if (adapter.replay()) ctx.logger.info(`model-switch: re-applied the dsh-automode adaptation after a settings change (${lastSummary})`)
-    })
-  }, 'model-switch: keep the dsh-automode adapter aligned with the settings')
+export function apply(outer: Context): void {
+  // Optional dependency: a hard inject would leave this row (and every row composed
+  // after it) pending when the provider is absent, while a bare ctx.get never
+  // resolves outside a dependent scope. The scoped inject waits without blocking
+  // composition and hands the adapter a context that can read the service.
+  outer.inject(['modelSwitch'], (ctx: Context) => {
+    const runtime = ctx.modelSwitch
+    const loader = ctx.get('loader', false) as Loader | undefined
+    const settings = () => runtime.currentSettings()
+    const adapter = installAutomodeCompat(ctx, loader, settings)
+    ctx.effect(function* () {
+      yield adapter.dispose
+      yield ctx.on('model-switch/settings-update', () => {
+        if (adapter.replay()) ctx.logger.info(`model-switch: re-applied the dsh-automode adaptation after a settings change (${lastSummary})`)
+      })
+    }, 'model-switch: keep the dsh-automode adapter aligned with the settings')
+  })
 }

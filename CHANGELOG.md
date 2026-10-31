@@ -1,3 +1,15 @@
+## v0.4.57
+
+修复可选服务取用方式与记忆路由写入校验：0.4.56 的代理行在真实宿主上都静默停用，记忆蒸馏路由因此没有写进插件。
+
+- **可选服务改用作用域注入**：`model-switch-auto-review`、`review-timeout`、`automode-compat`、`prime-memory-compat` 不再用 `ctx.get('modelSwitch', false)`。Cordis 的服务只在**声明依赖的作用域**内可读：跨行直接 `get` 返回 `undefined`，使代理行看起来已挂载、实际什么也没做。现改为 `ctx.inject(['modelSwitch'], scope => ...)`：不阻塞组态（不会出现 pending），且能真正读到服务。
+- **记忆适配器另需同步注入 `webServer`**：写入插件 live 设置的唯一即时通道是它自己的 RPC，而该 RPC 需要 Web 服务提供端口。
+- **推送后必须回读校验**：宿主对未携带会话凭据的本地写入可能返回 200 但**丢弃内容**；现在按回读结果判定成功，不一致就回落到文档写入并在状态里标 `live-rejected`（下次启动生效）。
+- **修正"用户手设"误判**：live 段里保存的路由若正是本适配器上次写入的，不再被当成用户手写意图而拒绝更新。
+- **新增状态**：`primeMemory`（`installed` / `route` / `routeSkipped` / `replays`）随 `plugin-rpc/model-switch` 的 `tools` 端点返回，排障时可直接看到路由是否真正写入插件。
+
+验证（virtual / 零真实额度）：DSH 0.2.1-rc.5 + `dsh-prime-memory@0.26.16` lab 中，清空插件 live 路由后启动，`settings-get` 回读到我们配置的 `provider/model`（启动推送生效）；`pnpm run check` 全绿。**未验证**：改设置后不重启的即时切换在本轮 lab 未取得端到端证据（设置页面与插件自身写入受宿主会话校验影响），定为 Unverified。
+
 ## v0.4.56
 
 修复插件在真实 DSH 上“启用失败”的死锁：依赖行不再因缺少 `modelSwitch` 服务而永久 pending。

@@ -157,4 +157,4 @@ export declare function installAutomodeCompat(ctx: Context, loader: Loader | und
  * Row entry point: adapt the third-party row on activation and on remount.
  * @param ctx - this row's context.
  */
-export declare function apply(ctx: Context): void;
+export declare function apply(outer: Context): void;

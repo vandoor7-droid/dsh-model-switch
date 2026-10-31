@@ -284,4 +284,4 @@ export declare function autoReviewGate(gate: OfficialAutoReviewGate, hooks?: {
  * `./auto-review-takeover.ts` for the choreography and why the yield is
  * synchronous.
  */
-export declare function apply(ctx: Context): Promise<void>;
+export declare function apply(outer: Context): Promise<void>;

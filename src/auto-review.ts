@@ -585,15 +585,33 @@ let lastGateFiber: GateFiber | undefined
  * `./auto-review-takeover.ts` for the choreography and why the yield is
  * synchronous.
  */
-export async function apply(ctx: Context): Promise<void> {
-  // `modelSwitch` is read lazily rather than declared in `inject`: a missing
-  // provider must degrade this row to "not mounted", never strand the whole
-  // host in `pending (waiting for service: modelSwitch)` — that state also
-  // blocks every later row that would have followed it in the composition.
-  if (ctx.get('modelSwitch', false) === undefined) {
-    ctx.logger.warn('model-switch: the auto-review row is mounted without the modelSwitch service; the reviewer route override stays unmounted and the official gate keeps the seam')
-    return
-  }
+export async function apply(outer: Context): Promise<void> {
+  // Optional dependency on purpose: declaring it in `inject` strands the whole
+  // host in `pending (waiting for service: modelSwitch)`, and that state also
+  // blocks every later row — but a bare `ctx.get` never resolves outside a
+  // dependent scope, which silently unmounted this reviewer. The scoped inject
+  // waits without blocking composition and gives the reviewer a context that can
+  // read the service.
+  let mounted = false
+  const ready = new Promise<void>((resolve) => {
+    outer.inject(['modelSwitch'], (ctx: Context) => {
+      mounted = true
+      void mountReviewer(ctx).finally(resolve)
+    })
+  })
+  // Bounded on purpose: a host that never provides the service must not leave
+  // this row activating forever — that is exactly the pending state this change
+  // removes. Long enough for a slow composition, short enough to stay harmless.
+  const timeout = new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 10_000)
+    timer.unref?.()
+  })
+  await Promise.race([ready, timeout])
+  if (!mounted) outer.logger.warn('model-switch: the auto-review row is mounted without the modelSwitch service; the reviewer route override stays unmounted and the official gate keeps the seam')
+}
+
+/** Mounts the reviewer override on a context that owns the provider service. */
+async function mountReviewer(ctx: Context): Promise<void> {
   if (!autoReviewBundleActive(ctx)) {
     ctx.logger.info('model-switch: auto-review bundle is not active in this profile; the reviewer route override stays unmounted')
     return

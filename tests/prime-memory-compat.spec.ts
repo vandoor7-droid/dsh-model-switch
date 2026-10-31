@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { memoryLiveMatchesRoute, planPrimeMemoryRoute, pushMemoryRoute } from '../src/prime-memory-compat.js'
+import { installPrimeMemoryCompat, memoryLiveMatchesRoute, planPrimeMemoryRoute, primeMemoryCompatStatus, pushMemoryRoute, readMemoryLive } from '../src/prime-memory-compat.js'
 import { memoryRouteOf, type RouteBearingSettings } from '../src/session-route.js'
 
 /** The row config dsh-prime-memory ships with when it follows its own default. */
@@ -135,5 +135,110 @@ describe('memoryLiveMatchesRoute', () => {
   it('rejects non-object values', () => {
     expect(memoryLiveMatchesRoute(undefined, 'apigoto', 'mimo-v2.6-flash')).toBe(false)
     expect(memoryLiveMatchesRoute('nope', 'apigoto', 'mimo-v2.6-flash')).toBe(false)
+  })
+})
+
+describe('readMemoryLive', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('posts to the plugin settings-get endpoint and returns its live section', async () => {
+    const urls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      urls.push(String(url))
+      return { ok: true, status: 200, json: async () => ({ ok: true, value: { supported: true, settings: { distillProvider: 'apigoto', distillModel: 'mimo-v2.6-flash' } } }) } as unknown as Response
+    }))
+    const live = await readMemoryLive({ get: () => ({ port: 4321 }) } as never)
+    expect(urls).toEqual(['http://127.0.0.1:4321/dsh-memory/rpc/settings-get'])
+    expect(live).toEqual({ distillProvider: 'apigoto', distillModel: 'mimo-v2.6-flash' })
+  })
+
+  it('returns undefined when the host has no port or the endpoint is unavailable', async () => {
+    expect(await readMemoryLive({ get: () => ({}) } as never)).toBeUndefined()
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 404 }) as unknown as Response))
+    expect(await readMemoryLive({ get: () => ({ port: 4321 }) } as never)).toBeUndefined()
+  })
+})
+
+describe('adapter push order', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    primeMemoryCompatStatus.installed = false
+    delete primeMemoryCompatStatus.route
+    delete primeMemoryCompatStatus.routeSkipped
+  })
+
+  /** A host that exposes only the web server: no `settings` forms seam at all. */
+  function host(live: { value: Record<string, unknown> }) {
+    const pushed: Array<Record<string, unknown>> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { body?: string }) => {
+      if (String(url).endsWith('/settings-get')) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, value: { supported: true, settings: live.value } }) } as unknown as Response
+      }
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>
+      pushed.push(body)
+      live.value = body
+      return { ok: true, status: 200 } as unknown as Response
+    }))
+    const ctx = {
+      get: (name: string): unknown => (name === 'webServer' ? { port: 4321 } : undefined),
+      logger: { info: vi.fn(), warn: vi.fn() },
+      effect: (fn: () => Generator): { dispose: () => void } => {
+        const iterator = fn()
+        iterator.next()
+        return { dispose: (): void => {} }
+      },
+      on: (): (() => void) => () => {},
+    }
+    const loader = { entries: (): unknown[] => [{ options: { id: 'dsh-memory' } }] }
+    return { ctx, loader, pushed }
+  }
+
+  it('pushes through the plugin RPC even when the settings seam is absent', async () => {
+    const shared = host({ value: {} })
+    installPrimeMemoryCompat(shared.ctx as never, shared.loader as never, () => ({ provider: 'apigoto', model: 'mimo-v2.6-flash' }))
+    await vi.waitFor(() => expect(shared.pushed).toHaveLength(1))
+    expect(shared.pushed[0]).toMatchObject({ distillProvider: 'apigoto', distillModel: 'mimo-v2.6-flash', distillChain: [] })
+    expect(primeMemoryCompatStatus.route).toBe('apigoto/mimo-v2.6-flash')
+    expect(primeMemoryCompatStatus.installed).toBe(true)
+  })
+
+  it('re-pushes the new pair when the route changes', async () => {
+    const shared = host({ value: {} })
+    let route = { provider: 'apigoto', model: 'mimo-v2.6-flash' }
+    const adapter = installPrimeMemoryCompat(shared.ctx as never, shared.loader as never, () => route)
+    await vi.waitFor(() => expect(shared.pushed).toHaveLength(1))
+    route = { provider: 'xiaomi-token-plan-cn', model: 'mimo-v2-pro' }
+    adapter.replay()
+    await vi.waitFor(() => expect(shared.pushed).toHaveLength(2))
+    expect(shared.pushed[1]).toMatchObject({ distillProvider: 'xiaomi-token-plan-cn', distillModel: 'mimo-v2-pro' })
+    expect(primeMemoryCompatStatus.route).toBe('xiaomi-token-plan-cn/mimo-v2-pro')
+  })
+
+  it('does not rewrite a live section that already carries the route', async () => {
+    const pair = { provider: 'apigoto', model: 'mimo-v2.6-flash' }
+    const shared = host({
+      value: { distillProvider: pair.provider, distillModel: pair.model, distillChain: [], distillLayerChains: { l1: [pair], l2: [pair], l3: [pair] } },
+    })
+    installPrimeMemoryCompat(shared.ctx as never, shared.loader as never, () => pair)
+    await new Promise(resolve => setTimeout(resolve, 60))
+    expect(shared.pushed).toHaveLength(0)
+  })
+
+  it('replaces a live route this adapter wrote on an earlier pass', async () => {
+    const first = { provider: 'apigoto', model: 'mimo-v2.6-flash' }
+    const shared = host({
+      value: { distillProvider: first.provider, distillModel: first.model, distillChain: [], distillLayerChains: { l1: [first], l2: [first], l3: [first] } },
+    })
+    let route = first
+    const adapter = installPrimeMemoryCompat(shared.ctx as never, shared.loader as never, () => route)
+    // The route this adapter wrote at boot must not be mistaken for hand-set
+    // intent, or a later settings change could never move it.
+    await new Promise(resolve => setTimeout(resolve, 60))
+    expect(shared.pushed).toHaveLength(0)
+    route = { provider: 'xiaomi-token-plan-cn', model: 'mimo-v2-pro' }
+    adapter.replay()
+    await vi.waitFor(() => expect(shared.pushed).toHaveLength(1))
+    expect(shared.pushed[0]).toMatchObject({ distillProvider: 'xiaomi-token-plan-cn', distillModel: 'mimo-v2-pro' })
+    expect(primeMemoryCompatStatus.route).toBe('xiaomi-token-plan-cn/mimo-v2-pro')
   })
 })

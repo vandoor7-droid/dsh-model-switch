@@ -37,7 +37,7 @@ export const inject = ['loader', 'settings']
 const MEMORY_ENTRY_ID = 'dsh-memory'
 
 /** Why the adapter stayed out of the way. */
-export type PrimeMemoryRouteSkip = 'user-set' | 'no-route'
+export type PrimeMemoryRouteSkip = 'user-set' | 'no-route' | 'no-row' | 'no-service' | 'no-seam' | 'live-rejected'
 
 /** Live adapter state, surfaced next to the settings card. */
 export interface PrimeMemoryCompatStatus {
@@ -47,10 +47,12 @@ export interface PrimeMemoryCompatStatus {
   route?: string | undefined
   /** Why the route was not written, when it was not. */
   routeSkipped?: PrimeMemoryRouteSkip | undefined
+  /** How many settings-update replays this adapter has run (diagnostics). */
+  replays: number
 }
 
 /** The state the settings page reads. */
-export const primeMemoryCompatStatus: PrimeMemoryCompatStatus = { installed: false }
+export const primeMemoryCompatStatus: PrimeMemoryCompatStatus = { installed: false, replays: 0 }
 
 /** The settings-forms seam the memory plugin itself writes through. */
 interface SettingsForms {
@@ -333,6 +335,38 @@ export async function pushMemoryRoute(
   }
 }
 
+/** The endpoint the memory plugin registers for its own runtime settings reads. */
+const MEMORY_RPC_GET_PATH = '/dsh-memory/rpc/settings-get'
+
+/**
+ * Read the memory plugin's live settings through the RPC its panel posts to.
+ *
+ * The `settings` forms descriptors are an internal detail of the plugin: on
+ * `dsh-prime-memory@0.26.16` this row could not observe them, which skipped every
+ * push and left the plugin on its own deployment default. Its RPC is the surface
+ * its own panel uses, so reading there keeps the adapter working across plugin
+ * releases — and it is what makes the push idempotent across document reloads.
+ * @param ctx - this row's context; the host web server supplies the port.
+ * @returns The live settings object, or undefined when the seam is unreachable.
+ */
+export async function readMemoryLive(ctx: Context): Promise<unknown> {
+  const server = ctx.get('webServer', false) as WebServerLike | undefined
+  const port = server?.port ?? server?.address?.port
+  if (typeof port !== 'number' || port <= 0) return undefined
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}${MEMORY_RPC_GET_PATH}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ method: 'settings-get' }),
+    })
+    if (!response.ok) return undefined
+    const body = await response.json() as { value?: { settings?: unknown } } | undefined
+    return body?.value?.settings
+  } catch {
+    return undefined
+  }
+}
+
 /** The `agent-default-model` row's provider: the deployment default. */
 function defaultProviderOf(loader: Loader | undefined): string | undefined {
   if (typeof loader?.entries !== 'function') return undefined
@@ -438,7 +472,25 @@ export function installPrimeMemoryCompat(
   }
 
   /**
-   * Write our route into the section the plugin itself reads, then read it back.
+   * Drop a pin left over from an earlier release.
+   *
+   * A static `llm.provider/model` pin sets `pinned`, which makes the plugin's
+   * `effectiveCfg` ignore the chain *and* the live pair, so the live route decides
+   * nothing on that host until the pin is gone.
+   * @param forms - the settings seam, when this host exposes it.
+   */
+  const clearStalePin = async (forms: SettingsForms | undefined): Promise<void> => {
+    const pinnedDocument = forms?.documentPath
+    if (typeof pinnedDocument !== 'string' || pinnedDocument === '') return
+    try {
+      if ((await clearStaticPin(pinnedDocument)) === 'cleared')
+        ctx.logger.info('model-switch: removed the stale dsh-prime-memory static pin; the live route decides now')
+    } catch (cause: unknown) {
+      ctx.logger.warn(`model-switch: could not clear the dsh-prime-memory static pin (${String(cause)})`)
+    }
+  }
+
+  /**
    *
    * The plugin builds that section inside its own `apply` (`settings.register`), so
    * a write issued before that point lands in a section nobody reads — the reason
@@ -448,7 +500,10 @@ export function installPrimeMemoryCompat(
    */
   const run = async (): Promise<void> => {
     if (pending !== undefined) return pending
-    if (!memoryRowPresent()) return
+    if (!memoryRowPresent()) {
+      primeMemoryCompatStatus.routeSkipped = 'no-row'
+      return
+    }
     const route = routeOf()
     const provider = text(route?.provider)
     const model = text(route?.model)
@@ -456,21 +511,39 @@ export function installPrimeMemoryCompat(
       primeMemoryCompatStatus.routeSkipped = 'no-route'
       return
     }
+    const wanted = `${provider}/${model}`
     const forms = formsOf(ctx)
-    if (forms?.update === undefined || forms.describe === undefined) {
+    // Read the live section first, through the plugin's own RPC. The previous order
+    // gated every push behind the `settings` forms descriptors, so a plugin release
+    // that no longer exposes them (0.26.16) silently skipped the push entirely —
+    // the plugin then kept its deployment default while our card showed a route.
+    // Reading there also keeps the push idempotent: an unchanged route must not
+    // rewrite the document, because every document change reloads the composition
+    // and re-enters this adapter (an observed ~6 s recompose loop).
+    const live = await readMemoryLive(ctx)
+    if (live === undefined) {
       primeMemoryCompatStatus.routeSkipped = 'no-route'
       scheduleRetry()
       return
     }
-    const wanted = `${provider}/${model}`
-    // Pushing an unchanged route makes the memory plugin rewrite its live section,
-    // the document change reloads the composition, and the reload runs this
-    // adapter again — a self-sustaining recompose loop. Skip when already applied.
-    if (memoryLiveMatchesRoute(sectionOf(forms)?.value, provider, model)) {
+    if (memoryLiveMatchesRoute(live, provider, model)) {
       adoptedRoute = wanted
       primeMemoryCompatStatus.installed = true
       primeMemoryCompatStatus.route = wanted
       delete primeMemoryCompatStatus.routeSkipped
+      await clearStalePin(forms)
+      return
+    }
+    // A chain the user set themselves stays; a chain this adapter wrote on an
+    // earlier pass does not. After a reload the two look identical, so the only
+    // safe comparison is against the route adopted in this session: matching the
+    // declared pair is what lets a settings change push the new pair instead of
+    // being read as hand-written intent.
+    const declared = chainOf(live)
+    const declaredRoute = declared.length > 0 ? `${text(declared[0]?.provider)}/${text(declared[0]?.model)}` : ''
+    if (declaredRoute !== '' && declaredRoute !== wanted && declaredRoute !== adoptedRoute) {
+      primeMemoryCompatStatus.routeSkipped = 'user-set'
+      primeMemoryCompatStatus.route = undefined
       return
     }
     // The plugin resolves its route from the runtime settings object it built at
@@ -479,49 +552,37 @@ export function installPrimeMemoryCompat(
     // and it is the only seam that makes a provider switch take effect immediately.
     const pushed = await pushMemoryRoute(ctx, { provider, model })
     if (pushed === 'pushed') {
-      adoptedRoute = wanted
-      primeMemoryCompatStatus.installed = true
-      primeMemoryCompatStatus.route = wanted
-      delete primeMemoryCompatStatus.routeSkipped
-    }
-    // The live RPC is authoritative when it worked: a static pin sets `pinned`
-    // and disables exactly the chain/pair forms the push just wrote
-    // (`effectiveCfg`, runner.js:47, gates both on `!pinned`), so writing both is
-    // what kept the route from moving. The pin stays as the fallback for a host
-    // where that RPC is absent or refused — there it is the only form that
-    // survives a restart.
-    if (pushed === 'pushed') {
-      // A pin left over from an earlier start keeps overriding the live pair
-      // (`effectiveCfg` ignores the chain *and* the pair while `pinned`), so drop it as soon
-      // as the live push is confirmed — otherwise the card changes nothing on this host.
-      const pinnedDocument = forms.documentPath
-      if (typeof pinnedDocument === 'string' && pinnedDocument !== '') {
-        try {
-          if ((await clearStaticPin(pinnedDocument)) === 'cleared')
-            ctx.logger.info('model-switch: removed the stale dsh-prime-memory static pin; the live route decides now')
-        } catch (cause: unknown) {
-          ctx.logger.warn(`model-switch: could not clear the dsh-prime-memory static pin (${String(cause)})`)
-        }
+      // A 200 is not proof of a write: a route guarded by the host session answers
+      // 200 while silently dropping the payload, so the read-back is the only
+      // acceptance signal this adapter is allowed to trust.
+      const after = await readMemoryLive(ctx)
+      if (after !== undefined && memoryLiveMatchesRoute(after, provider, model)) {
+        adoptedRoute = wanted
+        attempt = 0
+        primeMemoryCompatStatus.installed = true
+        primeMemoryCompatStatus.route = wanted
+        delete primeMemoryCompatStatus.routeSkipped
+        await clearStalePin(forms)
+        return
       }
+      primeMemoryCompatStatus.routeSkipped = 'live-rejected'
+    }
+    // Below here the RPC was absent, refused, or answered without writing: fall
+    // back to the settings forms write, and from there to the static pin that
+    // survives a restart.
+    if (forms === undefined || forms.update === undefined || forms.describe === undefined) {
+      primeMemoryCompatStatus.routeSkipped = 'no-route'
+      scheduleRetry()
       return
     }
-    // No pin here on purpose. A pin sets `pinned`, which makes `effectiveCfg` ignore both the
-    // live chain and the distillProvider/distillModel pair, so writing one this early would
-    // disable the very paths the lines below are about to try. The pin is the last resort in
-    // `pinAsFallback`, after those attempts have really failed.
     const section = sectionOf(forms)
     if (section === undefined || asRecord(section.value) === undefined) {
       await pinAsFallback(forms, provider, model, wanted)
       return
     }
-    const current = chainOf(section.value)
-    const declared = current.length > 0 ? `${text(current[0]?.provider)}/${text(current[0]?.model)}` : ''
-    if (declared !== '' && declared !== wanted && adoptedRoute !== wanted) {
-      primeMemoryCompatStatus.routeSkipped = 'user-set'
-      primeMemoryCompatStatus.route = undefined
-      return
-    }
-    const chain = planDistillChain({ provider, model }, current)
+    // The user-set guard above already ran against the live section, so this pass
+    // only has to merge our pair into whatever the document carries.
+    const chain = planDistillChain({ provider, model }, chainOf(section.value))
     pending = forms.update(MEMORY_ENTRY_ID, distillChainPatch(chain), section.revision)
       .then(async () => {
         const applied = chainOf(sectionOf(forms)?.value)
@@ -546,6 +607,7 @@ export function installPrimeMemoryCompat(
   }
 
   const replay = (): boolean => {
+    primeMemoryCompatStatus.replays += 1
     void run()
     return true
   }
@@ -583,20 +645,24 @@ export function installPrimeMemoryCompat(
  * @param ctx - this row's context.
  */
 export function apply(ctx: Context): void {
-  // Lazy on purpose: a hard dependency on the provider row would leave this row
-  // pending and block every later row in the same composition.
-  const runtime = ctx.get('modelSwitch', false)
-  if (runtime === undefined) {
-    ctx.logger.warn('model-switch: the prime-memory-compat row is mounted without the modelSwitch service; the distillation route is left untouched')
-    return
-  }
-  const loader = ctx.get('loader', false) as Loader | undefined
-  const routeOf = (): CapabilityRoute | undefined => memoryRouteOf(runtime.currentSettings(), defaultProviderOf(loader))
-  const adapter = installPrimeMemoryCompat(ctx, loader, routeOf)
-  ctx.effect(function* () {
-    yield adapter.dispose
-    yield ctx.on('model-switch/settings-update', () => {
-      if (adapter.replay()) ctx.logger.info('model-switch: re-applied the dsh-prime-memory distillation route after a settings change')
-    })
-  }, 'model-switch: keep the dsh-prime-memory route aligned with the settings')
+  // Optional dependencies on purpose: a hard inject on this row leaves it pending
+  // whenever a provider row is absent, and a pending row blocks every row composed
+  // after it. A scoped ctx.inject waits without blocking the row — and unlike a
+  // bare ctx.get it resolves: a service is visible only inside a scope that
+  // depends on it. Both services are needed: the provider supplies the route, and
+  // the web server is how the plugin's own runtime write path is reached (with a
+  // plain ctx.get the push silently fell back to a document write that the running
+  // plugin only reads on the next start).
+  ctx.inject(['modelSwitch'], (withProvider: Context) => {
+    withProvider.inject(['webServer'], (scope: Context) => scope.effect(() => {
+      const runtime = scope.modelSwitch
+      const loader = scope.get('loader', false) as Loader | undefined
+      const routeOf = (): CapabilityRoute | undefined => memoryRouteOf(runtime.currentSettings(), defaultProviderOf(loader))
+      const adapter = installPrimeMemoryCompat(scope, loader, routeOf)
+      const off = scope.on('model-switch/settings-update', () => {
+        if (adapter.replay()) scope.logger.info('model-switch: re-applied the dsh-prime-memory distillation route after a settings change')
+      })
+      return () => { off(); adapter.dispose() }
+    }, 'model-switch: keep the dsh-prime-memory route aligned with the settings'))
+  })
 }

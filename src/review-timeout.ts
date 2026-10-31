@@ -296,15 +296,14 @@ async function pushHotTimeout(
  *
  * @param ctx - this row's context.
  */
-export function apply(ctx: Context): void {
-  // Lazy on purpose: `inject` cannot express an optional service, and a hard
-  // dependency here turns one missing provider into a permanently pending row
-  // that also blocks everything composed after it.
-  const runtime = ctx.get('modelSwitch', false)
-  if (runtime === undefined) {
-    ctx.logger.warn('model-switch: the review-timeout row is mounted without the modelSwitch service; the timeout is left untouched')
-    return
-  }
+export function apply(outer: Context): void {
+  // Optional dependency: a hard `inject` turns one missing provider into a
+  // permanently pending row that also blocks everything composed after it, while
+  // a bare `ctx.get` never resolves outside a dependent scope. The scoped inject
+  // waits without blocking composition and hands this code a context that can
+  // read the service.
+  outer.inject(['modelSwitch'], (ctx: Context) => {
+    const runtime = ctx.modelSwitch
   const log = ctx.logger
   const execute = async (): Promise<void> => {
     reviewTimeoutStatus.configuredMs = undefined
@@ -380,4 +379,5 @@ export function apply(ctx: Context): void {
     }
     yield ctx.on('model-switch/settings-update', () => { void run() })
   }, 'model-switch: keep the review timeout write aligned with the settings')
+  })
 }

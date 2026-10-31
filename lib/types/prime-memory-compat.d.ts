@@ -31,7 +31,7 @@ import { type DistillChainEntry } from './prime-memory-route.js';
 export declare const name = "model-switch-prime-memory-compat";
 export declare const inject: string[];
 /** Why the adapter stayed out of the way. */
-export type PrimeMemoryRouteSkip = 'user-set' | 'no-route';
+export type PrimeMemoryRouteSkip = 'user-set' | 'no-route' | 'no-row' | 'no-service' | 'no-seam' | 'live-rejected';
 /** Live adapter state, surfaced next to the settings card. */
 export interface PrimeMemoryCompatStatus {
     /** Whether at least one write reached the memory plugin's settings. */
@@ -40,6 +40,8 @@ export interface PrimeMemoryCompatStatus {
     route?: string | undefined;
     /** Why the route was not written, when it was not. */
     routeSkipped?: PrimeMemoryRouteSkip | undefined;
+    /** How many settings-update replays this adapter has run (diagnostics). */
+    replays: number;
 }
 /** The state the settings page reads. */
 export declare const primeMemoryCompatStatus: PrimeMemoryCompatStatus;
@@ -135,6 +137,18 @@ export declare function pushMemoryRoute(ctx: Context, route: {
     provider: string;
     model: string;
 }): Promise<'pushed' | 'absent' | 'rejected'>;
+/**
+ * Read the memory plugin's live settings through the RPC its panel posts to.
+ *
+ * The `settings` forms descriptors are an internal detail of the plugin: on
+ * `dsh-prime-memory@0.26.16` this row could not observe them, which skipped every
+ * push and left the plugin on its own deployment default. Its RPC is the surface
+ * its own panel uses, so reading there keeps the adapter working across plugin
+ * releases — and it is what makes the push idempotent across document reloads.
+ * @param ctx - this row's context; the host web server supplies the port.
+ * @returns The live settings object, or undefined when the seam is unreachable.
+ */
+export declare function readMemoryLive(ctx: Context): Promise<unknown>;
 /**
  * Install the adapter for the whole profile.
  *

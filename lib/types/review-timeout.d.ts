@@ -130,4 +130,4 @@ export declare function findPiAiEntry(loader: Loader | undefined): Entry | undef
  *
  * @param ctx - this row's context.
  */
-export declare function apply(ctx: Context): void;
+export declare function apply(outer: Context): void;
