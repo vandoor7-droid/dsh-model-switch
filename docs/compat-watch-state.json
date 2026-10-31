@@ -1,7 +1,7 @@
 {
   "$schema-note": "Baseline for the scheduled compatibility watch (see docs/dsh-compat-watch.md). `latest` is the npm dist-tag an ordinary install gets.",
   "schema": "dsh-model-switch/compat-watch-state/v1",
-  "checkedAt": "2026-10-30T10:09:00Z",
+  "checkedAt": "2026-10-31T04:49:19.600Z",
   "dsh": {
     "distTagWatched": "latest",
     "latest": "0.2.1-rc.5",
@@ -11,18 +11,9 @@
       "0.1.7-rc.2",
       "0.2.0-rc.2",
       "0.2.1-rc.2",
-      "0.2.1-rc.3"
+      "0.2.1-rc.3",
+      "0.2.1-rc.5"
     ],
-    "pendingVerification": {
-      "version": "0.2.1-rc.5",
-      "staticSurface": "reviewed — cordis 4.0.5 and loader 1.0.6 keep the seams; sub-packages additive only (see docs/dsh-compat-watch.md)",
-      "runtime": "server side verified in the virtual lab (mount without unverified warning, capabilities RPC, 58-entry read-only default, client bundle served)",
-      "untested": [
-        "rc.5 plan card 「去聊天里说」 (needs a plan-mode session; this profile has no plan entry)"
-      ],
-      "why": "no browser lane in that session (Edge exited during startup); rc.5 is therefore NOT declared",
-      "ui": "settings page, model picker, memory card, exemption card (58), reviewed write via 自动审查 verified 2026-10-30 over CDP"
-    },
     "declaredFloor": ">=0.2.0-rc.2"
   },
   "automode": {
@@ -32,5 +23,25 @@
     "adapter": "model-switch-automode-compat (v0.4.42)",
     "lastVerifiedWith": "0.17.0",
     "checkedAtNote": "unchanged since 0.17.0"
+  },
+  "memory": {
+    "package": "dsh-prime-memory",
+    "distTagWatched": "latest",
+    "latestVerified": "0.26.11",
+    "verifiedWith": {
+      "dsh": "0.2.1-rc.3",
+      "dshTag": "dsh-0.2.1-rc.3"
+    },
+    "adapter": "src/prime-memory-compat.ts (0.4.54: clearStaticPin + pinAsFallback)",
+    "observedLatest": "0.26.16",
+    "observedDshTags": {
+      "0.2.1-rc.4": "0.26.15",
+      "0.2.1-rc.5": "0.26.16"
+    },
+    "pendingVerification": "0.26.16 declares engines.dsh 0.2.1-rc.5 support (0.26.15 does not); install it in the rc.5 lab and run the adoption checks on the next patrol",
+    "observedEngines": {
+      "0.26.16": "includes 0.2.1-rc.5",
+      "0.26.15": "stops at 0.2.1-rc.4"
+    }
   }
 }

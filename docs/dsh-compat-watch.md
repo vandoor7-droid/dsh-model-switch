@@ -357,3 +357,23 @@ which `status.reviewTimeout` reported
 So the re-mounted provider really does apply the new idle timeout to the very next review request:
 in B the reviewer's answer was cut off at 5 s instead of landing at 8 s, and the write it was
 guarding never happened. Recorders `D:\dsh-artifacts\probe-to-a.jsonl` and `probe-to-b.jsonl`.
+
+## Patrol scope added 2026-10-31: dsh-prime-memory
+
+The daily watch now covers three packages instead of two. The scheduled prompt was rewritten to
+read `memory.latestVerified` from `docs/compat-watch-state.json`, compare it with both the package's
+`latest` tag **and** its per-DSH tag (`dsh-<current dsh>`), and — only when `engines.dsh` admits the
+current DSH — install the new release in the lab and re-run the adoption checks:
+
+1. the row activates (no `incompatible with dsh …`, no `did not activate` for the memory package);
+2. the adapter's push lands: `<home>/memory/memory.log` logs `[memory] 蒸馏模型路由: <our route>`;
+3. no stale `llm:` static pin is left in the profile patch (`clearStaticPin`, 0.4.54);
+4. `POST /dsh-memory/rpc/settings-set` answers 200 and echoes the pair;
+5. the shipped `effectiveCfg` still resolves our route for the new-pair, legacy-chain and empty
+   settings payloads;
+6. the 「记忆蒸馏模型」 card shows that route.
+
+Measured today with `npm view`: **0.26.16 is the first release whose `engines.dsh` includes
+`0.2.1-rc.5`** (0.26.15 stops at `0.2.1-rc.4`), so it is the version the next run should install.
+Its install was deliberately not attempted in this round — the request was to extend the watch, and
+the baseline records the finding for the next patrol.
