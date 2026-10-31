@@ -191,7 +191,7 @@ DSH Host peer 和开发依赖接受 `>=0.1.7-alpha.2`，包括 rc.1 和后续版
 
 DSH 兼容按「下界 + 区间」声明（`dsh.compatibility.dshRuntime: ">=0.2.0-rc.2"`）：≥ 该下界一律挂载且不再告警，`blocklist` 仍最优先，加载保持 fail-open。`package.json#dsh.compatibility.dshReleases` 里的逐版本记录是证据，不是允许列表。新增验证声明前要审查公开 API 变化并测试新 Host 版本。
 
-**第三方自动模式。** 安装 [`@log.li/dsh-automode`](https://github.com/log-li/dsh-automode) 后，`model-switch-automode-compat` 行会把本插件的自动审查路由与纯读名单注入到该行的**内存配置**里——不写 profile、不需要手工配置。它的 `auto-mode` 档位会用你配置的路由审查、并按你的名单直通纯读工具；`auto` 档位仍然走本插件自己的闸门。该行里显式写过的 `classifier.provider/model` 永远优先，带通配的名单条目无法转过去（它是精确匹配），它的硬 deny 正则也照旧先跑。
+**第三方自动模式（0.4.59 起不再支持）。** 本插件曾把自动审查路由与纯读名单注入 [`@log.li/dsh-automode`](https://github.com/log-li/dsh-automode) 的内存配置；该适配已冻结并从 `cordis.patch.yml` 移除，源码标注 `@deprecated`，下个大版本删除。该插件被禁用或卸载均属预期，profile 里也不应再出现 `auto-mode` 预设；`auto` 档位由 `@deepseek-ai/dsh-experimental-auto-review` 提供，与本插件无关。
 
 ## 开发
 

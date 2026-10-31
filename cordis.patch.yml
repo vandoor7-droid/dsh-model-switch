@@ -74,12 +74,8 @@
     - id: model-switch-session-title
       name: 'dsh-model-switch/session-title'
 
-    # Inject this plugin's Auto-review route and pure-read list into the
-    # third-party @log.li/dsh-automode row's in-memory config (no profile write,
-    # no-op when that plugin is not installed). Kept as its own row so it can be
-    # disabled without touching the reviewer gate.
-    - id: model-switch-automode-compat
-      name: 'dsh-model-switch/automode-compat'
+    # 2026-10-31 冻结：automode 适配行已移除，本插件不再支持 @log.li/dsh-automode。
+    # 源码保留一个版本（src/automode-compat.ts 标注 deprecated），下个大版本删除。
 
     # Fill the third-party dsh-prime-memory row's distillation route from this
     # plugin's provider-group route, in memory only (no profile write, no-op when

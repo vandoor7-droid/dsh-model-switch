@@ -1,6 +1,10 @@
 /**
  * Adapt the third-party `@log.li/dsh-automode` row to this plugin's routes.
  *
+ * @deprecated 2026-10-31 冻结：本插件不再支持 `@log.li/dsh-automode`，
+ * `model-switch-automode-compat` 行已从 `cordis.patch.yml` 移除，本模块不再被挂载。
+ * 保留源码仅为可回退，下个大版本删除；不再修 bug、不再适配新版本。
+ *
  * ## Why this exists
  *
  * `dsh-automode` owns a completely different decision pipeline: its own

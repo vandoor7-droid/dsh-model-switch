@@ -1,3 +1,11 @@
+## v0.4.59
+
+冻结自动模式支持（按用户 2026-10-31 要求）。
+
+- **不再支持 `@log.li/dsh-automode`**。`cordis.patch.yml` 里 `model-switch-automode-compat` 的 insert 行已删除，运行时不再挂载；`src/automode-compat.ts` 标注 `@deprecated`，源码保留一个版本用于回退，下个大版本删除。该第三方插件被禁用/卸载均属预期，本插件不再为其注入审查路由与纯读名单。
+- **背景**：该适配会改写第三方行的内存配置，但 profile 补丁若整键重写 `permission.presets`，bundle 提供的 `auto-mode` 预设会被盖掉而插件仍工作——这类跨插件耦合已判定不再维护。
+- 现有 `auto` 档位不受影响（由 `@deepseek-ai/dsh-experimental-auto-review` 注册，与本插件无关）。
+
 ## v0.4.58
 
 修复两处配置层问题：已删除供应商的配置组现在可以选中并删除；Auto mode 预设缺失时可以在状态和日志里直接看到。
