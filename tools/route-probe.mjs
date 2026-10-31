@@ -156,8 +156,9 @@ const server = createServer(async (request, response) => {
     record({ path: url.pathname, model, stream, tool: replyTool, preset: replyPreset, authPresent: request.headers.authorization !== undefined, port })
     // `--hang <ms>` opens nothing for that long: a provider profile with a short
     // `streamIdleTimeoutMs` must abort here, which is how the review-timeout write
-    // is verified end to end.
-    const hangMs = Number(flag('hang', '0'))
+    // is verified end to end. A map entry may override it per model, so the main
+    // model can answer immediately while only the reviewer stalls.
+    const hangMs = Number(pinned?.hang ?? flag('hang', '0'))
     if (Number.isFinite(hangMs) && hangMs > 0) await new Promise((resolve) => setTimeout(resolve, hangMs))
     if (stream) {
       response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })

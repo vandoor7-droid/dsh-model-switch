@@ -422,3 +422,4 @@ So automode v0.17.0 **does** consult the classifier for this class, it uses the 
 plugin injects, and its verdict governs the call. Recorders `D:\dsh-artifacts\probe-am4.jsonl`
 and `probe-am5.jsonl`; automode's own `decisions.jsonl` still records only boot rows, so the
 recorder is what proves the consultation.
+| Auto-review timeout hot-apply (0.4.53) | **yes** | 2026-10-31 lab: with the reviewer stalling 8 s, the default timeout lets the write through at +8.1 s; after saving 5 ms the next review is cut at +5.1 s and the guarded write never happens (`status.reviewTimeout.hotApplied` = all three providers) |

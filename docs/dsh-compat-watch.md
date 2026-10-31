@@ -325,3 +325,35 @@ on ("Plan mode on. Use /plan off to leave."), and then:
 
 Screenshot: `D:\dsh-artifacts\ui-plan-card.png`. Together with the six earlier checks, every rc.5
 interface item is now verified at runtime.
+
+## 2026-10-31: the hot-applied review timeout, proven at request level
+
+v0.4.53 wrote the value into the reviewer provider's `streamIdleTimeoutMs` and re-mounted that row
+through `Fiber.update(config, noSave)`, but only the write itself had been observed — not a request
+that used the new value. This closes that gap (virtual / zero real quota, lab `D:\dsh-lab` port 3082,
+`D:\tmp\cdp.mjs` driving a headless Edge).
+
+`tools/route-probe.mjs` now accepts a per-model `hang` in `--map`, so the main model answers
+immediately while only the reviewer stalls for 8 s:
+
+```bash
+node tools/route-probe.mjs --port 4719 --hang 0 \
+  --map '{"gpt-6.1-sol":{"tool":"write","once":true,"args":{...}},"mimo-v2.6-flash":{"preset":"classifier-allow","hang":8000}}'
+```
+
+| run | review timeout | recorder | turn | file |
+| --- | --- | --- | --- | --- |
+| A | default (300 s) | `gpt-6.1-sol(tool=write)` → `mimo-v2.6-flash` → `gpt-6.1-sol` at **+8.1 s** | 已完成 8 秒 | written |
+| B | 5 s, just saved | same three rows, last one at **+5.1 s** | 已完成 5 秒 | **not written** |
+
+Between the runs only one thing happened: the settings card was set to `5` (ms) and saved, after
+which `status.reviewTimeout` reported
+
+```json
+{"configuredMs":5000,"applied":["apigoto","ark","xiaomi-token-plan-cn"],
+ "hotApplied":["apigoto","ark","xiaomi-token-plan-cn"],"hot":"applied"}
+```
+
+So the re-mounted provider really does apply the new idle timeout to the very next review request:
+in B the reviewer's answer was cut off at 5 s instead of landing at 8 s, and the write it was
+guarding never happened. Recorders `D:\dsh-artifacts\probe-to-a.jsonl` and `probe-to-b.jsonl`.
