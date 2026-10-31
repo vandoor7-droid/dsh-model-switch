@@ -85,9 +85,7 @@ export declare function mountWithStartupFallback<T>(candidate: (track: StartupCl
  */
 export declare function routedRuntimeUnavailableNotice(error: StartupIncompatibilityError): string;
 /** Profile replacement that selects the routed runtime or the untouched official runtime. */
-export declare const profileSubagentRuntime: ((ctx: Context) => Promise<() => Promise<void>>) & {
-    inject: string[];
-};
+export declare const profileSubagentRuntime: (ctx: Context) => Promise<() => Promise<void>>;
 /** Official runtime with only a pre-descriptor route-selection adapter. */
 export declare class ModelSwitchSubagentRuntime extends OfficialSubagentRuntime {
     static inject: string[];

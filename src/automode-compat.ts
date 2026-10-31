@@ -45,7 +45,7 @@ import { DEFAULT_READ_ONLY_TOOLS } from './tool-allowlist.js'
 export const name = 'model-switch-automode-compat'
 
 /** The loader is the only seam this row needs besides this plugin's settings. */
-export const inject = ['loader', 'modelSwitch']
+export const inject = ['loader']
 
 /** Third-party package this row adapts (strict package identity, never a prefix). */
 export const AUTOMODE_PACKAGE = '@log.li/dsh-automode'
@@ -410,8 +410,15 @@ export function installAutomodeCompat(
  * @param ctx - this row's context.
  */
 export function apply(ctx: Context): void {
+  // Lazy on purpose: see review-timeout.ts — a hard dependency would make this
+  // row (and every row composed after it) pend forever when the provider is absent.
+  const runtime = ctx.get('modelSwitch', false)
+  if (runtime === undefined) {
+    ctx.logger.warn('model-switch: the automode-compat row is mounted without the modelSwitch service; the classifier route is left untouched')
+    return
+  }
   const loader = ctx.get('loader', false) as Loader | undefined
-  const settings = () => ctx.modelSwitch.currentSettings()
+  const settings = () => runtime.currentSettings()
   const adapter = installAutomodeCompat(ctx, loader, settings)
   ctx.effect(function* () {
     yield adapter.dispose

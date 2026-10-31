@@ -161,7 +161,7 @@ function assertOfficialRuntimeSurface(): SubagentSurfaceLine {
 }
 
 function assertRoutingSurface(ctx: Context): void {
-  const modelSwitch = (ctx as ProfileContext).modelSwitch
+  const modelSwitch = ctx.get('modelSwitch', false)
   assertPublicMethod(modelSwitch, 'Model Switch runtime', 'currentSettings')
 }
 
@@ -278,6 +278,14 @@ function reportNotice(ctx: Context, message: string): void {
 }
 
 async function mountProfileRuntime(ctx: Context): Promise<() => Promise<void>> {
+  // Lazy on purpose: a hard dependency on the provider row would leave this row
+  // pending and block every later row in the same composition. Without the
+  // provider route there is nothing to override, so the official runtime mounts.
+  if (ctx.get('modelSwitch', false) === undefined) {
+    reportNotice(ctx, 'model-switch: the subagent runtime row is mounted without the modelSwitch service; subagent calls keep the official route')
+    const official = ctx.plugin(OfficialSubagentRuntime)
+    return async () => { await official.dispose() }
+  }
   const mounted = await mountWithStartupFallback(
     async track => {
       try {
@@ -311,7 +319,7 @@ async function mountProfileRuntime(ctx: Context): Promise<() => Promise<void>> {
 /** Profile replacement that selects the routed runtime or the untouched official runtime. */
 export const profileSubagentRuntime = Object.assign(
   async (ctx: Context): Promise<() => Promise<void>> => mountProfileRuntime(ctx),
-  { inject: ['modelSwitch'] },
+  {},
 )
 
 /** Official runtime with only a pre-descriptor route-selection adapter. */

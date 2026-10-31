@@ -55,13 +55,16 @@ function bench(options: { startedBundles?: string[] | undefined; auto?: boolean;
 }
 
 describe('auto-review plugin identity', () => {
-  it('declares only the services this row reads itself', () => {
+  it('requires only the services this row cannot work without', () => {
     expect(name).toBe('model-switch-auto-review')
     // The official gate's own dependency list (including 0.2.1's
     // `workingDirectory`) is resolved by cordis when the gate is mounted as a
     // plugin; mirroring it here is what broke every tool call on 0.2.1. The
     // loader drives the official-row takeover.
-    expect(inject).toEqual(['llm', 'modelSwitch', 'loader'])
+    // `modelSwitch` is read lazily on purpose: cordis has no optional-inject form,
+    // and a hard dependency leaves this row pending (and blocks every row after
+    // it) when the provider row is absent or was disposed.
+    expect(inject).toEqual(['llm', 'loader'])
   })
 })
 

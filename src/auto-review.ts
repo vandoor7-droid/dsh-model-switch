@@ -70,7 +70,7 @@ export const name = 'model-switch-auto-review'
  * and this row declares only what it reads itself (`loader` drives the
  * takeover).
  */
-export const inject = ['llm', 'modelSwitch', 'loader']
+export const inject = ['llm', 'loader']
 
 /** Optional bundle whose composition opts a profile into Auto review. */
 const AUTO_REVIEW_BUNDLE = '@deepseek-ai/dsh-experimental-auto-review'
@@ -177,7 +177,7 @@ export function reviewLlm(real: ReviewLlm, route: () => AutoReviewRoute | undefi
 export function resolveSessionAutoReviewRoute(ctx: Context, session?: Session): AutoReviewRoute | undefined {
   let settings: ModelSwitchSettings | undefined
   try {
-    settings = ctx.modelSwitch.currentSettings()
+    settings = ctx.get('modelSwitch', false)?.currentSettings()
   } catch {
     settings = undefined
   }
@@ -586,6 +586,14 @@ let lastGateFiber: GateFiber | undefined
  * synchronous.
  */
 export async function apply(ctx: Context): Promise<void> {
+  // `modelSwitch` is read lazily rather than declared in `inject`: a missing
+  // provider must degrade this row to "not mounted", never strand the whole
+  // host in `pending (waiting for service: modelSwitch)` — that state also
+  // blocks every later row that would have followed it in the composition.
+  if (ctx.get('modelSwitch', false) === undefined) {
+    ctx.logger.warn('model-switch: the auto-review row is mounted without the modelSwitch service; the reviewer route override stays unmounted and the official gate keeps the seam')
+    return
+  }
   if (!autoReviewBundleActive(ctx)) {
     ctx.logger.info('model-switch: auto-review bundle is not active in this profile; the reviewer route override stays unmounted')
     return
@@ -610,7 +618,7 @@ export async function apply(ctx: Context): Promise<void> {
   const skipReadOnly = (tool: string): boolean => {
     let settings: ModelSwitchSettings | undefined
     try {
-      settings = ctx.modelSwitch.currentSettings()
+      settings = ctx.get('modelSwitch', false)?.currentSettings()
     } catch {
       return false
     }

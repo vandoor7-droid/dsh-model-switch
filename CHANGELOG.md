@@ -1,3 +1,14 @@
+## v0.4.56
+
+修复插件在真实 DSH 上“启用失败”的死锁：依赖行不再因缺少 `modelSwitch` 服务而永久 pending。
+
+- **主行不再被安装阶段拖垃**：`ModelSwitchRuntime` 在 `super(ctx, 'modelSwitch')` 之后的所有安装动作包进 try/catch；任一安装器（capabilities RPC、搜索适配、preset 桥接等）抛错时只记录日志，服务继续存在。之前该异常会让 fiber 失败并被回收，连带 `modelSwitch` 消失。
+- **依赖行改为懒依赖**：`model-switch-auto-review`、`review-timeout`、`automode-compat`、`prime-memory-compat`、`subagent-runtime` 不再把 `modelSwitch` 写进静态 `inject`；服务缺席时行仍能挂载，只 warn 一次并退出（子代理行回落到官方路由）。
+  原因：Cordis 的 `inject` 无法表达可选依赖，硬依赖会让该行永远停在 `pending (waiting for service: modelSwitch)`，并且**阻塞同一组成中后续所有行**。
+- **诊断性**：每个降级路径都会打一条带行名的 warn，下次可直接从日志看出是哪一个服务、哪一行。
+
+已验：本机 lab（DSH 0.2.1-rc.5、virtual）三种挂载组合均能启动；未在真实桌面上验证本版修复（需用户重试启用）。
+
 ## v0.4.55
 
 声明兼容 DSH `0.2.1-rc.5`（该版本进入 `dsh.compatibility.dshReleases`，运行时下限仍是 `>=0.2.0-rc.2`，不设上界）。

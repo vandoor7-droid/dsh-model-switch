@@ -37,28 +37,37 @@ export class ModelSwitchRuntime extends Service {
   constructor(ctx: Context, entry: ModelSwitchSettingsConfig) {
     super(ctx, 'modelSwitch')
     this.source = () => readConfig(entry)
-    ctx.inject(['settings'], scope => scope.effect(
-      () => scope.settings.configure({ auto: false }, ctx.fiber),
-      'Model Switch: disable automatic settings form',
-    ))
-    if (!allowDshRuntime(ctx.logger, 'dsh-model-switch', ['@deepseek-ai/dsh-agent'])) return
-    installDeepSeekSearchAdapter(ctx)
-    installModelSwitchSearchProvider(ctx, this)
-    installCapabilitiesRpc(ctx, this.adapters, () => this.capabilities)
-    const imageTool = installGenerateImageTool(ctx, this)
-    ctx.on('loader/volatile-update', () => {
-      void imageTool.reconcile().catch(error => {
-        ctx.logger.error('Model Switch: failed to regenerate generate_image schema')
-        ctx.logger.error(error)
+    // Everything after the service registration is best-effort: a throwing
+    // installer must not fail the row, because a failed row is disposed and its
+    // `modelSwitch` service goes with it — every dependent row then sits in
+    // `pending (waiting for service: modelSwitch)` forever instead of booting.
+    try {
+      ctx.inject(['settings'], scope => scope.effect(
+        () => scope.settings.configure({ auto: false }, ctx.fiber),
+        'Model Switch: disable automatic settings form',
+      ))
+      if (!allowDshRuntime(ctx.logger, 'dsh-model-switch', ['@deepseek-ai/dsh-agent'])) return
+      installDeepSeekSearchAdapter(ctx)
+      installModelSwitchSearchProvider(ctx, this)
+      installCapabilitiesRpc(ctx, this.adapters, () => this.capabilities)
+      const imageTool = installGenerateImageTool(ctx, this)
+      ctx.on('loader/volatile-update', () => {
+        void imageTool.reconcile().catch(error => {
+          ctx.logger.error('Model Switch: failed to regenerate generate_image schema')
+          ctx.logger.error(error)
+        })
+        ctx.emit('model-switch/settings-update')
       })
       ctx.emit('model-switch/settings-update')
-    })
-    ctx.emit('model-switch/settings-update')
-    void bridgeAgentPresets(ctx)
-      .then(bridged => {
-        if (bridged.length > 0) ctx.logger.info(`model-switch: bridged agent preset compaction rows (${bridged.join(', ')})`)
-      })
-      .catch(error => ctx.logger.warn(`model-switch: agent preset bridge failed: ${String(error)}`))
+      void bridgeAgentPresets(ctx)
+        .then(bridged => {
+          if (bridged.length > 0) ctx.logger.info(`model-switch: bridged agent preset compaction rows (${bridged.join(', ')})`)
+        })
+        .catch(error => ctx.logger.warn(`model-switch: agent preset bridge failed: ${String(error)}`))
+    } catch (error) {
+      ctx.logger.error('Model Switch: the host runtime could not finish installing; the modelSwitch service stays registered so dependent rows keep loading')
+      ctx.logger.error(error)
+    }
   }
 
   currentSettings(): ModelSwitchSettings { return { ...this.source() } }

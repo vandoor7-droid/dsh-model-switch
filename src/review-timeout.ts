@@ -39,7 +39,7 @@ import { UPSTREAM_MAX_IDLE_TIMEOUT_MS } from './client-contract.js'
 export const name = 'model-switch-review-timeout'
 
 /** This row needs the Host's settings service (for `documentPath` and our ns). */
-export const inject = ['settings', 'modelSwitch']
+export const inject = ['settings']
 
 /** The pi-ai row whose provider profiles carry `streamIdleTimeoutMs`. */
 export const PI_AI_ROW = 'llm-pi-ai'
@@ -297,6 +297,14 @@ async function pushHotTimeout(
  * @param ctx - this row's context.
  */
 export function apply(ctx: Context): void {
+  // Lazy on purpose: `inject` cannot express an optional service, and a hard
+  // dependency here turns one missing provider into a permanently pending row
+  // that also blocks everything composed after it.
+  const runtime = ctx.get('modelSwitch', false)
+  if (runtime === undefined) {
+    ctx.logger.warn('model-switch: the review-timeout row is mounted without the modelSwitch service; the timeout is left untouched')
+    return
+  }
   const log = ctx.logger
   const execute = async (): Promise<void> => {
     reviewTimeoutStatus.configuredMs = undefined
@@ -305,7 +313,7 @@ export function apply(ctx: Context): void {
     reviewTimeoutStatus.hotApplied = []
     reviewTimeoutStatus.hot = undefined
     reviewTimeoutStatus.hotReason = undefined
-    const settings = ctx.modelSwitch.currentSettings()
+    const settings = runtime.currentSettings()
     const plan = planReviewTimeout(settings)
     reviewTimeoutStatus.configuredMs = settings.autoReviewTimeoutMs
     if (plan.providers.length === 0) return

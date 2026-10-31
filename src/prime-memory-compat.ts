@@ -31,7 +31,7 @@ import { distillChainPatch, isPrimeMemoryRow, planDistillChain, type DistillChai
 
 /** Row name and dependencies, mirroring the sibling adapter row. */
 export const name = 'model-switch-prime-memory-compat'
-export const inject = ['loader', 'modelSwitch', 'settings']
+export const inject = ['loader', 'settings']
 
 /** The loader row id prime-memory is composed under (fixed by its bundle patch). */
 const MEMORY_ENTRY_ID = 'dsh-memory'
@@ -583,8 +583,15 @@ export function installPrimeMemoryCompat(
  * @param ctx - this row's context.
  */
 export function apply(ctx: Context): void {
+  // Lazy on purpose: a hard dependency on the provider row would leave this row
+  // pending and block every later row in the same composition.
+  const runtime = ctx.get('modelSwitch', false)
+  if (runtime === undefined) {
+    ctx.logger.warn('model-switch: the prime-memory-compat row is mounted without the modelSwitch service; the distillation route is left untouched')
+    return
+  }
   const loader = ctx.get('loader', false) as Loader | undefined
-  const routeOf = (): CapabilityRoute | undefined => memoryRouteOf(ctx.modelSwitch.currentSettings(), defaultProviderOf(loader))
+  const routeOf = (): CapabilityRoute | undefined => memoryRouteOf(runtime.currentSettings(), defaultProviderOf(loader))
   const adapter = installPrimeMemoryCompat(ctx, loader, routeOf)
   ctx.effect(function* () {
     yield adapter.dispose
