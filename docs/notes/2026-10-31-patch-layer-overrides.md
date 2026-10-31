@@ -42,3 +42,22 @@ for (const [key, value] of Object.entries(overrides)) {
 排查此类问题最快的方式是用 lab profile 跑一次
 `dsh --profile <name> --dump-config`，直接看最终组合出的那一段
 （桌面 profile 被 Electron 独占时该命令会拒绝执行，需要在 lab 里复现同样的层叠）。
+
+## 运行期改这一行会把服务改没（2026-10-31 观察）
+
+补充一条与上面无关、但同一条 `permission` 行上的运行期现象：
+
+- 在**已经运行**的宿主里改动 profile 的 `permission` 行（改 `config`、删掉整行、甚至补上
+  显式 `name` 强制重新挂载），热重载后可能出现：
+  `gateway/service-unavailable: typert gateway: permissionPresets/catalog:
+  active Service "permissionPresets" is unavailable`
+  ——设置界面「通用设置 → 权限」显示「不可用」，对话界面的权限选择器整块消失。
+- 把行改回原样、把四个预设补全、加 `name:` 触发重挂载，都**没能**让服务恢复；
+  同一份配置在 lab 冷启动则正常。也就是说运行期的这一行一旦失败，重载不会把它救回来。
+- 处置：保证 profile 补丁里这一行是最终想要的形态（四个预设 + `defaultPreset`），
+  然后**重启宿主**让它从冷启动重新组合；重启后再看「通用设置 → 权限」是否列出四个模式。
+- 冷启动仍失败时，下一步要看宿主启动日志里该行的 apply 异常（例如
+  `permission: the mounted bash executor does not confine` /
+  `permission: composed sandbox and approval defaults match no preset`），
+  这两条都来自 `@deepseek-ai/dsh-permission-presets` 构造期校验。
+
