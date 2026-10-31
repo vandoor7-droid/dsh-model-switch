@@ -10,7 +10,7 @@ import type { RuntimeCapabilities } from '../runtime-capabilities.js'
 import { searchGroupsFromCapabilities, type CapabilitiesSnapshot } from './search-capabilities.js'
 import type { ModelSwitchLocaleKey } from './locales.js'
 import { isAgentRole, matchCatalogModel } from './antigravity-catalog.ts'
-import { deriveRouteChoices, selectRouteModel, useSettingsCatalog, type Choice, type RouteModelSelection } from './main-row-controller.js'
+import { deriveRouteChoices, groupProviderChoices as groupProviderOptions, selectRouteModel, useSettingsCatalog, type Choice, type RouteModelSelection } from './main-row-controller.js'
 import css from './ModelSwitchSettings.module.css'
 import type { ConfigViewForm, ConfigViewOp } from './derived-config-form.js'
 
@@ -592,8 +592,8 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const titleDisabled = sessionTitle.status !== 'ready' || !sessionTitle.writable || titleDraft === undefined || busy !== undefined || !titleOn || (titleDraft.provider ?? '').trim() === '' || (titleDraft.model ?? '').trim() === ''
   const configuredGroupCount = Object.keys(providerGroups).length
   const groupControlsDisabled = busy !== undefined || switchSettings.status !== 'ready' || !switchSettings.writable
-  const groupProviderChoices = deriveRouteChoices(groups, groupProvider === '' ? undefined : { provider: groupProvider })
-    .providers.map(choice => groupOf(providerGroups, choice.id) === undefined ? choice : { ...choice, name: choice.name + ' ✓' })
+  const groupProviderChoices = groupProviderOptions(groups, Object.keys(providerGroups), groupProvider === '' ? undefined : groupProvider)
+    .map(choice => groupOf(providerGroups, choice.id) === undefined ? choice : { ...choice, name: choice.name + ' ✓' })
   const groupCompaction = groupDraft === undefined ? undefined : draftPair(groupDraft.compactProvider, groupDraft.compactModel)
   const groupAutoReview = groupDraft === undefined ? undefined : draftPair(groupDraft.autoReviewProvider, groupDraft.autoReviewModel)
   const groupTitle = groupDraft === undefined ? undefined : draftPair(groupDraft.titleProvider, groupDraft.titleModel)

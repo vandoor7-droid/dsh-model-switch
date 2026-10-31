@@ -1,11 +1,35 @@
 import { describe, expect, it } from 'vitest'
-import { deriveRouteChoices, selectRouteModel } from '../src/client/main-row-controller.js'
+import { deriveRouteChoices, groupProviderChoices, selectRouteModel } from '../src/client/main-row-controller.js'
 
 describe('Model Switch Settings route helpers', () => {
   const groups = [{ id: 'codex', name: 'Codex', models: [
     { id: 'gpt-a', name: 'GPT A', reasoning: { efforts: [{ id: 'low', name: 'Low' }], defaultEffort: 'low' } },
     { id: 'gpt-b', name: 'GPT B' },
   ] }]
+  it('appends configured providers missing from the catalog, so their groups stay reachable', () => {
+    expect(groupProviderChoices(groups, ['codex', 'retired'], 'codex')).toEqual([
+      { id: 'codex', name: 'Codex' },
+      { id: 'retired', name: 'retired', unavailable: true },
+    ])
+  })
+  it('lists the edited provider even before it has a group, without duplicating it', () => {
+    expect(groupProviderChoices(groups, [], 'gone')).toEqual([
+      { id: 'codex', name: 'Codex' },
+      { id: 'gone', name: 'gone', unavailable: true },
+    ])
+    expect(groupProviderChoices(groups, ['gone'], 'gone')).toEqual([
+      { id: 'codex', name: 'Codex' },
+      { id: 'gone', name: 'gone', unavailable: true },
+    ])
+  })
+  it('ignores blank provider ids and keeps catalog order first', () => {
+    const catalog = [{ id: 'b', name: 'B', models: [] }, { id: 'a', name: 'A', models: [] }]
+    expect(groupProviderChoices(catalog, ['', '  ', 'z', 'b'], undefined)).toEqual([
+      { id: 'b', name: 'B' },
+      { id: 'a', name: 'A' },
+      { id: 'z', name: 'z', unavailable: true },
+    ])
+  })
   it('keeps an unavailable stored route visible while deriving choices', () => {
     expect(deriveRouteChoices(groups, { provider: 'missing', model: 'remember' }, ['codex'])).toEqual({
       providers: [{ id: 'codex', name: 'Codex' }, { id: 'missing', name: 'missing', unavailable: true }],

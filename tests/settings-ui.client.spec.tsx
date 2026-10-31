@@ -21,6 +21,16 @@ const catalogState = {
 
 vi.mock('../src/client/main-row-controller.js', () => ({
   deriveRouteChoices: () => ({ providers: [{ id: 'codex', name: 'Codex' }], models: [{ id: 'gpt-subagent', name: 'GPT Subagent' }] }),
+  groupProviderChoices: (groups: readonly { id: string; name: string }[], configured: readonly string[], current: string | undefined) => {
+    const choices: { id: string; name: string; unavailable?: true }[] = groups.map(group => ({ id: group.id, name: group.name }))
+    const seen = new Set(choices.map(choice => choice.id))
+    for (const provider of [...(current === undefined || current === '' ? [] : [current]), ...configured]) {
+      if (provider.trim() === '' || seen.has(provider)) continue
+      seen.add(provider)
+      choices.push({ id: provider, name: provider, unavailable: true })
+    }
+    return choices
+  },
   selectRouteModel: () => ({ provider: 'codex', model: 'gpt-subagent' }),
   useSettingsCatalog: () => ({
     groups: catalogState.emptyCatalog ? [] : catalogState.groups,

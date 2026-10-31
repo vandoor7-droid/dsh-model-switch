@@ -6,6 +6,7 @@ import {
   describeAutomodePlan,
   installAutomodeCompat,
   isAutomodeEntry,
+  permissionPresetState,
   planAutomodeCompat,
 } from '../src/automode-compat.ts'
 import type { ModelSwitchSettings } from '../src/host-settings.ts'
@@ -203,5 +204,35 @@ describe('installAutomodeCompat', () => {
     await settle()
     expect(automodeCompatStatus.hot).toBe('restart-required')
     expect(automodeCompatStatus.hotReason).toBe('vetoed')
+  })
+})
+
+describe('permission preset diagnosis', () => {
+  const permissionEntry = (presets: Record<string, unknown> | undefined) => ({
+    options: { id: 'permission', name: '@deepseek-ai/dsh-permission-presets', config: presets === undefined ? {} : { presets } },
+  })
+  const automodeRow = () => ({ options: { id: 'auto-mode', name: AUTOMODE_PACKAGE, config: {} }, update: vi.fn() })
+  const loader = (entries: readonly unknown[]) => ({ entries: () => entries })
+
+  it('reports present when the composed permission row lists auto-mode', () => {
+    expect(permissionPresetState(loader([permissionEntry({ 'auto-mode': { sandbox: 'workspace-write' } })]) as never)).toBe('present')
+  })
+
+  it('reports missing when a restated preset map dropped auto-mode', () => {
+    expect(permissionPresetState(loader([permissionEntry({ 'read-only': {}, 'workspace-write': {} })]) as never)).toBe('missing')
+  })
+
+  it('stays unknown when the row, its config or its presets cannot be read', () => {
+    expect(permissionPresetState(undefined)).toBe('unknown')
+    expect(permissionPresetState(loader([]) as never)).toBe('unknown')
+    expect(permissionPresetState(loader([permissionEntry(undefined)]) as never)).toBe('unknown')
+    expect(permissionPresetState({ entries: () => { throw new Error('boom') } } as never)).toBe('unknown')
+  })
+
+  it('warns once when the automode row is mounted without its preset', () => {
+    const ctx = { logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, on: vi.fn(() => () => {}) }
+    installAutomodeCompat(ctx as never, loader([automodeRow(), permissionEntry({ 'read-only': {} })]) as never, () => settings())
+    expect(automodeCompatView()?.preset).toBe('missing')
+    expect(ctx.logger.warn.mock.calls.filter(([line]) => String(line).includes('no "auto-mode" preset'))).toHaveLength(1)
   })
 })

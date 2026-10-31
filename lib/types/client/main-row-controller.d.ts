@@ -18,6 +18,20 @@ export declare function deriveRouteChoices(groups: readonly ModelProviderGroup[]
     providers: Choice[];
     models: Choice[];
 };
+/**
+ * Provider choices for the provider-group editor.
+ *
+ * The live catalog cannot represent a group whose provider was deleted, so a
+ * catalog-only list makes that group unreachable: the row stays stored, no
+ * selection can open it, and nothing can delete it. Union in every configured
+ * group's provider and mark the missing ones unavailable so the editor can still
+ * open and remove them.
+ * @param groups - the live model catalog.
+ * @param configured - provider ids that still have a stored group.
+ * @param current - the group being edited, kept listed even when it is unknown.
+ * @returns catalog choices first (original order), then the missing providers.
+ */
+export declare function groupProviderChoices(groups: readonly ModelProviderGroup[], configured: readonly string[], current: string | undefined): Choice[];
 export interface SettingsCatalogInputs {
     loadCatalog(): Promise<readonly ModelProviderGroup[]>;
     subscribeProviderOrder?: (listener: () => void) => () => void;

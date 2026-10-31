@@ -20,6 +20,30 @@ export function deriveRouteChoices(groups: readonly ModelProviderGroup[], route:
   if (route?.model !== undefined && !models.some(option => option.id === route.model)) models.push({ id: route.model, name: route.model, unavailable: true })
   return { providers, models }
 }
+/**
+ * Provider choices for the provider-group editor.
+ *
+ * The live catalog cannot represent a group whose provider was deleted, so a
+ * catalog-only list makes that group unreachable: the row stays stored, no
+ * selection can open it, and nothing can delete it. Union in every configured
+ * group's provider and mark the missing ones unavailable so the editor can still
+ * open and remove them.
+ * @param groups - the live model catalog.
+ * @param configured - provider ids that still have a stored group.
+ * @param current - the group being edited, kept listed even when it is unknown.
+ * @returns catalog choices first (original order), then the missing providers.
+ */
+export function groupProviderChoices(groups: readonly ModelProviderGroup[], configured: readonly string[], current: string | undefined): Choice[] {
+  const route = current === undefined || current.trim() === '' ? undefined : { provider: current }
+  const choices = deriveRouteChoices(groups, route).providers
+  const seen = new Set(choices.map(choice => choice.id))
+  for (const provider of configured) {
+    if (provider.trim() === '' || seen.has(provider)) continue
+    seen.add(provider)
+    choices.push({ id: provider, name: provider, unavailable: true })
+  }
+  return choices
+}
 
 export interface SettingsCatalogInputs {
   loadCatalog(): Promise<readonly ModelProviderGroup[]>

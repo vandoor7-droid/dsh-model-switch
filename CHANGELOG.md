@@ -1,3 +1,13 @@
+## v0.4.58
+
+修复两处配置层问题：已删除供应商的配置组现在可以选中并删除；Auto mode 预设缺失时可以在状态和日志里直接看到。
+
+- **供应商配置组：已删除供应商的组不再"消失"**。`src/client/main-row-controller.ts` 新增 `groupProviderChoices`，把「实时模型目录」与「仍然存有配置组的供应商」取并集，目录里不存在的标 `unavailable`（下拉中显示 ⚠）。此前下拉只列目录供应商，除当前选中的那一个之外，其它孤儿组永远无法选中，自然也就删不掉——这正是"供应商删了、组还在、清不掉"的成因。删除仍走原有 `saveProviderGroupFenced → withProviderGroup`，没有新增存储路径。
+- **Auto mode 缺失可诊断**。`automode-compat` 读取组合后的 `permission` 行，检查 `config.presets['auto-mode']`，在 `status.automode` 中给出 `preset: present | missing | unknown`；缺失时打一条 warn（每宿主一次），说明 profile 补丁重写了 `permission.presets`、把 bundle 的 auto-mode 预设盖掉了。
+- **文档**：新增 `docs/notes/2026-10-31-patch-layer-overrides.md`，记录 DSH 补丁层是**整键替换**（`target[key] = value`）而非深合并，以及 Auto mode 预设应该写在哪一层。
+
+验证（virtual / 零真实额度）：DSH 0.2.1-rc.5 lab 中造一个目录里不存在的 `ghost-provider` 组，设置页下拉可选中（带 ⚠），点「删除该组」后组数 4→3，且 profile 补丁里该组已消失；Auto mode 预设的有/无两态也在 lab 复现（删掉 `permission` 行后预设随 bundle 恢复并出现在权限选择器，改默认权限时新行会自动带上 4 个预设）。`pnpm run check` 全绿。
+
 ## v0.4.57
 
 修复可选服务取用方式与记忆路由写入校验：0.4.56 的代理行在真实宿主上都静默停用，记忆蒸馏路由因此没有写进插件。

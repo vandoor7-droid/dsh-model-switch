@@ -98,6 +98,42 @@ export const automodeCompatStatus = {
   hot: undefined as 'applied' | 'restart-required' | undefined,
   /** Why the last hot reload did not take, when it did not. */
   hotReason: undefined as string | undefined,
+  /**
+   * Whether the Host's `permission` row still carries the `auto-mode` preset the
+   * third-party bundle patch inserts. A profile patch that restates
+   * `permission.presets` replaces that whole config key, so the row keeps working
+   * while the preset silently disappears from the permission picker.
+   */
+  preset: undefined as AutomodePresetState | undefined,
+}
+
+/** Where the `auto-mode` permission preset stands in the composed config. */
+export type AutomodePresetState = 'present' | 'missing' | 'unknown'
+
+/**
+ * Read the composed `permission` row and look for the `auto-mode` preset.
+ *
+ * @param loader - the Host loader, when this row can read it.
+ * @returns `missing` only when the row's `presets` map is readable and lacks the
+ * key; anything this adapter cannot read stays `unknown` instead of guessing.
+ */
+export function permissionPresetState(loader: Loader | undefined): AutomodePresetState {
+  if (loader === undefined || typeof loader.entries !== 'function') return 'unknown'
+  let row: unknown
+  try {
+    for (const entry of loader.entries()) {
+      if ((entry as { options?: { id?: unknown } } | undefined)?.options?.id === 'permission') {
+        row = entry
+        break
+      }
+    }
+  } catch {
+    return 'unknown'
+  }
+  const config = asRecord((row as { options?: { config?: unknown } } | undefined)?.options?.config)
+  const presets = asRecord(config?.presets)
+  if (presets === undefined) return 'unknown'
+  return Object.hasOwn(presets, 'auto-mode') ? 'present' : 'missing'
 }
 
 type AnyRecord = Record<string, unknown>
@@ -292,6 +328,8 @@ export interface AutomodeCompatView {
   readonly hot?: 'applied' | 'restart-required' | undefined
   /** Why the last hot reload did not take, when it did not. */
   readonly hotReason?: string | undefined
+  /** Whether the composed `permission` config still lists the `auto-mode` preset. */
+  readonly preset?: AutomodePresetState | undefined
 }
 
 /**
@@ -308,6 +346,7 @@ export function automodeCompatView(): AutomodeCompatView | undefined {
     skipped: automodeCompatStatus.skipped.length,
     hot: automodeCompatStatus.hot,
     hotReason: automodeCompatStatus.hotReason,
+    preset: automodeCompatStatus.preset,
   }
 }
 
@@ -336,6 +375,27 @@ export function installAutomodeCompat(
   const adopted = new Map<Entry, string>()
   /** Entries whose fiber reload is in flight, so one change cannot restart twice. */
   const reloading = new Set<Entry>()
+  /** One warning per Host, so a broken preset does not flood the log on every replay. */
+  let presetWarned = false
+  /**
+   * Refresh the `auto-mode` preset diagnosis the status surface reports.
+   *
+   * The permission picker renders whatever `permission.presets` the composed tree
+   * carries, so this adapter never injects a preset itself — it only reports the
+   * gap, because a silently missing "Auto mode" is otherwise indistinguishable
+   * from the row not loading at all.
+   *
+   * @param warn - whether a newly detected gap should also be logged (once).
+   */
+  const refreshPreset = (warn: boolean): void => {
+    const state = permissionPresetState(loader)
+    automodeCompatStatus.preset = state
+    if (state !== 'missing' || presetWarned) return
+    presetWarned = true
+    if (warn) {
+      log.warn('model-switch: the dsh-automode row is mounted but the composed permission config has no "auto-mode" preset, so the permission picker hides Auto mode — a profile patch that restates permission.presets replaces the whole config key; add the auto-mode preset there or delete that row')
+    }
+  }
   /**
    * Push a changed route into the row that is already running.
    *
@@ -384,6 +444,7 @@ export function installAutomodeCompat(
   if (loader !== undefined && typeof loader.entries === 'function') {
     for (const entry of loader.entries()) if (isAutomodeEntry(entry)) applying(entry, false)
   }
+  refreshPreset(true)
 
   const dispose = ctx.on('loader/patch-context', function (this: unknown, first: unknown, second?: unknown) {
     // Waterfall listeners receive `(entry, next)`; accept a `this`-bound entry too.
@@ -395,6 +456,7 @@ export function installAutomodeCompat(
   /** Re-adapt every live row (settings changed under us) and reload the ones whose route moved. */
   const replay = (): boolean => {
     let any = false
+    refreshPreset(false)
     for (const entry of loader?.entries?.() ?? []) {
       if (!isAutomodeEntry(entry)) continue
       any = true

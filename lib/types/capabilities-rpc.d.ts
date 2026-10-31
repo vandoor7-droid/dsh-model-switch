@@ -17,6 +17,8 @@ export interface ReviewStatus {
         readonly skipped: number;
         readonly hot?: 'applied' | 'restart-required' | undefined;
         readonly hotReason?: string | undefined;
+        /** Whether the composed `permission` config still lists the `auto-mode` preset. */
+        readonly preset?: 'present' | 'missing' | 'unknown' | undefined;
     } | undefined;
     /** Memory-plugin adapter state: whether our distillation route reached the plugin. */
     readonly primeMemory?: {

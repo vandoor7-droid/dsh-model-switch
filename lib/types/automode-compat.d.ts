@@ -89,7 +89,24 @@ export declare const automodeCompatStatus: {
     hot: "applied" | "restart-required" | undefined;
     /** Why the last hot reload did not take, when it did not. */
     hotReason: string | undefined;
+    /**
+     * Whether the Host's `permission` row still carries the `auto-mode` preset the
+     * third-party bundle patch inserts. A profile patch that restates
+     * `permission.presets` replaces that whole config key, so the row keeps working
+     * while the preset silently disappears from the permission picker.
+     */
+    preset: AutomodePresetState | undefined;
 };
+/** Where the `auto-mode` permission preset stands in the composed config. */
+export type AutomodePresetState = 'present' | 'missing' | 'unknown';
+/**
+ * Read the composed `permission` row and look for the `auto-mode` preset.
+ *
+ * @param loader - the Host loader, when this row can read it.
+ * @returns `missing` only when the row's `presets` map is readable and lacks the
+ * key; anything this adapter cannot read stays `unknown` instead of guessing.
+ */
+export declare function permissionPresetState(loader: Loader | undefined): AutomodePresetState;
 /**
  * Whether one loader entry is the third-party auto-mode row.
  * @param entry - anything the loader hands over (an entry, or an event payload).
@@ -130,6 +147,8 @@ export interface AutomodeCompatView {
     readonly hot?: 'applied' | 'restart-required' | undefined;
     /** Why the last hot reload did not take, when it did not. */
     readonly hotReason?: string | undefined;
+    /** Whether the composed `permission` config still lists the `auto-mode` preset. */
+    readonly preset?: AutomodePresetState | undefined;
 }
 /**
  * Snapshot for the RPC/UI layer.
