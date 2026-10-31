@@ -27,21 +27,23 @@
   "memory": {
     "package": "dsh-prime-memory",
     "distTagWatched": "latest",
-    "latestVerified": "0.26.11",
+    "latestVerified": "0.26.16",
     "verifiedWith": {
-      "dsh": "0.2.1-rc.3",
-      "dshTag": "dsh-0.2.1-rc.3"
+      "dsh": "0.2.1-rc.5",
+      "dshTag": "dsh-0.2.1-rc.5"
     },
-    "adapter": "src/prime-memory-compat.ts (0.4.54: clearStaticPin + pinAsFallback)",
+    "adapter": "src/prime-memory-compat.ts (0.4.57: scoped inject of modelSwitch + webServer, read-back verified push, live-rejected fallback)",
     "observedLatest": "0.26.16",
     "observedDshTags": {
       "0.2.1-rc.4": "0.26.15",
       "0.2.1-rc.5": "0.26.16"
     },
-    "pendingVerification": "0.26.16 declares engines.dsh 0.2.1-rc.5 support (0.26.15 does not); install it in the rc.5 lab and run the adoption checks on the next patrol",
-    "observedEngines": {
-      "0.26.16": "includes 0.2.1-rc.5",
-      "0.26.15": "stops at 0.2.1-rc.4"
-    }
+    "pendingVerification": "none for 0.26.16 on rc.5; desktop plane still unverified",
+    "verifiedAt": "2026-10-31",
+    "verifiedRuns": [
+      "boot from cleared live route -> settings-get returns the configured pair",
+      "settings-card save without restart -> replays:1, live route changed",
+      "ruminate-start -> recorder saw the configured model (deepseek-flash)"
+    ]
   }
 }

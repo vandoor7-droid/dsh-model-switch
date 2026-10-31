@@ -26,6 +26,33 @@ So the adapter writes one key and nothing else; it never registers a provider,
 never wraps a request, and never touches the plugin's code or its other switches
 (capture, trace, embedding, memory mutation).
 
+## Runtime write path (0.4.57)
+
+`ctx.settings.update` only lands in the document the plugin reads at `apply`, so a
+route change written that way waits for the next start. The seam that applies at
+once is the plugin's own RPC (`POST /dsh-memory/rpc/settings-set`), and reaching it
+takes two scoped dependencies:
+
+- `modelSwitch` — the route source. 0.4.56 used a bare `ctx.get('modelSwitch', false)`
+  and read `undefined` on every real host: a service is visible only inside a scope
+  that declares it, so the adapter looked mounted while doing nothing at all.
+- `webServer` — the port the RPC lives on. A bare `ctx.get` misses it for the same
+  reason.
+
+The push is accepted only when the plugin's own `settings-get` read-back shows the
+requested pair. A 200 is not a receipt: a write that misses the host session is
+answered 200 while the payload is dropped, which is how an earlier build reported a
+route it had not written. A rejected read-back falls through to the document write
+and is surfaced as `routeSkipped = live-rejected` (applies on the next start).
+
+Diagnostics ride on `plugin-rpc/model-switch` → `tools` as `status.primeMemory`:
+`installed`, `route`, `routeSkipped`, `replays`.
+
+Verified in the lab on 2026-10-31 (virtual, zero real quota): boot writes the route
+from empty; a settings-card save changes the live route without a restart
+(`replays: 1`); `ruminate-start` makes the recorder log the configured model
+(`deepseek-flash`, not the default `gpt-6.1-sol`).
+
 ## Contract (implemented in `src/prime-memory-route.ts`)
 
 ```ts

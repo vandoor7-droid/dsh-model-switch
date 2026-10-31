@@ -366,14 +366,20 @@ read `memory.latestVerified` from `docs/compat-watch-state.json`, compare it wit
 current DSH — install the new release in the lab and re-run the adoption checks:
 
 1. the row activates (no `incompatible with dsh …`, no `did not activate` for the memory package);
-2. the adapter's push lands: `<home>/memory/memory.log` logs `[memory] 蒸馏模型路由: <our route>`;
+2. the adapter's push lands: `POST /dsh-memory/rpc/settings-get` reads back our pair **and**
+   `status.primeMemory` reports `installed:true` with that `route` — the plugin's own
+   `[memory] 蒸馏模型路由` line is its startup log, not proof of our write;
 3. no stale `llm:` static pin is left in the profile patch (`clearStaticPin`, 0.4.54);
-4. `POST /dsh-memory/rpc/settings-set` answers 200 and echoes the pair;
+4. `POST /dsh-memory/rpc/settings-set` answers 200 **and** the read-back changes (a 200 alone
+   can be a dropped payload, which is why 0.4.57 gates on the read-back);
 5. the shipped `effectiveCfg` still resolves our route for the new-pair, legacy-chain and empty
    settings payloads;
-6. the 「记忆蒸馏模型」 card shows that route.
+6. the 「记忆蒸馏模型」 card shows that route, and a save without a restart moves the live route
+   (`status.primeMemory.replays` increments).
 
-Measured today with `npm view`: **0.26.16 is the first release whose `engines.dsh` includes
-`0.2.1-rc.5`** (0.26.15 stops at `0.2.1-rc.4`), so it is the version the next run should install.
-Its install was deliberately not attempted in this round — the request was to extend the watch, and
-the baseline records the finding for the next patrol.
+Measured 2026-10-31: **0.26.16 is the first release whose `engines.dsh` includes `0.2.1-rc.5`**
+(0.26.15 stops at `0.2.1-rc.4`). It was installed in the rc.5 lab this round and all six checks
+ran: boot from a cleared live route writes and reads back the pair; a settings-card save without a
+restart moves it (`replays: 1`); `ruminate-start` made the virtual recorder log the configured
+model. The baseline in `docs/compat-watch-state.json` now records 0.26.16 as the verified version.
+
