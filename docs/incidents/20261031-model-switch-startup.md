@@ -53,3 +53,21 @@ model-switch-auto-review (dsh-model-switch/auto-review): pending (waiting for se
     **没有** `did not activate` / `pending`；这正是修复前会死锁的场景。
 - **未验证**：真实桌面上的启用（需用户重试），以及主行安装器在桌面环境里究竟哪个抛错
   （修复后它只会留下日志、不再致命）。
+
+## 追记（0.4.57）：0.4.56 的"惰性取服务"是错的
+
+0.4.56 为了不出现 pending，把依赖行的 `inject: ['modelSwitch']` 改成
+`ctx.get('modelSwitch', false)`。实测证明这个写法在真实宿主上**永远取不到服务**：Cordis 的
+服务只在声明依赖的作用域内可见，跨行直接 `get` 返回 `undefined`。结果是四个适配器
+（auto-review / review-timeout / automode / prime-memory）行都在、但什么也不做，
+`status.primeMemory` 显示 `installed:false` 或 `routeSkipped:'no-service'`。
+
+0.4.57 改为 `ctx.inject(['modelSwitch'], scope => …)`：不阻塞组态（不会 pending），
+且作用域内能真正读到服务；记忆适配器再嵌套注入 `webServer`，因为写入插件 live 设置的
+唯一即时通道是它自己的 RPC。推送改为**回读校验**——宿主对缺少会话凭据的本地写入会
+返回 200 却丢弃内容，所以以插件 `settings-get` 的回读为唯一成功判据，不匹配则回落文档
+写入并标 `live-rejected`（下次启动生效）。
+
+lab 复核（DSH 0.2.1-rc.5 + `dsh-prime-memory@0.26.16`，virtual / 零真实额度）：
+清空 live 路由后启动 → 回读到配置值；设置页改路由保存 → 不重启即生效（`replays:1`）；
+`ruminate-start` → 探针记录到配置的 `deepseek-flash`（默认是 `gpt-6.1-sol`）。
