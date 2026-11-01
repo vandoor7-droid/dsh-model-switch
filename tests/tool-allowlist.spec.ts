@@ -18,6 +18,9 @@ const MUTATING = [
   'mcp__wincu__windows_computer_use_click', 'mcp__wincu__windows_computer_use_type_text',
   'mcp__wincu__windows_computer_use_keypress', 'mcp__wincu__windows_computer_use_drag',
   'bcdp_navigate', 'bcdp_script', 'browser_window_open', 'generate_image',
+  'bcdp_click', 'bcdp_js', 'bcdp_tab', 'browser_embedded_click', 'browser_embedded_navigate',
+  'memory_add', 'memory_update', 'memory_import', 'memory_ruminate', 'memory_slot_write',
+  'memory_room_admin', 'ops_batch', 'ops_edit_file', 'working_directory',
   'qq_send__YiXuan', 'session_send__YiXuan',
 ]
 
@@ -35,8 +38,8 @@ const DELEGATION_SPAWNS = ['subagent', 'subagent_fork', 'spawn_teammate']
 
 describe('DEFAULT_READ_ONLY_TOOLS', () => {
   it('ships the calibrated catalog', () => {
-    expect(DEFAULT_READ_ONLY_TOOLS).toHaveLength(58)
-    expect(new Set(DEFAULT_READ_ONLY_TOOLS).size).toBe(58)
+    expect(DEFAULT_READ_ONLY_TOOLS).toHaveLength(84)
+    expect(new Set(DEFAULT_READ_ONLY_TOOLS).size).toBe(84)
   })
 
   it('never covers a mutating tool', () => {
@@ -62,7 +65,12 @@ describe('DEFAULT_READ_ONLY_TOOLS', () => {
   })
 
   it('covers the read tools it claims', () => {
-    for (const tool of ['read', 'grep', 'glob', 'ops_read_files', 'bcdp_snapshot', 'memory_read', 'web_fetch']) {
+    for (const tool of [
+      'read', 'grep', 'glob', 'ops_read_files', 'bcdp_snapshot', 'memory_read', 'web_fetch',
+      // Added 2026-11-01 for the plugins installed after the first calibration.
+      'bcdp_page_info', 'ops_grep', 'memory_search', 'browser_embedded_snapshot',
+      'conversation_search',
+    ]) {
       expect(isAllowedByList(tool, DEFAULT_READ_ONLY_TOOLS), tool).toBe(true)
     }
   })
@@ -136,6 +144,14 @@ describe('resolveToolSource', () => {
     expect(resolveToolSource('ops_bash').repo).toBe('https://github.com/T-Auto/dsh-ops')
     expect(resolveToolSource('memory_read').repo).toBe('https://github.com/AskTheWay/dsh-auto-memory')
     expect(resolveToolSource('generate_image').repo).toBe('https://github.com/vandoor7-droid/dsh-model-switch')
+  })
+
+  it('splits the memory_ prefix between the two memory plugins', () => {
+    expect(resolveToolSource('memory_search').repo).toBe('https://github.com/drscrewdriver/dsh-prime-memory')
+    expect(resolveToolSource('memory_ruminate_status').repo).toBe('https://github.com/drscrewdriver/dsh-prime-memory')
+    expect(resolveToolSource('memory_write').repo).toBe('https://github.com/AskTheWay/dsh-auto-memory')
+    expect(resolveToolSource('browser_embedded_snapshot').repo).toBe('https://github.com/imroc/dsh-embedded-browser')
+    expect(resolveToolSource('conversation_search').kind).toBe('core')
   })
 
   it('falls back to the Host catalog, then to unknown', () => {

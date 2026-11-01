@@ -85,6 +85,18 @@ export const SOURCE_CATALOG: readonly SourceCatalogEntry[] = [
     repo: 'https://github.com/vandoor7-droid/dsh-model-switch',
   },
   {
+    id: 'dsh-prime-memory',
+    kind: 'plugin',
+    label: '插件 · dsh-prime-memory',
+    repo: 'https://github.com/drscrewdriver/dsh-prime-memory',
+  },
+  {
+    id: 'dsh-embedded-browser',
+    kind: 'plugin',
+    label: '插件 · dsh-embedded-browser',
+    repo: 'https://github.com/imroc/dsh-embedded-browser',
+  },
+  {
     id: 'mcp:wincu',
     kind: 'mcp',
     label: 'MCP · wincu（dsh-computer-use-win）',
@@ -110,7 +122,7 @@ export const SOURCE_BY_ID: ReadonlyMap<string, SourceCatalogEntry> = new Map(
  * one guess a reader could act on wrongly; it resolves to `unknown` instead.
  */
 const CORE_TOOLS: ReadonlySet<string> = new Set([
-  'ask_user_question', 'create_goal', 'create_skill', 'create_worktree', 'edit',
+  'ask_user_question', 'conversation_search', 'create_goal', 'create_skill', 'create_worktree', 'edit',
   'exit_plan_mode', 'get_goal', 'glob', 'grep', 'interrupt_agent', 'job_kill',
   'job_list', 'job_output', 'list_agents', 'list_mcp_resource_templates',
   'list_mcp_resources', 'load_workspace_dependencies', 'present', 'pwsh', 'ralph',
@@ -132,12 +144,53 @@ const MCP_SERVERS: ReadonlyMap<string, string> = new Map([['wincu', 'mcp:wincu']
 const PLUGIN_PREFIXES: readonly (readonly [string, string])[] = [
   ['bcdp_', 'dsh-browser-cdp'],
   ['browser_window_', 'dsh-browser-cdp'],
+  ['browser_embedded_', 'dsh-embedded-browser'],
   ['ops_', 'dsh-ops'],
-  ['memory_', 'dsh-auto-memory'],
 ]
 
-/** Single plugin tools that carry no prefix. */
-const PLUGIN_TOOLS: ReadonlyMap<string, string> = new Map([['generate_image', 'dsh-model-switch']])
+/**
+ * Single plugin tools that carry no usable prefix.
+ *
+ * `memory_` is shared by two installed plugins with disjoint names, so it cannot
+ * be a prefix rule: the calibration below names each tool explicitly.
+ */
+const PLUGIN_TOOLS: ReadonlyMap<string, string> = new Map([
+  ['generate_image', 'dsh-model-switch'],
+  // dsh-prime-memory (0.26.16): L1/L2/L3 memory, graph and room tools.
+  ['memory_add', 'dsh-prime-memory'],
+  ['memory_conflicts', 'dsh-prime-memory'],
+  ['memory_conflicts_rejected', 'dsh-prime-memory'],
+  ['memory_delete', 'dsh-prime-memory'],
+  ['memory_expand_graph_node', 'dsh-prime-memory'],
+  ['memory_import', 'dsh-prime-memory'],
+  ['memory_migrate_relation', 'dsh-prime-memory'],
+  ['memory_read_scene', 'dsh-prime-memory'],
+  ['memory_receipts', 'dsh-prime-memory'],
+  ['memory_reproject', 'dsh-prime-memory'],
+  ['memory_resolve_conflict', 'dsh-prime-memory'],
+  ['memory_room_admin', 'dsh-prime-memory'],
+  ['memory_room_review', 'dsh-prime-memory'],
+  ['memory_ruminate', 'dsh-prime-memory'],
+  ['memory_ruminate_cancel', 'dsh-prime-memory'],
+  ['memory_ruminate_status', 'dsh-prime-memory'],
+  ['memory_search', 'dsh-prime-memory'],
+  ['memory_search_graph', 'dsh-prime-memory'],
+  ['memory_skill_archive', 'dsh-prime-memory'],
+  ['memory_skill_list', 'dsh-prime-memory'],
+  ['memory_skill_pin', 'dsh-prime-memory'],
+  ['memory_skill_read', 'dsh-prime-memory'],
+  ['memory_slot_close', 'dsh-prime-memory'],
+  ['memory_slot_list', 'dsh-prime-memory'],
+  ['memory_slot_write', 'dsh-prime-memory'],
+  ['memory_update', 'dsh-prime-memory'],
+  // dsh-auto-memory (1.0.0): the older flat memory list/read/write tools.
+  ['memory_context', 'dsh-auto-memory'],
+  ['memory_delete_all', 'dsh-auto-memory'],
+  ['memory_list', 'dsh-auto-memory'],
+  ['memory_prune', 'dsh-auto-memory'],
+  ['memory_read', 'dsh-auto-memory'],
+  ['memory_write', 'dsh-auto-memory'],
+])
 
 /** `<base>__<owner>` — the extension-tool naming the QQ bot framework uses. */
 const EXTENSION_TOOL = /^([A-Za-z0-9_-]+)__(.+)$/
@@ -198,6 +251,23 @@ export const DEFAULT_READ_ONLY_TOOLS: readonly string[] = [
   'bcdp_status', 'bcdp_help', 'bcdp_doctor', 'bcdp_snapshot', 'browser_window_status',
   // dsh-auto-memory (the write/delete/prune tools stay reviewed).
   'memory_list', 'memory_read',
+  // dsh-prime-memory — reads and inspections only (add/update/delete/import,
+  // graph mutations, room writes and ruminate stay reviewed).
+  'memory_search', 'memory_search_graph', 'memory_expand_graph_node',
+  'memory_read_scene', 'memory_skill_list', 'memory_skill_read',
+  'memory_slot_list', 'memory_receipts', 'memory_conflicts',
+  'memory_conflicts_rejected', 'memory_ruminate_status',
+  // dsh-ops — file reads and diffs (bash/edit/move/remove/replace/batch stay reviewed).
+  'ops_glob', 'ops_grep', 'ops_inspect_local_file', 'ops_read_docx',
+  'ops_diff', 'ops_result',
+  // dsh-browser-cdp — page inspection that does not touch the page.
+  'bcdp_captcha', 'bcdp_page_info', 'bcdp_read_element', 'bcdp_screenshot',
+  // dsh-embedded-browser — inspection only; open/click/type/press/scroll/close
+  // stay reviewed.
+  'browser_embedded_status', 'browser_embedded_snapshot',
+  'browser_embedded_screenshot', 'browser_embedded_ask_human',
+  // DSH core — conversation-history search, same class as `session_search`.
+  'conversation_search',
   // MCP wincu = dsh-computer-use-win (inspection only; input/window tools stay reviewed).
   'mcp__wincu__windows_computer_use_accessibility_tree',
   'mcp__wincu__windows_computer_use_element_info',

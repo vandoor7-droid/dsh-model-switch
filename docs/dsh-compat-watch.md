@@ -11,6 +11,7 @@ update this plugin for the new line **without dropping older lines**.
 | `@deepseek-ai/dsh` dist-tags | `latest` = `0.2.1-rc.2`, `next` = `0.2.1-rc.3`, `alpha` = `0.2.1-alpha.5` |
 | Last verified line | `0.2.1-rc.3` |
 | Plugin version at that check | 0.4.41 |
+| Read-only exemption default | **84 entries since 0.4.60** (58 in 0.4.24–0.4.59) |
 
 `latest` moving is the trigger. `next`/`alpha` are early signal only — record
 them, do not update the plugin for them unless the same API change is already on

@@ -1,3 +1,12 @@
+## v0.4.60
+
+纯读免审查默认名单扩展到 **84 条**（2026-11-01，按桌面端实际安装的插件重新校准）。
+
+- **新装插件的纯读工具纳入默认名单**：`dsh-browser-cdp` 的 `bcdp_captcha`/`bcdp_page_info`/`bcdp_read_element`/`bcdp_screenshot`；`dsh-prime-memory` 的 11 个读工具（`memory_search`、`memory_search_graph`、`memory_expand_graph_node`、`memory_read_scene`、`memory_skill_list`、`memory_skill_read`、`memory_slot_list`、`memory_receipts`、`memory_conflicts`、`memory_conflicts_rejected`、`memory_ruminate_status`）；`dsh-ops` 的 `ops_glob`/`ops_grep`/`ops_inspect_local_file`/`ops_read_docx`/`ops_diff`/`ops_result`；`dsh-embedded-browser` 的 `browser_embedded_status`/`snapshot`/`screenshot`/`ask_human`；DSH 核心的 `conversation_search`。
+- **来源归属修正**：`memory_` 不再作为前缀整体归到 `dsh-auto-memory`（0.26 版 prime-memory 的 26 个工具在设置卡片上一直显示错来源）；改为按名字表区分两个记忆插件，并新增 `dsh-prime-memory`、`dsh-embedded-browser` 两个来源条目。
+- **仍然审查**：所有写/执行/混合动作工具都不在名单里（`ops_bash`/`ops_edit_file`/`ops_batch`、`bcdp_click`/`js`/`tab`/`space`/`wait`、`memory_add`/`update`/`import`/`ruminate`/`room_*`、`browser_embedded_click`/`type`/`navigate`、`working_directory` 等）。名单只决定"要不要送审"，不扩大任何权限。
+- 验证：`tests/tool-allowlist.spec.ts` 覆盖 84 条长度与去重、来源映射（含两个记忆插件的拆分）、以及"写类工具不得被默认名单放行"；桌面 profile 的允许表同步扩到 84 条（配置层，不属于本包）。
+
 ## v0.4.59
 
 冻结自动模式支持（按用户 2026-10-31 要求）。
