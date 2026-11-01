@@ -48,7 +48,13 @@ counter 2 on `glob`/`read`, discuss ends as `aborted`, and the same
 `deepseek-flash` switch lands (15 models listed, `model/selection` written, reply
 from that model) — card and picker behaviour is identical across the two lines.
 
-## Third-party auto-mode coexistence (v0.4.42)
+## Third-party auto-mode coexistence (v0.4.42) — frozen in 0.4.59
+
+> **2026-10-31 用户决定冻结**：自 0.4.59 起本插件不再支持 `@log.li/dsh-automode`，
+> `model-switch-automode-compat` 行已从 `cordis.patch.yml` 移除，`src/automode-compat.ts`
+> 标注 `@deprecated`（保留一版可回退，下个大版本删除）。本节保留为历史记录；后续巡检
+> 不再验证该适配，也不为 automode 的新版本做适配。宿主自带的 `auto` 档位（由
+> `@deepseek-ai/dsh-experimental-auto-review` 注册）不受影响。
 
 `@log.li/dsh-automode` (0.17.0) has no public seam for an outside route or tool
 list: its classifier route and its pure-read allowance are read from its own row
