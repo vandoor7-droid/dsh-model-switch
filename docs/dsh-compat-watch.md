@@ -390,3 +390,37 @@ ran: boot from a cleared live route writes and reads back the pair; a settings-c
 restart moves it (`replays: 1`); `ruminate-start` made the virtual recorder log the configured
 model. The baseline in `docs/compat-watch-state.json` now records 0.26.16 as the verified version.
 
+## 2026-11-02 check: dsh `0.2.1-rc.5` unchanged; dsh-prime-memory 0.26.16 → 0.26.24
+
+- DSH `latest` is still **`0.2.1-rc.5`** (published 2026-10-30T02:12Z), so the rc.5 verification
+  from 2026-10-30/31 stands and no host smoke was re-run for it.
+- automode is frozen (support removed in 0.4.59): it is recorded, never re-verified.
+- The watched memory package moved: `latest` = **0.26.24** (baseline 0.26.16). Its `engines.dsh`
+  still lists `0.2.1-rc.5`, so the adoption checks ran.
+
+Lab (virtual / 零真实额度): `DSH_HOME=D:\dsh-lab`, port 3082, `@deepseek-ai/dsh@0.2.1-rc.5` +
+`dsh-model-switch@0.4.60` (npm artifact) + `dsh-prime-memory@0.26.24` +
+`@deepseek-ai/dsh-experimental-session-titles-bundle@0.2.1-rc.5`; every provider points at
+`tools/route-probe.mjs` on `127.0.0.1:4731`, recorder `D:\dsh-artifacts\probe-mem-0624.jsonl`.
+
+| # | check | result |
+|---|---|---|
+| 1 | memory row activates | yes — boot stderr carries no `incompatible with dsh` / `did not activate` (only the SQLite experimental warnings) |
+| 2 | adapter push lands | yes — `status.primeMemory = {installed:true, route:"apigoto/mimo-v2.6-flash", replays:0}`, and `settings-get` returns `distillProvider:"apigoto"`, `distillModel:"mimo-v2.6-flash"` with l1/l2/l3 layer chains on the same pair |
+| 3 | no stale `llm:` static pin | yes — the memory row in `cordis.patch.yml` carries only the live pair plus `distill*` keys, no `llm:` key |
+| 4 | `settings-set` honours the payload | yes, with the caveat below |
+| 5 | shipped `effectiveCfg` | yes — `tests/prime-memory-route.spec.ts` 9/9 (new-pair, legacy chain, empty settings) |
+| 6 | save without restart moves the live route | yes — editing the plugin's `memoryModel` in the profile (the same settings-update path the card uses) moved the live pair to `apigoto/deepseek-flash` and `distillLayerChains.l2` with it (`replays:1`); restoring the pair moved it back (`replays:2`) |
+| 7 | rumination uses the configured route | yes — `ruminate-start` (200, `phase:"distilling"`) made the recorder log `deepseek-flash` streaming requests right after |
+
+On check 4: `settings-set` takes a **top-level patch** (`{distillProvider, distillModel}`), not
+`{settings:{…}}`. The wrong shape answers **HTTP 200** with
+`{"ok":false,"error":{"code":"internal","message":"开关更新载荷为空"}}` — exactly the trap the
+read-back gate exists for. With the right shape the response carries the changed pair, but a
+follow-up `settings-get` shows the plugin's configured pair again because the adapter re-asserts
+its route on the next settings event. That is the documented single-source-of-truth behaviour, not
+a dropped write.
+
+Result: 0.26.24 is verified on rc.5 with plugin 0.4.60; `docs/compat-watch-state.json` records it
+as `memory.latestVerified`. No code change was needed — this entry is documentation only.
+

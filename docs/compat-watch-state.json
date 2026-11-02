@@ -1,7 +1,7 @@
 {
   "$schema-note": "Baseline for the scheduled compatibility watch (see docs/dsh-compat-watch.md). `latest` is the npm dist-tag an ordinary install gets.",
   "schema": "dsh-model-switch/compat-watch-state/v1",
-  "checkedAt": "2026-11-01T05:15:57.069Z",
+  "checkedAt": "2026-11-02T01:40:00.000Z",
   "dsh": {
     "distTagWatched": "latest",
     "latest": "0.2.1-rc.5",
@@ -28,23 +28,25 @@
   "memory": {
     "package": "dsh-prime-memory",
     "distTagWatched": "latest",
-    "latestVerified": "0.26.16",
+    "latestVerified": "0.26.24",
     "verifiedWith": {
       "dsh": "0.2.1-rc.5",
       "dshTag": "dsh-0.2.1-rc.5"
     },
     "adapter": "src/prime-memory-compat.ts (0.4.57: scoped inject of modelSwitch + webServer, read-back verified push, live-rejected fallback)",
-    "observedLatest": "0.26.16",
+    "observedLatest": "0.26.24",
     "observedDshTags": {
       "0.2.1-rc.4": "0.26.15",
       "0.2.1-rc.5": "0.26.16"
     },
-    "pendingVerification": "none for 0.26.16 on rc.5; desktop plane still unverified",
-    "verifiedAt": "2026-10-31",
+    "pendingVerification": "none for 0.26.24 on rc.5 with plugin 0.4.60; desktop plane still unverified",
+    "verifiedAt": "2026-11-02",
     "verifiedRuns": [
-      "boot from cleared live route -> settings-get returns the configured pair",
-      "settings-card save without restart -> replays:1, live route changed",
-      "ruminate-start -> recorder saw the configured model (deepseek-flash)"
+      "boot with a cleared live route: adapter push lands, settings-get returns the configured pair, status.primeMemory installed:true + route apigoto/mimo-v2.6-flash",
+      "profile-edit save without restart moved the live route (apigoto/mimo-v2.6-flash -> apigoto/deepseek-flash, replays:1); restoring the old pair moved it back (replays:2), distillLayerChains.l2 followed both times",
+      "direct settings-set with a top-level patch answers 200 with a changed value; a follow-up read-back returns the plugin's route again because the adapter re-asserts it on the next settings event (by design)",
+      "ruminate-start made the virtual recorder log the newly configured model (deepseek-flash, stream=true)",
+      "no stale llm: static pin in the profile patch; no incompatible-with-dsh / did-not-activate line on boot"
     ]
   }
 }
