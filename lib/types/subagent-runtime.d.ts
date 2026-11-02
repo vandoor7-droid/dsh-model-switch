@@ -86,6 +86,16 @@ export declare function mountWithStartupFallback<T>(candidate: (track: StartupCl
 export declare function routedRuntimeUnavailableNotice(error: StartupIncompatibilityError): string;
 /** Profile replacement that selects the routed runtime or the untouched official runtime. */
 export declare const profileSubagentRuntime: (ctx: Context) => Promise<() => Promise<void>>;
+/**
+ * The plugin dependency list for the mounted runtime.
+ *
+ * Static inheritance does not merge `inject`: cordis reads the static list off
+ * the class it mounts, so the subclass must repeat every service the official
+ * runtime's own code reads and add the route surface this adapter uses.
+ * @param officialInject - the installed runtime's declared dependencies (absent on 0.1.7/0.2.0).
+ * @returns The deduplicated list, official dependencies first.
+ */
+export declare function subagentRuntimeInject(officialInject: readonly string[] | undefined): string[];
 /** Official runtime with only a pre-descriptor route-selection adapter. */
 export declare class ModelSwitchSubagentRuntime extends OfficialSubagentRuntime {
     static inject: string[];

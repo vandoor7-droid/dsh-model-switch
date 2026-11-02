@@ -322,9 +322,40 @@ export const profileSubagentRuntime = Object.assign(
   {},
 )
 
+/**
+ * The services the official runtime declares for its own plugin.
+ *
+ * Subclassing keeps the official behavior, but cordis resolves a plugin's
+ * `inject` from the class it mounts — a static list on this subclass *replaces*
+ * the base class's list instead of adding to it. DSH 0.2.1's runtime declares
+ * `workingDirectory` and reads it on every activation
+ * (`ctx.workingDirectory.ensure(...)`); declaring only `modelSwitch` hid that
+ * dependency, so every delegation failed with
+ * `cannot get property "workingDirectory" without inject`. The list is read from
+ * the installed runtime instead of hard-coded so a future Host dependency is
+ * mirrored too.
+ */
+const OFFICIAL_RUNTIME_INJECT: readonly string[] = (() => {
+  const declared = (OfficialSubagentRuntime as unknown as { inject?: readonly string[] }).inject
+  return Array.isArray(declared) ? [...declared] : []
+})()
+
+/**
+ * The plugin dependency list for the mounted runtime.
+ *
+ * Static inheritance does not merge `inject`: cordis reads the static list off
+ * the class it mounts, so the subclass must repeat every service the official
+ * runtime's own code reads and add the route surface this adapter uses.
+ * @param officialInject - the installed runtime's declared dependencies (absent on 0.1.7/0.2.0).
+ * @returns The deduplicated list, official dependencies first.
+ */
+export function subagentRuntimeInject(officialInject: readonly string[] | undefined): string[] {
+  return [...new Set([...(officialInject ?? []), 'modelSwitch'])]
+}
+
 /** Official runtime with only a pre-descriptor route-selection adapter. */
 export class ModelSwitchSubagentRuntime extends OfficialSubagentRuntime {
-  static inject = ['modelSwitch']
+  static inject = subagentRuntimeInject(OFFICIAL_RUNTIME_INJECT)
 
   private routed<T extends RoutableSubagentRequest>(name: string, request: T): T {
     const provider = this.ctx.subagents.getProvider(name)

@@ -1,3 +1,12 @@
+## v0.4.61
+
+修复 DSH 0.2.1 上**子代理与团队通道全部不可用**的 P0：`spawn_teammate` / `subagent` 一律失败，报 `cannot get property "workingDirectory" without inject`。
+
+- **根因**：`ModelSwitchSubagentRuntime` 继承官方 `@deepseek-ai/dsh-subagent` 的运行时并覆写路由；cordis 解析插件依赖时读的是**被挂载类自己的** `inject`，子类的 `static inject = ['modelSwitch']` 会**整体替换**而不是合并基类列表。DSH 0.2.1 起官方运行时声明并读取 `workingDirectory`（`ctx.workingDirectory.ensure(...)`），这一依赖被替换掉后，任何一次委派都在 cordis 的注入检查处抛出上述错误。这与 0.4.28 修过的自动审查门禁是同一类缺陷（覆写官方代码却手工镜像 `inject`）。
+- **修复**：`src/subagent-runtime.ts` 新增 `subagentRuntimeInject()`，从**已安装的官方运行时**读取 `inject` 声明并与 `modelSwitch` 去重合并，子类改用该函数生成列表——官方新增依赖会被自动镜像，不再过时；基类在 0.1.7/0.2.0 没有该声明时退回 `['modelSwitch']`。`tests/subagent-runtime.spec.ts` 新增 4 条守卫（镜像基类列表、无声明时保留路由服务、去重、挂载列表与已安装运行时一致）。
+- **验证（virtual / 零真实额度）**：DSH `0.2.1-rc.5` lab 的 headless profile（真实宿主 + 虚拟探针 4731，模型回放一次 `subagent` 工具调用）。发布版 **0.4.60** 复现：工具结果为 `Error: cannot get property "workingDirectory" without inject`（会话 `session-f783b457`）；装本修复构建后同一回放得到 `started subagent 4b1d65b1-1b91-4b41-a144-41cc7617e039`（`isError:false`，会话 `session-8ea93988`，探针记录 `D:\dsh-artifacts\probe-subagent.jsonl`）。自动审查/命名/记忆等其它接管行未改动。
+- **残余**：0.4.61 装到桌面 profile 后需实际点一次子代理/团队委派确认（桌面宿主无法在 lab 内复刻）。0.1.7 / 0.2.0 的 `start()` 线依赖列表照旧合并，语义不变。
+
 ## Unreleased
 
 - **兼容巡检（2026-11-02，仅文档）**：DSH `latest` 仍是 `0.2.1-rc.5`（未移动，10-30/31 的验收结论继续有效）；`dsh-prime-memory` 从 **0.26.16 移到 0.26.24**，其 `engines.dsh` 含 rc.5，已在 rc.5 lab + 本插件 0.4.60 下跑完七项接入检查（行激活、适配推送落地、无 `llm:` 静态钉、`settings-set` 读回、`effectiveCfg` 单测 9/9、免重启改路由 `replays:1→2`、蒸馏走新路由）。`docs/compat-watch-state.json` 记录 0.26.24 为已验证版本。**无代码改动，不发版。**

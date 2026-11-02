@@ -117,6 +117,14 @@ Official DSH is a read-only dependency. This plugin degrades on a clean tag when
 - **Handling (0.4.28+):** the gate is mounted as a cordis plugin (`autoReviewGate` -> `scope.plugin(...)`) carrying the official module's own `inject`, so the Host resolves the gate's dependencies and this row declares only `llm` / `modelSwitch`. The correlation listener binds only after the gate's `apply` actually ran, preserving the prepend order; a duplicate registration still fails loudly.
 - **Upstream:** none required while the official module keeps exporting `apply` / `inject` / `name` as a plugin. If that module ever stops being a valid plugin entry, a documented 'declare your deps' mount helper would be the supported seam.
 
+## Subagent runtime subclass must repeat the official dependency list (0.2.1)
+
+- **Needed for:** the per-session Subagent route override, which subclasses the official `SubagentRuntime` so `startActivation` can rewrite `request.agentOptions` before delegating.
+- **Where used:** `src/subagent-runtime.ts` (row `model-switch-subagent-runtime` mounts `ModelSwitchSubagentRuntime` in place of the disabled `subagent` row).
+- **What changed:** DSH 0.2.1's `SubagentRuntime` declares `static inject = ['workingDirectory']` and reads `ctx.workingDirectory.ensure(...)` on every activation. Cordis resolves a plugin's dependencies from **the class it mounts**; a subclass's static `inject` **replaces** the base list instead of merging it, so `static inject = ['modelSwitch']` hid `workingDirectory`. Every delegation — `subagent` and `spawn_teammate` alike — then failed with `cannot get property "workingDirectory" without inject` while ordinary (allowlisted) tools kept working, which is why the failure looked tool-specific.
+- **Handling (0.4.61+):** `subagentRuntimeInject(officialInject)` mirrors the installed runtime's own `inject` declaration and appends `modelSwitch` (deduplicated), and the subclass builds its list from it. A Host that declares no list (0.1.7/0.2.0) keeps `['modelSwitch']`; future official dependencies are mirrored automatically. Unit guards in `tests/subagent-runtime.spec.ts` pin the merge behavior, and the lab rc.5 headless run proves both directions: released 0.4.60 reproduced the inject error, 0.4.61 started the child (`started subagent …`).
+- **Upstream:** a route/agent-options callback on `startActivation` (see the activation-API section above) would remove the subclass entirely, and an `inject` list that cordis merges across prototype chains would make the mirroring unnecessary.
+
 ## Session-title provider slot is single-registration (0.2.1)
 
 - **Needed for:** the configurable per-session naming route. The route override is a naming provider, and DSH 0.2.1's `ctx.sessionTitle.register()` accepts exactly one live registration (a second one throws `session-title provider "<incumbent>" is already registered`).

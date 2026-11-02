@@ -6,6 +6,7 @@ import OfficialSubagentRuntime, { type SubagentStartRequest } from '@deepseek-ai
 import {
   ModelSwitchSubagentRuntime,
   routeSubagentRequest,
+  subagentRuntimeInject,
   type SubagentActivationSpecLike,
 } from '../src/subagent-runtime.js'
 
@@ -281,5 +282,30 @@ describe('ModelSwitchSubagentRuntime activation line (0.2.1+)', () => {
     })
     await runtime.startActivation(activationSpecOf(sessionOf('codex')))
     expect(started[0]?.request.agentOptions).toBeUndefined()
+  })
+})
+
+describe('ModelSwitchSubagentRuntime mounted dependencies', () => {
+  // The mounted class's static `inject` replaces the base class's list rather
+  // than merging with it. DSH 0.2.1 declares `workingDirectory` on the official
+  // runtime and reads it on every activation; omitting it made every delegation
+  // fail with `cannot get property "workingDirectory" without inject`.
+  it('repeats every dependency the official runtime declares', () => {
+    expect(subagentRuntimeInject(['workingDirectory'])).toEqual(['workingDirectory', 'modelSwitch'])
+  })
+
+  it('keeps the route surface when the official runtime declares nothing', () => {
+    expect(subagentRuntimeInject(undefined)).toEqual(['modelSwitch'])
+    expect(subagentRuntimeInject([])).toEqual(['modelSwitch'])
+  })
+
+  it('does not duplicate a dependency both sides name', () => {
+    expect(subagentRuntimeInject(['modelSwitch', 'workingDirectory'])).toEqual(['modelSwitch', 'workingDirectory'])
+  })
+
+  it('mounts with the installed runtime\'s own list plus the route surface', () => {
+    const declared = (OfficialSubagentRuntime as unknown as { inject?: readonly string[] }).inject ?? []
+    expect(ModelSwitchSubagentRuntime.inject).toEqual(subagentRuntimeInject(declared))
+    expect(ModelSwitchSubagentRuntime.inject).toContain('modelSwitch')
   })
 })
