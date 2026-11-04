@@ -1,5 +1,4 @@
 import { type ReactNode } from 'react';
-import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types';
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client';
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
 import { type CapabilityRouteView, type ModelSwitchSettingsView, type ReviewStatusView, type SubagentSettingsView, type ToolCatalogRow } from '../client-contract.js';
@@ -7,6 +6,7 @@ import { type ProviderGroupConfig } from '../provider-group.js';
 import type { RuntimeCapabilities } from '../runtime-capabilities.js';
 import { type CapabilitiesSnapshot } from './search-capabilities.js';
 import type { ModelSwitchLocaleKey } from './locales.js';
+import { type SettingsCatalogPayload } from './main-row-controller.js';
 import type { ConfigViewForm, ConfigViewOp } from './derived-config-form.js';
 export interface ModelSwitchSettingsFace {
     t: (key: ModelSwitchLocaleKey) => string;
@@ -41,7 +41,7 @@ export interface ModelSwitchSettingsFace {
     }>;
     /** Replace or remove (undefined) one provider's saved capability group. */
     saveProviderGroup: (provider: string, group: ProviderGroupConfig | undefined) => Promise<void>;
-    loadCatalog: () => Promise<readonly ModelProviderGroup[]>;
+    loadCatalog: () => Promise<SettingsCatalogPayload>;
     /** Host capabilities long-poll; absent in legacy faces, which keep the static-capabilities path. */
     loadCapabilities?: (revision?: number, signal?: AbortSignal) => Promise<CapabilitiesSnapshot>;
     subscribeProviderOrder?: (listener: () => void) => () => void;

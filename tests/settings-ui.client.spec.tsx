@@ -11,13 +11,17 @@ import { entryOf, type ProviderGroupConfig, type ProviderGroupsStorage } from '.
  * The catalog state the settings page reads. A test that simulates the real
  * load race flips `emptyCatalog` on: the settings snapshot arrives before the
  * async model catalog, so catalog-seeded controls must stay disabled instead of
- * silently dropping the click.
+ * silently dropping the click. `failures` carries the host-reported providers
+ * whose catalog lookup failed; the merged list must keep them selectable.
  */
 const catalogState = {
   emptyCatalog: false,
   groups: [{ id: 'codex', name: 'Codex', models: [{ id: 'gpt-subagent', name: 'GPT Subagent' }] }],
+  failures: [] as { id: string; name: string; message: string }[],
+  status: undefined as 'loading' | 'ready' | 'failed' | undefined,
   catalogError: undefined as string | undefined,
 }
+const catalogReload = vi.fn()
 
 vi.mock('../src/client/main-row-controller.js', () => ({
   deriveRouteChoices: () => ({ providers: [{ id: 'codex', name: 'Codex' }], models: [{ id: 'gpt-subagent', name: 'GPT Subagent' }] }),
@@ -33,8 +37,15 @@ vi.mock('../src/client/main-row-controller.js', () => ({
   },
   selectRouteModel: () => ({ provider: 'codex', model: 'gpt-subagent' }),
   useSettingsCatalog: () => ({
-    groups: catalogState.emptyCatalog ? [] : catalogState.groups,
-    catalogError: catalogState.catalogError,
+    status: catalogState.status ?? (catalogState.emptyCatalog ? 'loading' : 'ready'),
+    // The real hook merges host failures in as model-less groups; mirror that.
+    groups: [
+      ...(catalogState.emptyCatalog ? [] : catalogState.groups),
+      ...catalogState.failures.map(failure => ({ id: failure.id, name: failure.name, models: [] as never[] })),
+    ],
+    failures: catalogState.failures,
+    error: catalogState.catalogError,
+    reload: catalogReload,
   }),
 }))
 
@@ -534,6 +545,81 @@ describe('Model Switch settings menu', () => {
     })
     const remove = renderer.root.findAllByType('button').find(button => instanceText(button) === 'providerGroupDelete')
     expect(remove?.props.disabled).toBe(true)
+  })
+
+  it('shows the loading hint while the catalog has never loaded', () => {
+    catalogState.emptyCatalog = true
+    try {
+      const markup = renderSettings()
+      expect(markup).toContain('catalogLoading')
+      expect(markup).not.toContain('catalogRetry')
+    } finally {
+      catalogState.emptyCatalog = false
+    }
+  })
+
+  it('offers a retry next to the failure when the catalog has never loaded', async () => {
+    catalogState.emptyCatalog = true
+    catalogState.catalogError = 'catalogFailed'
+    catalogReload.mockClear()
+    try {
+      const { renderer } = mountSettings()
+      expect(JSON.stringify(renderer.toJSON())).toContain('catalogFailed')
+      const retry = renderer.root.findAllByType('button').find(button => instanceText(button).includes('catalogRetry'))
+      expect(retry).toBeDefined()
+      expect(retry?.props.disabled ?? false).toBe(false)
+      act(() => {
+        retry?.props.onClick()
+      })
+      expect(catalogReload).toHaveBeenCalledTimes(1)
+    } finally {
+      catalogState.emptyCatalog = false
+      catalogState.catalogError = undefined
+    }
+  })
+
+  it('keeps stale groups editable with the unavailable hint instead of the raw failure', () => {
+    catalogState.catalogError = 'catalogFailed'
+    try {
+      const markup = renderSettings({ providerGroups: [entryOf('codex', { compactProvider: 'codex', compactModel: 'gpt' })] })
+      // Last good groups survive the failure, so the hint replaces the raw error…
+      expect(markup).toContain('catalogUnavailableHint')
+      expect(markup).toContain('catalogRetry')
+      expect(markup).not.toContain('catalogFailed')
+      // …and the configured group stays reachable for edits and deletion.
+      const { renderer } = mountSettings({ providerGroups: [entryOf('codex', { compactProvider: 'codex', compactModel: 'gpt' })] })
+      const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('providerGroupsCard'))
+      act(() => {
+        header?.props.onClick()
+      })
+      const remove = renderer.root.findAllByType('button').find(button => instanceText(button) === 'providerGroupDelete')
+      expect(remove?.props.disabled).toBe(false)
+    } finally {
+      catalogState.catalogError = undefined
+    }
+  })
+
+  it('keeps a host-reported failed provider selectable instead of marking it deleted', () => {
+    catalogState.failures = [{ id: 'apigoto', name: 'Apigoto', message: 'boom' }]
+    try {
+      const { renderer } = mountSettings({ providerGroups: [entryOf('apigoto', { titleProvider: 'apigoto', titleModel: 'm-title' })] })
+      const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('providerGroupsCard'))
+      act(() => {
+        header?.props.onClick()
+      })
+      // The editor opens on the configured (failed) provider, listed without ⚠.
+      const providerSelect = renderer.root.findAllByType('select').find(select => String(select.props.value) === 'apigoto')
+      expect(providerSelect).toBeDefined()
+      const options = providerSelect?.findAllByType('option') ?? []
+      // "—" placeholder + live groups in catalog order, then the failed provider
+      // (✓ = it has a stored group) — and, decisively, no "⚠" anywhere.
+      expect(options.map(option => instanceText(option as unknown as { children?: readonly unknown[] }))).toEqual(['—', 'Codex', 'Apigoto ✓'])
+      expect(options.some(option => instanceText(option as unknown as { children?: readonly unknown[] }).includes('⚠'))).toBe(false)
+      const remove = renderer.root.findAllByType('button').find(button => instanceText(button) === 'providerGroupDelete')
+      expect(remove?.props.disabled).toBe(false)
+    } finally {
+      catalogState.failures = []
+    }
   })
 
   it('follows an accepted snapshot only while the row draft is pristine', () => {

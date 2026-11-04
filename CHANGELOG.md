@@ -1,3 +1,12 @@
+## v0.4.62
+
+修复设置页「模型目录偶发加载失败后整个页面卡死」的问题：两个会话在不同供应商上并行、后台任务（如记忆蒸馏）恰在加载瞬间占用 Host 时，`session/modelCatalog` 的一次瞬时失败会把设置页永久留在空目录状态——供应商配置组下拉里所有供应商都带 ⚠、模型下拉没有选项、依赖目录的开关全部禁用，只能重开设置页恢复。
+
+- **根因**：`useSettingsCatalog` 只在挂载与供应商排序变化时各加载一次，`.catch()` 只设置错误文案、`groups` 保持 `[]`，没有任何重试或刷新入口。空目录时 `groupProviderChoices` 把每个已配置供应商追加为 `unavailable ⚠`，且宿主目录响应里的 `failures`（哪些供应商只是暂时加载失败）被客户端整个丢弃，"暂时不可用"被渲染成"已删除"。
+- **修复（`src/client/main-row-controller.ts`）**：目录加载改为状态机 `loading / ready / failed`——失败后按 400ms / 1200ms 退避重试（共 3 次尝试），重试成功即自愈；**失败时保留最近一次成功的 groups**（不再把可用目录清空）；只有最新一次加载可以落地（取消的加载被丢弃）。新增 `withCatalogFailures()` 把宿主 `failures` 合并为无模型的供应商条目：这些供应商保持可选（不再显示 ⚠），但不发明模型行（种子逻辑因 `models[0]` 为空自动跳过）。`src/client/index.tsx` 的 `loadCatalog` 现在把 `failures` 与 `groups` 一起返回。
+- **UI（`src/client/ModelSwitchSettings.tsx`）**：目录失败时显示明确提示与「重试」按钮；从未加载成功时显示原始失败文案，还留着上一次成功目录时显示"目录暂时不可用（已保存的组仍可编辑）"；初始加载期显示"正在加载模型目录…"。供应商配置组的「删除该组」与已选组编辑在目录失败期间保持可用；依赖模型种子的能力开关语义不变（目录为空仍禁用，防误点）。
+- **测试**：`tests/client-controller.spec.ts` 新增 8 条（failures 合并去重、空名回退 id、失败供应商在组编辑器可选、重试助手的首试即成/退避重试/预算用尽抛最后错误/取消即停）；`tests/settings-ui.client.spec.tsx` 新增 4 条（加载提示、失败重试按钮触发 reload、残留组可编辑可删除、宿主报失败的供应商不带 ⚠ 且可删除）。`pnpm run check` 全绿（tsc + tsdown + 656 测试 + pack 闸门）。
+
 ## v0.4.61
 
 修复 DSH 0.2.1 上**子代理与团队通道全部不可用**的 P0：`spawn_teammate` / `subagent` 一律失败，报 `cannot get property "workingDirectory" without inject`。

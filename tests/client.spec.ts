@@ -50,7 +50,7 @@ function ctxWith(ownedValue: ModelSwitchSettingsView = { subagentMode: 'follow-m
     inject: (_deps: string[], callback: (scope: unknown) => unknown) => { directoryMounts.push(callback) },
     effect(factory: () => unknown) { factory() },
     locale: { register: vi.fn(() => vi.fn()), bind: vi.fn(() => (key: string) => key) },
-    remote: { session: { modelCatalog: vi.fn(async () => ({ ok: true, value: { groups: [{ id: 'codex', name: 'Codex', models: [] }, { id: 'new-native', name: 'Native', models: [] }] } })) } },
+    remote: { session: { modelCatalog: vi.fn(async () => ({ ok: true, value: { groups: [{ id: 'codex', name: 'Codex', models: [] }, { id: 'new-native', name: 'Native', models: [] }], failures: [] } })) } },
     configForms: {
       get: vi.fn((id: string) => id === MODEL_SWITCH_CONFIG_ID ? owned.form : providers.form),
     },
@@ -65,11 +65,11 @@ describe('Client ConfigForms surface', () => {
   it('refreshes catalog order and role when the optional directory mounts and unmounts', async () => {
     const { registration, directoryMounts } = ctxWith()
     const face = (registration!.inject as () => {
-      loadCatalog(): Promise<Array<{ id: string }>>
+      loadCatalog(): Promise<{ groups: Array<{ id: string }>; failures: unknown[] }>
       providerRoleOf(key: string): string
       subscribeProviderOrder(listener: () => void): () => void
     })()
-    expect((await face.loadCatalog()).map(group => group.id)).toEqual(['codex', 'new-native'])
+    expect((await face.loadCatalog()).groups.map(group => group.id)).toEqual(['codex', 'new-native'])
     const changed = vi.fn()
     const stop = face.subscribeProviderOrder(changed)
     const disposers: Array<() => void> = []
@@ -84,26 +84,26 @@ describe('Client ConfigForms surface', () => {
       effect: (register: () => () => void) => { disposers.push(register()) },
     })
     expect(changed).toHaveBeenCalledOnce()
-    expect((await face.loadCatalog()).map(group => group.id)).toEqual(['new-native', 'codex'])
+    expect((await face.loadCatalog()).groups.map(group => group.id)).toEqual(['new-native', 'codex'])
     expect(face.providerRoleOf('new-native')).toBe('agent')
     for (const dispose of disposers.reverse()) dispose()
     expect(listeners.size).toBe(0)
     expect(changed).toHaveBeenCalledTimes(2)
-    expect((await face.loadCatalog()).map(group => group.id)).toEqual(['codex', 'new-native'])
+    expect((await face.loadCatalog()).groups.map(group => group.id)).toEqual(['codex', 'new-native'])
     expect(face.providerRoleOf('new-native')).toBe('llm')
     stop()
   })
 
   it('keeps catalog loading available with an older directory lacking catalogRoutes', async () => {
     const { registration, directoryMounts } = ctxWith()
-    const face = (registration!.inject as () => { loadCatalog(): Promise<Array<{ id: string }>> })()
+    const face = (registration!.inject as () => { loadCatalog(): Promise<{ groups: Array<{ id: string }>; failures: unknown[] }> })()
     const directory = { roleOf: () => 'llm', subscribe: () => () => undefined }
     const disposers: Array<() => void> = []
     for (const mount of directoryMounts) mount({
       get: () => directory,
       effect: (register: () => () => void) => { disposers.push(register()) },
     })
-    expect((await face.loadCatalog()).map(group => group.id)).toEqual(['codex', 'new-native'])
+    expect((await face.loadCatalog()).groups.map(group => group.id)).toEqual(['codex', 'new-native'])
     for (const dispose of disposers.reverse()) dispose()
   })
 

@@ -10,7 +10,7 @@ import type { RuntimeCapabilities } from '../runtime-capabilities.js'
 import { searchGroupsFromCapabilities, type CapabilitiesSnapshot } from './search-capabilities.js'
 import type { ModelSwitchLocaleKey } from './locales.js'
 import { isAgentRole, matchCatalogModel } from './antigravity-catalog.ts'
-import { deriveRouteChoices, groupProviderChoices as groupProviderOptions, selectRouteModel, useSettingsCatalog, type Choice, type RouteModelSelection } from './main-row-controller.js'
+import { deriveRouteChoices, groupProviderChoices as groupProviderOptions, selectRouteModel, useSettingsCatalog, type Choice, type RouteModelSelection, type SettingsCatalogPayload } from './main-row-controller.js'
 import css from './ModelSwitchSettings.module.css'
 import type { ConfigViewForm, ConfigViewOp } from './derived-config-form.js'
 
@@ -32,7 +32,7 @@ export interface ModelSwitchSettingsFace {
   scanTools?: () => Promise<{ rows: readonly ToolCatalogRow[]; status?: ReviewStatusView }>
   /** Replace or remove (undefined) one provider's saved capability group. */
   saveProviderGroup: (provider: string, group: ProviderGroupConfig | undefined) => Promise<void>
-  loadCatalog: () => Promise<readonly ModelProviderGroup[]>
+  loadCatalog: () => Promise<SettingsCatalogPayload>
   /** Host capabilities long-poll; absent in legacy faces, which keep the static-capabilities path. */
   loadCapabilities?: (revision?: number, signal?: AbortSignal) => Promise<CapabilitiesSnapshot>
   subscribeProviderOrder?: (listener: () => void) => () => void
@@ -210,7 +210,10 @@ function capabilityChoices(groups: readonly ModelProviderGroup[], route: Capabil
 const MEMORY_CAPABILITY_UI: boolean = true
 
 export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode {
-  const { groups, catalogError } = useSettingsCatalog(props)
+  // The catalog state machine keeps the last good groups across a transient load
+  // failure and exposes reload(); groups already include the host's load
+  // failures as model-less providers, so a hiccup never renders as "deleted".
+  const { groups, status: catalogStatus, error: catalogError, reload: reloadCatalog } = useSettingsCatalog(props)
   const subagent = props.useSubagentSettings(value => value)
   const search = props.useSearchSettings(value => value)
   const image = props.useImageSettings(value => value)
@@ -673,7 +676,13 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     <h1 className={css.title}>{props.t('title')}</h1>
     <p className={css.intro}>{props.t('subtitle')}</p>
     <p className={css.saved}><i className={css.savedDot} />{synced ? props.t('settingsSynced') : props.t('loading')}</p>
-    {catalogError === undefined ? null : <p className={cx(css.hint, css.message)}>{catalogError}</p>}
+    {catalogError === undefined
+      ? (catalogStatus === 'loading' && groups.length === 0 ? <p className={css.hint}>{props.t('catalogLoading')}</p> : null)
+      : <p className={cx(css.hint, css.message)}>
+          {/* Stale-but-present groups stay editable; only a never-loaded catalog shows the raw failure. */}
+          {groups.length === 0 ? catalogError : props.t('catalogUnavailableHint')}
+          {' '}<button type="button" className={cx(css.button, css.secondaryButton)} onClick={reloadCatalog}>{props.t('catalogRetry')}</button>
+        </p>}
 
     <section className={css.group}><h2 className={css.groupLabel}>{props.t('conversationRoutes')}</h2>
       {props.capabilities.centralSubagentRouting.available ? <RouteCard title={props.t('subagent')} summary={subagentSummary} hint={props.t('subagentHelp')} note={groupNote(props.t, groupPins.subagent)} icon="subagent" open={open === 'subagent' && subagentOn} onToggle={() => { if (subagentOn) toggle('subagent') }} expandable={subagentOn} trailing={subagentDraft === undefined ? undefined : <InstantSwitch checked={subagentOn} disabled={subagentSwitchDisabled} label={props.t('subagent')} onChange={persistSubagentEnabled} />}>

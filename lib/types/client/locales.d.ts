@@ -28,6 +28,9 @@ export declare const zh: {
     readonly loading: "正在加载设置…";
     readonly requestFailed: "保存失败";
     readonly catalogFailed: "无法加载模型目录。";
+    readonly catalogLoading: "正在加载模型目录…";
+    readonly catalogRetry: "重试";
+    readonly catalogUnavailableHint: "模型目录暂时不可用（后台任务繁忙或 Host 忙碌时会偶发）；已显示的供应商与已保存的组仍可编辑，也可点击重试。";
     readonly autoReview: "自动审查模型";
     readonly autoReviewFollow: "跟随会话模型";
     readonly autoReviewHelp: "为官方 auto-review（Auto 权限预设的逐调用审查）指定审查模型；需启用官方 auto-review 能力包。关闭时审查跟随当前会话模型。本插件启用时，官方「自动审查」组件由本插件接管。";

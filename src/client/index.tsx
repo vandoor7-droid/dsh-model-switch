@@ -108,7 +108,12 @@ export function apply(ctx: ClientContext): void {
       if (!response.ok || response.value === undefined) throw new Error(t('catalogFailed'))
       const enabled = await fetchAntigravityCatalogGroups(connectionRpc)
       const order = orderStore.getSnapshot()
-      return sortCatalogGroupsWithRoutes(withAntigravityCatalog(response.value.groups, enabled), order, readCatalogRoutes(directory))
+      return {
+        // Failures ride along so the settings page can keep a temporarily
+        // unloadable provider selectable instead of rendering it as deleted.
+        groups: sortCatalogGroupsWithRoutes(withAntigravityCatalog(response.value.groups, enabled), order, readCatalogRoutes(directory)),
+        failures: response.value.failures,
+      }
         }, ...(connectionRpc === undefined ? {} : { loadCapabilities: async (revision?: number, signal?: AbortSignal): Promise<CapabilitiesSnapshot> => {
       const rpc = connectionRpc
       if (rpc === undefined) throw new Error(t('catalogFailed'))
