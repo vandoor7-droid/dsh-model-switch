@@ -19,7 +19,7 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({
 vi.mock('../../src/client/picker/popup-dismissal.ts', () => ({ installPickerDismissal: () => () => undefined }))
 vi.mock('../../src/client/picker/useComposerPickerSurface.ts', () => ({
   useComposerPickerSurface: () => ({
-    id: 'test', open: false, menuStyle: {}, triggerRef: { current: null }, menuRef: { current: null },
+    id: 'test', open: false, triggerRef: { current: null }, menuRef: { current: null },
     close: vi.fn(), onTriggerPointerDown: vi.fn(), onTriggerClick: vi.fn(),
   }),
 }))

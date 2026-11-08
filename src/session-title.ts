@@ -51,6 +51,7 @@ import type {
 } from '@deepseek-ai/dsh-session-title'
 import type { ResolvedSessionTitleLlmConfig } from '@deepseek-ai/dsh-session-title-llm'
 import type { ModelSwitchSettings } from './host-settings.js'
+import { titleSettingsReaderOf } from './title-settings-reader.js'
 import {
   deploymentRoute,
   groupRoute,
@@ -626,8 +627,9 @@ async function generateTitle(
   module: TitleLlmModule,
   plan: NamingPlan,
   request: SessionTitleProviderRequest,
+  settingsReader: () => ModelSwitchSettings | undefined,
 ): Promise<SessionTitleProviderResult> {
-  const candidates = titleRouteCandidates(currentSettings(ctx), sessionProviderOf(ctx, request.session), plan.config, request.route)
+  const candidates = titleRouteCandidates(settingsReader(), sessionProviderOf(ctx, request.session), plan.config, request.route)
   const attempts: readonly TitleAttempt[] = candidates.length === 0
     ? [{ route: undefined, config: plan.config }]
     : candidates.map(route => ({ route, config: composeTitleRoute(plan.config, route) }))
@@ -667,24 +669,6 @@ interface NamingPlan {
   readonly targets: TitleLengthTargets
 }
 
-/**
- * Read live Model Switch settings without requiring the host row.
- *
- * The host is read structurally instead of injected so this row keeps mirroring
- * the official naming behavior when the `model-switch` row is disabled: an
- * unreachable host resolves to the row's own policy rather than to a pinned
- * route.
- * @param ctx - this row's context.
- * @returns The settings, or undefined when the host is unavailable.
- */
-function currentSettings(ctx: Context): ModelSwitchSettings | undefined {
-  try {
-    return ctx.get('modelSwitch', false)?.currentSettings()
-  } catch {
-    return undefined
-  }
-}
-
 /** Resolve the naming plan for one official row, or the shipped defaults when no row exists. */
 function planFor(ctx: Context, module: TitleLlmModule, entry: Entry | undefined): NamingPlan | undefined {
   const cadence = titleCadence(entry === undefined ? undefined : officialTitlePackage(entry)) ?? TITLE_CADENCES[0]
@@ -702,11 +686,16 @@ function planFor(ctx: Context, module: TitleLlmModule, entry: Entry | undefined)
 }
 
 /** One naming plan bound to a live route resolver. */
-function providerOf(ctx: Context, module: TitleLlmModule, plan: NamingPlan): SessionTitleProvider {
+function providerOf(
+  ctx: Context,
+  module: TitleLlmModule,
+  plan: NamingPlan,
+  settingsReader: () => ModelSwitchSettings | undefined,
+): SessionTitleProvider {
   return {
     id: plan.cadence.id,
     automatic: plan.cadence.automatic,
-    generate: request => generateTitle(ctx, module, plan, request),
+    generate: request => generateTitle(ctx, module, plan, request, settingsReader),
   }
 }
 
@@ -736,6 +725,7 @@ class NamingSeam {
   constructor(
     private readonly ctx: Context,
     private readonly module: TitleLlmModule,
+    private readonly settingsReader: () => ModelSwitchSettings | undefined,
     plan: NamingPlan,
   ) {
     this.plan = plan
@@ -760,7 +750,7 @@ class NamingSeam {
     this.plan = plan
     if (this.disposer !== undefined) return true
     try {
-      this.disposer = this.ctx.sessionTitle.register(providerOf(this.ctx, this.module, plan))
+      this.disposer = this.ctx.sessionTitle.register(providerOf(this.ctx, this.module, plan, this.settingsReader))
       return true
     } catch {
       return false
@@ -901,8 +891,13 @@ function installTakeover(ctx: Context, module: TitleLlmModule, seam: NamingSeam)
    * the real Host always provides one of them.
    */
   const entryOfEvent = (self: unknown, first: unknown): Entry | undefined => {
-    const candidate = self ?? first
-    return candidate !== null && typeof candidate === 'object' && 'options' in candidate ? candidate as Entry : undefined
+    // Cordis listeners run with `this` bound to the emitting context and the
+    // payload as the first argument. Prefer the payload; only fall back to
+    // `this` for hosts that invoke the listener with the entry itself.
+    for (const candidate of [first, self]) {
+      if (candidate !== null && typeof candidate === 'object' && 'options' in candidate) return candidate as Entry
+    }
+    return undefined
   }
 
   const listeners: Array<() => void> = []
@@ -950,12 +945,14 @@ function installTakeover(ctx: Context, module: TitleLlmModule, seam: NamingSeam)
   listen('loader/partial-dispose', function (this: unknown, first?: unknown) {
     // A composition teardown starts here, and the rebuilt composition re-inserts
     // bundle-provided rows before this row is disposed again. Releasing the slot
-    // on the very first teardown event is what keeps such a row's own register()
-    // from failing with "already registered" — a failed activation aborts the
-    // whole composition, which is how saving a model provider used to fail.
-    seam.yieldSlot()
+    // when an official naming row goes away is what keeps such a row's own
+    // register() from failing with "already registered" — a failed activation
+    // aborts the whole composition, which is how saving a model provider used
+    // to fail. An unrelated row's teardown must NOT release the slot: doing so
+    // left naming without a provider until the next composition.
     const entry = entryOfEvent(this, first)
     if (entry === undefined || !isOfficialTitleRow(entry)) return
+    seam.yieldSlot()
     handled.delete(entry)
     if (seam.claimed) return
     const plan = planFor(ctx, module, officialTitleEntry(ctx.get('loader', false)))
@@ -1004,6 +1001,13 @@ function installTakeover(ctx: Context, module: TitleLlmModule, seam: NamingSeam)
  * @param ctx - this row's context.
  */
 export async function apply(ctx: Context): Promise<void> {
+  // The settings route is optional: a scope that depends on `modelSwitch` reads
+  // it, while the row itself never waits for it — an absent `model-switch` row
+  // keeps official naming behavior instead of leaving this row pending. The
+  // reader's identity is stable for the row's lifetime and re-reads the current
+  // service on every request, so a settings save or a host rebuild needs no
+  // remount and can never interrupt an in-flight naming request.
+  const settingsReader = titleSettingsReaderOf(ctx)
   const entry = officialTitleEntry(ctx.get('loader', false))
   // A `disabled` official row is not an instantiated loader entry, so the row to
   // mirror can be absent even while the profile still declares it. Mirroring the
@@ -1021,7 +1025,7 @@ export async function apply(ctx: Context): Promise<void> {
   }
   const plan = planFor(ctx, module, entry)
   if (plan === undefined) return
-  const seam = new NamingSeam(ctx, module, plan)
+  const seam = new NamingSeam(ctx, module, settingsReader, plan)
   // Claim only when no enabled official naming row is live. A composition
   // rewrite (a provider save re-writes the bundle layer, so the inserted row is
   // re-created) makes that row run its own `register()`, and a slot already held

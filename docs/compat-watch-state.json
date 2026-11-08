@@ -1,10 +1,10 @@
 {
   "$schema-note": "Baseline for the scheduled compatibility watch (see docs/dsh-compat-watch.md). `latest` is the npm dist-tag an ordinary install gets.",
   "schema": "dsh-model-switch/compat-watch-state/v1",
-  "checkedAt": "2026-11-02T01:40:00.000Z",
+  "checkedAt": "2026-11-08T05:30:12.868Z",
   "dsh": {
     "distTagWatched": "latest",
-    "latest": "0.2.1-rc.5",
+    "latest": "0.2.2-rc.1",
     "verifiedDeclared": [
       "0.1.7-alpha.2",
       "0.1.7-rc.1",
@@ -12,7 +12,8 @@
       "0.2.0-rc.2",
       "0.2.1-rc.2",
       "0.2.1-rc.3",
-      "0.2.1-rc.5"
+      "0.2.1-rc.5",
+      "0.2.2-rc.1"
     ],
     "declaredFloor": ">=0.2.0-rc.2"
   },

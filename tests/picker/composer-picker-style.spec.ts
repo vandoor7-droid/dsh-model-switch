@@ -23,6 +23,18 @@ describe('composer picker mobile sizing', () => {
     expect(block('.menu')).toContain('width: min(280px')
   })
 
+  it('composes the measured viewport clamps with safe-area floors', () => {
+    // The surface hook writes --dsh-menu-top/right/max-height; the stylesheet
+    // adds the env() floors. See popup-placement.ts.
+    expect(block('.menu')).toContain('top: max(var(--dsh-menu-top')
+    expect(block('.menu')).toContain('right: max(var(--dsh-menu-right')
+    expect(block('.menu')).toContain('max-height: min(var(--dsh-menu-max-height')
+    expect(block('.menu')).toContain('env(safe-area-inset-top)')
+    expect(block('.menu')).toContain('env(safe-area-inset-right)')
+    expect(block('.menu')).toContain('env(safe-area-inset-bottom)')
+    expect(block('.menu')).toContain('visibility: hidden')
+  })
+
   it('allows only vertical scrolling inside the menu list', () => {
     expect(block('.list')).toContain('overflow-x: hidden')
     expect(block('.list')).toContain('overflow-y: auto')

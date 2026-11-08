@@ -72,7 +72,11 @@ async function mountPicker(tone?: 'capsule'): Promise<HTMLDivElement> {
 }
 
 async function click(element: HTMLElement): Promise<void> {
-  await act(async () => { element.focus(); element.click() })
+  await act(async () => {
+    element.focus()
+    element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+    element.click()
+  })
 }
 
 async function pressEscape(): Promise<void> {
@@ -82,7 +86,7 @@ async function pressEscape(): Promise<void> {
 }
 
 function menu(): HTMLDivElement {
-  const element = document.body.querySelector<HTMLDivElement>('[role="menu"]')
+  const element = document.body.querySelector<HTMLDivElement>('[data-dsh-plan-review-menu]')
   if (element === null) throw new Error('picker menu is not open')
   return element
 }

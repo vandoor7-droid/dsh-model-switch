@@ -1,201 +1,181 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { Context, Service } from '@deepseek-ai/cordis'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Context, Service, symbols } from '@deepseek-ai/cordis'
 import OfficialSubagentRuntime from '@deepseek-ai/dsh-subagent'
-import {
-  ModelSwitchSubagentRuntime,
-  StartupIncompatibilityError,
-  mountWithStartupFallback,
-  profileSubagentRuntime,
-  routedRuntimeUnavailableNotice,
-  subagentSurfaceOf,
-} from '../src/subagent-runtime.js'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { installSubagentRouteWrappers, profileSubagentRuntime } from '../src/subagent-runtime.js'
 
-let context: Context | undefined
-
+const contexts: Context[] = []
 afterEach(async () => {
-  await context?.fiber.dispose()
-  context = undefined
+  for (const context of contexts.splice(0).reverse()) await context.fiber.dispose()
+  vi.restoreAllMocks()
 })
 
-describe('Subagent profile startup selection', () => {
-  it('falls back after typed public-surface incompatibility', async () => {
-    class IncompatibleModelSwitch extends Service {
-      static inject = []
-      constructor(ctx: Context) { super(ctx, 'modelSwitch') }
-    }
+function context(): Context {
+  const ctx = new Context()
+  contexts.push(ctx)
+  return ctx
+}
 
-    context = new Context()
-    await context.plugin(IncompatibleModelSwitch)
-    await context.plugin(profileSubagentRuntime)
+function raw<T extends object>(value: T): T {
+  return Reflect.get(value, symbols.original) ?? value
+}
 
-    expect(context.subagents).toBeInstanceOf(OfficialSubagentRuntime)
-    expect(context.subagents).not.toBeInstanceOf(ModelSwitchSubagentRuntime)
-  })
+class ModelSwitchStub extends Service {
+  static inject = []
+  settings: Record<string, unknown> = { subagentMode: 'fixed', subagentProvider: 'route-provider', subagentModel: 'route-model' }
+  constructor(ctx: Context) { super(ctx, 'modelSwitch') }
+  currentSettings(): Record<string, unknown> { return { ...this.settings } }
+}
 
-  it('does not fall back for a startup TypeError', async () => {
-    class ThrowingModelSwitch extends Service {
-      static inject = []
-      constructor(ctx: Context) { super(ctx, 'modelSwitch') }
-      get currentSettings(): never { throw new TypeError('broken model switch') }
-    }
-
-    context = new Context()
-    await context.plugin(ThrowingModelSwitch)
-    await expect(context.plugin(profileSubagentRuntime)).rejects.toThrow('broken model switch')
-    expect(context.registry.has(OfficialSubagentRuntime)).toBe(false)
-  })
+const spec = () => ({
+  provider: 'spawn', childId: 'reserved-child', label: 'child', delivery: 'parent',
+  signal: new AbortController().signal,
+  request: { parent: { options: {}, session: { requestHeader: () => undefined } }, prompt: [], cwd: 'child-directory' },
 })
 
-describe('replaced Subagent start surface', () => {
-  it('names the replaced surface in the operator notice', () => {
-    const notice = routedRuntimeUnavailableNotice(new StartupIncompatibilityError(
-      'OfficialSubagentRuntime',
-      'OfficialSubagentRuntime must expose public startContinuable()',
-    ))
-    expect(notice).toContain('the routed Subagent runtime is unavailable on this DSH Host')
-    expect(notice).toContain('must expose public startContinuable()')
-  })
+function captureRuntime() {
+  return {
+    getProvider: vi.fn(() => ({ capabilities: { agentOptions: true } })),
+    startActivation: vi.fn(async function (this: unknown, value: ReturnType<typeof spec>, extra?: unknown) { return { value, receiver: this, extra } }),
+    start: vi.fn(async (provider: string, request: unknown) => ({ provider, request })),
+    startContinuable: vi.fn(async (value: ReturnType<typeof spec>) => value),
+    prompt: vi.fn(), interrupt: vi.fn(), interruptByParent: vi.fn(),
+    typertRemote: { serviceKey: 'subagents' },
+  }
+}
 
-  it('classifies both published runtime lines', () => {
-    expect(subagentSurfaceOf({ startActivation() {}, start() {}, startContinuable() {} })).toBe('activation')
-    expect(subagentSurfaceOf({ start() {}, startContinuable() {} })).toBe('start')
-    expect(subagentSurfaceOf({ start() {} })).toBeUndefined()
-    expect(subagentSurfaceOf({ startActivation: 'not-a-method' })).toBeUndefined()
-    expect(subagentSurfaceOf(undefined)).toBeUndefined()
-  })
+async function bench(withSettings = true) {
+  const ctx = context()
+  const runtime = captureRuntime()
+  await ctx.plugin((scope: Context) => { scope.provide('subagents', runtime) })
+  const settings = withSettings ? await ctx.plugin(ModelSwitchStub) : undefined
+  return { ctx, runtime, settings }
+}
 
-  it('mounts the routed runtime on an activation-only Host', async () => {
-    const prototype = OfficialSubagentRuntime.prototype as unknown as Record<string, unknown>
-    const saved = {
-      start: prototype.start,
-      startContinuable: prototype.startContinuable,
-      startActivation: prototype.startActivation,
+describe('official Subagent service route adapter', () => {
+  it('keeps the exact official instance, prototype, Typert binding and all stop descriptors', async () => {
+    const ctx = context()
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(ModelSwitchStub)
+    await ctx.plugin(OfficialSubagentRuntime)
+    const service = raw(ctx.subagents)
+    const prototype = Object.getPrototypeOf(service)
+    const binding = service.typertRemote
+    const descriptors = ['prompt', 'interrupt', 'interruptByParent'].map(key => [key, Object.getOwnPropertyDescriptor(service, key), Reflect.get(service, key)] as const)
+    const originalStart = service.start
+    const adapter = await ctx.plugin(profileSubagentRuntime)
+
+    expect(raw(ctx.subagents) === service).toBe(true)
+    expect(Object.getPrototypeOf(service) === prototype).toBe(true)
+    expect(service.typertRemote === binding).toBe(true)
+    expect(binding.serviceKey).toBe('subagents')
+    expect(service.start === originalStart).toBe(false)
+    for (const [key, descriptor, value] of descriptors) {
+      expect(Object.getOwnPropertyDescriptor(service, key)).toEqual(descriptor)
+      expect(Reflect.get(service, key) === value).toBe(true)
     }
-    try {
-      delete prototype.start
-      delete prototype.startContinuable
-      prototype.startActivation = async function () { return {} }
-      class CompatibleModelSwitch extends Service {
-        static inject = []
-        constructor(ctx: Context) { super(ctx, 'modelSwitch') }
-        currentSettings() { return {} }
-      }
-
-      context = new Context()
-      await context.plugin(CompatibleModelSwitch)
-      await context.plugin(profileSubagentRuntime)
-
-      expect(context.subagents).toBeInstanceOf(ModelSwitchSubagentRuntime)
-    } finally {
-      for (const [method, value] of Object.entries(saved)) {
-        if (value === undefined) delete prototype[method]
-        else prototype[method] = value
-      }
-    }
-  })
-})
-
-describe('typed startup fallback cleanup', () => {
-  it('disposes the failed candidate before mounting the fallback', async () => {
-    const events: string[] = []
-    const mounted = await mountWithStartupFallback(
-      async track => {
-        events.push('candidate-start')
-        track(async () => { events.push('candidate-cleanup') })
-        throw new StartupIncompatibilityError('candidate', 'unsupported public surface')
-      },
-      async track => {
-        events.push('fallback-start')
-        track(async () => { events.push('fallback-cleanup') })
-        return 'fallback'
-      },
-    )
-
-    expect(mounted.value).toBe('fallback')
-    expect(events).toEqual(['candidate-start', 'candidate-cleanup', 'fallback-start'])
-    await mounted.dispose()
-    await mounted.dispose()
-    expect(events).toEqual(['candidate-start', 'candidate-cleanup', 'fallback-start', 'fallback-cleanup'])
+    await adapter.dispose()
+    expect(service.start === originalStart).toBe(true)
+    expect(raw(ctx.subagents) === service).toBe(true)
   })
 
-  it('does not fall back for route errors', async () => {
-    let fallbackStarted = false
-    await expect(mountWithStartupFallback(
-      async () => { throw new Error('invalid route') },
-      async () => { fallbackStarted = true; return undefined },
-    )).rejects.toThrow('invalid route')
-    expect(fallbackStarted).toBe(false)
+  it('loads before the official runtime and works without Model Switch', async () => {
+    const ctx = context()
+    const adapter = await ctx.plugin(profileSubagentRuntime)
+    expect(adapter.state).toBe(2)
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(OfficialSubagentRuntime)
+    expect(raw(ctx.subagents) instanceof OfficialSubagentRuntime).toBe(true)
+    expect(typeof ctx.subagents.interruptByParent).toBe('function')
   })
 
-  it.each([
-    ['configuration', new TypeError('invalid configuration')],
-    ['route', new TypeError('route failed')],
-    ['provider', new TypeError('provider failed')],
-    ['call', new TypeError('call failed')],
-  ])('does not fall back for %s TypeError', async (_kind, failure) => {
-    let fallbackStarted = false
-    await expect(mountWithStartupFallback(
-      async () => { throw failure },
-      async () => { fallbackStarted = true; return undefined },
-    )).rejects.toBe(failure)
-    expect(fallbackStarted).toBe(false)
+  it('preserves receiver, arguments and metadata, then restores exact method descriptors', async () => {
+    const { ctx, runtime } = await bench()
+    const original = Object.getOwnPropertyDescriptors(runtime)
+    const dispose = installSubagentRouteWrappers(ctx)
+    const value = spec()
+    const result = await runtime.startActivation(value, 'extra')
+    expect(result.receiver === runtime).toBe(true)
+    expect(result.extra).toBe('extra')
+    expect(result.value).toEqual({ ...value, request: { ...value.request, agentOptions: { provider: 'route-provider', model: 'route-model' } } })
+    expect(result.value.signal === value.signal).toBe(true)
+    expect(result.value.request.parent === value.request.parent).toBe(true)
+    expect(value.request).not.toHaveProperty('agentOptions')
+    dispose()
+    dispose()
+    expect(Object.getOwnPropertyDescriptors(runtime)).toEqual(original)
   })
 
-  it('disposes a successful attempt in reverse order and only once', async () => {
-    const events: string[] = []
-    const mounted = await mountWithStartupFallback(
-      async track => {
-        track(async () => { events.push('cleanup-a') })
-        track(async () => { events.push('cleanup-b') })
-        events.push('candidate-ready')
-        return 'candidate'
-      },
-      async () => { throw new Error('fallback must not start') },
-    )
-
-    await Promise.all([mounted.dispose(), mounted.dispose()])
-    expect(events).toEqual(['candidate-ready', 'cleanup-b', 'cleanup-a'])
+  it.each([false, true])('shares one wrapper and releases overlapping installs in either order (reverse=%s)', async reverse => {
+    const { ctx, runtime } = await bench()
+    const original = runtime.startActivation
+    const first = installSubagentRouteWrappers(ctx)
+    const wrapped = runtime.startActivation
+    const second = installSubagentRouteWrappers(ctx)
+    expect(runtime.startActivation === wrapped).toBe(true)
+    const releases = reverse ? [second, first] : [first, second]
+    releases[0]!()
+    const result = await runtime.startActivation(spec())
+    expect(result.value.request).toHaveProperty('agentOptions.model', 'route-model')
+    expect(runtime.startActivation === wrapped).toBe(true)
+    releases[1]!()
+    expect(runtime.startActivation === original).toBe(true)
   })
 
-  it('reports fallback cleanup failure without retrying disposal', async () => {
-    let cleanupCount = 0
-    const mounted = await mountWithStartupFallback(
-      async () => { throw new StartupIncompatibilityError('candidate', 'unsupported public surface') },
-      async track => {
-        track(async () => { cleanupCount += 1; throw new Error('fallback cleanup failed') })
-        return 'fallback'
-      },
-    )
-
-    await expect(mounted.dispose()).rejects.toSatisfy(error =>
-      error instanceof AggregateError
-      && error.errors.length === 1
-      && (error.errors[0] as Error).message === 'fallback cleanup failed',
-    )
-    await expect(mounted.dispose()).rejects.toSatisfy(error => error instanceof AggregateError)
-    expect(cleanupCount).toBe(1)
+  it('keeps a later extension replacement when its lease is released', async () => {
+    const { ctx, runtime } = await bench()
+    const dispose = installSubagentRouteWrappers(ctx)
+    const laterOwner = vi.fn()
+    runtime.startActivation = laterOwner as never
+    dispose()
+    expect(runtime.startActivation === laterOwner).toBe(true)
   })
 
-  it('keeps the startup error first and aggregates every cleanup failure', async () => {
-    const events: string[] = []
-    const startup = new StartupIncompatibilityError('candidate', 'unsupported public surface')
-    let fallbackStarted = false
-    const result = mountWithStartupFallback(
-      async track => {
-        track(async () => { events.push('cleanup-a'); throw new Error('cleanup-a failed') })
-        track(async () => { events.push('cleanup-b'); throw new Error('cleanup-b failed') })
-        throw startup
-      },
-      async () => { fallbackStarted = true; return undefined },
-    )
+  it('rereads Model Switch after settings updates, absence, unload and replacement', async () => {
+    const { ctx, runtime, settings } = await bench(false)
+    const adapter = await ctx.plugin(profileSubagentRuntime)
+    expect((await runtime.startActivation(spec())).value.request).not.toHaveProperty('agentOptions')
+    const first = await ctx.plugin(ModelSwitchStub)
+    expect((await runtime.startActivation(spec())).value.request).toHaveProperty('agentOptions.model', 'route-model')
+    const service = raw(ctx.get('modelSwitch')!) as unknown as ModelSwitchStub
+    service.settings = { subagentMode: 'fixed', subagentProvider: 'new', subagentModel: 'new-model' }
+    expect((await runtime.startActivation(spec())).value.request).toHaveProperty('agentOptions.model', 'new-model')
+    await first.dispose()
+    expect((await runtime.startActivation(spec())).value.request).not.toHaveProperty('agentOptions')
+    const second = await ctx.plugin(ModelSwitchStub)
+    expect((await runtime.startActivation(spec())).value.request).toHaveProperty('agentOptions.model', 'route-model')
+    await second.dispose()
+    await adapter.dispose()
+    expect(settings).toBeUndefined()
+  })
 
-    await expect(result).rejects.toSatisfy(error => {
-      if (!(error instanceof AggregateError)) return false
-      return error.errors[0] === startup
-        && (error.errors[1] as Error).message === 'cleanup-b failed'
-        && (error.errors[2] as Error).message === 'cleanup-a failed'
-    })
-    expect(events).toEqual(['cleanup-b', 'cleanup-a'])
-    expect(fallbackStarted).toBe(false)
+  it('rebinds to a replacement Subagent runtime and releases the old instance', async () => {
+    const ctx = context()
+    await ctx.plugin(ModelSwitchStub)
+    const first = captureRuntime()
+    const original = first.startActivation
+    const mount = (runtime: ReturnType<typeof captureRuntime>) => (scope: Context) => { scope.provide('subagents', runtime) }
+    const firstFiber = await ctx.plugin(mount(first))
+    const adapter = await ctx.plugin(profileSubagentRuntime)
+    expect(first.startActivation === original).toBe(false)
+    await firstFiber.dispose()
+    expect(first.startActivation === original).toBe(true)
+    const second = captureRuntime()
+    const secondOriginal = second.startActivation
+    await ctx.plugin(mount(second))
+    expect(second.startActivation === secondOriginal).toBe(false)
+    expect((await second.startActivation(spec())).value.request).toHaveProperty('agentOptions.model', 'route-model')
+    await adapter.dispose()
+    expect(second.startActivation === secondOriginal).toBe(true)
+  })
+
+  it('rolls back partial installation on a sealed entry without damaging the official service', async () => {
+    const { ctx, runtime } = await bench()
+    Object.defineProperty(runtime, 'startContinuable', { configurable: false, writable: false, value: runtime.startContinuable })
+    const original = Object.getOwnPropertyDescriptors(runtime)
+    const dispose = installSubagentRouteWrappers(ctx)
+    expect(Object.getOwnPropertyDescriptors(runtime)).toEqual(original)
+    expect((await runtime.startActivation(spec())).value.request).not.toHaveProperty('agentOptions')
+    dispose()
   })
 })

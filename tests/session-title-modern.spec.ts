@@ -118,6 +118,14 @@ function bench(options: { settings?: Record<string, unknown>; entries?: unknown[
         return async () => {}
       },
     },
+    inject(deps: readonly string[], callback: (scope: { modelSwitch: { currentSettings(): Record<string, unknown> }; effect(body: () => unknown): unknown }) => void) {
+      if (deps.includes('modelSwitch')) {
+        callback({
+          modelSwitch: { currentSettings: () => ({ ...settings }) },
+          effect(body: () => unknown) { body() },
+        })
+      }
+    },
     on() {},
   }
   return { ctx: ctx as unknown as Context, warns, errors, registrations, settings }

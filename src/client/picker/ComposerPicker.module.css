@@ -108,7 +108,14 @@
   /* 280px fits the longest configured model title plus both 32px header
      controls; the viewport expression keeps it inside narrow mobile screens. */
   width: min(280px, max(0px, calc(100vw - 32px - env(safe-area-inset-left) - env(safe-area-inset-right))));
-  max-height: min(360px, calc(56dvh - env(safe-area-inset-bottom)));
+  /* Viewport placement (portal on document.body): the surface hook measures
+     the trigger and writes the measured clamps as custom properties; these
+     rules compose them with the env(safe-area-inset-*) floors so notched
+     phones keep the menu inside the safe area (see popup-placement.ts). */
+  top: max(var(--dsh-menu-top, 8px), calc(env(safe-area-inset-top) + 8px));
+  right: max(var(--dsh-menu-right, 8px), calc(env(safe-area-inset-right) + 8px));
+  max-height: min(var(--dsh-menu-max-height, 360px), calc(56dvh - env(safe-area-inset-bottom) - env(safe-area-inset-top)));
+  visibility: hidden;
   overflow: hidden;
   padding: 4px;
   border: 1px solid var(--dsw-alias-border-inverted);

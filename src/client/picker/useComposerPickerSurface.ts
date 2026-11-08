@@ -3,6 +3,7 @@ import {
   type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type RefObject,
 } from 'react'
 import { installPickerDismissal, type PickerInteractionOperations } from './popup-dismissal.ts'
+import { placeComposerPopup, samePlacement, type PopupPlacementStyle } from './popup-placement.ts'
 
 export interface ComposerPickerSurfaceOptions {
   locked: boolean
@@ -18,7 +19,6 @@ export interface ComposerPickerSurfaceOptions {
 export interface ComposerPickerSurface {
   id: string
   open: boolean
-  menuStyle: CSSProperties
   triggerRef: RefObject<HTMLButtonElement>
   menuRef: RefObject<HTMLDivElement>
   show: () => void
@@ -27,13 +27,28 @@ export interface ComposerPickerSurface {
   onTriggerClick: (event?: ReactMouseEvent<HTMLButtonElement>) => void
 }
 
-/** Own popup activation, positioning, and dismissal behind one internal seam. */
+/** The imperatively placed popup writes one style at a time through the DOM. */
+interface StyleWriter {
+  setProperty(name: string, value: string): void
+}
+
+/** camelCase React style keys to hyphenated CSS custom-value writes. */
+function applyPopupStyle(target: StyleWriter | undefined, style: CSSProperties): void {
+  if (target === undefined) return
+  for (const [property, value] of Object.entries(style)) {
+    if (value === undefined) continue
+    const rendered = typeof value === 'number' && property !== 'zIndex' ? `${value}px` : String(value)
+    target.setProperty(property.replace(/[A-Z]/gu, char => `-${char.toLowerCase()}`), rendered)
+  }
+}
+
+/** Own popup activation, viewport placement, and dismissal behind one internal seam. */
 export function useComposerPickerSurface(options: ComposerPickerSurfaceOptions): ComposerPickerSurface {
   const [open, setOpen] = useState(false)
-  const [menuStyle, setMenuStyle] = useState<CSSProperties>({ position: 'fixed', zIndex: 4000 })
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
-  const pointerOpenIntent = useRef<{ open: boolean, until: number } | null>(null)
+  const placementRef = useRef<PopupPlacementStyle>()
+  const pointerOpenIntent = useRef<{ open: boolean; until: number } | null>(null)
   const callbacks = useRef({ onOpen: options.onOpen, onClose: options.onClose })
   callbacks.current = { onOpen: options.onOpen, onClose: options.onClose }
   const lockedRef = useRef(options.locked)
@@ -42,6 +57,7 @@ export function useComposerPickerSurface(options: ComposerPickerSurfaceOptions):
 
   const close = useCallback((restoreFocus = false): void => {
     setOpen(false)
+    placementRef.current = undefined
     callbacks.current.onClose()
     if (restoreFocus) queueMicrotask(() => { triggerRef.current?.focus() })
   }, [])
@@ -57,30 +73,50 @@ export function useComposerPickerSurface(options: ComposerPickerSurfaceOptions):
     if (options.locked) close()
   }, [close, options.locked])
 
+  /**
+   * Keep the portaled menu glued to its trigger in viewport coordinates:
+   * measure once per commit, then follow resizes, scrolls, and menu size
+   * changes through listeners instead of re-rendering.
+   */
   useLayoutEffect(() => {
-    if (!open) return
+    if (!open || typeof window === 'undefined') return
+    const place = (): void => {
+      const trigger = triggerRef.current
+      const menu = menuRef.current
+      if (trigger === null || menu === null) return
+      const rect = trigger.getBoundingClientRect()
+      const measured = menu.getBoundingClientRect()
+      const bounds = {
+        width: measured.width || Math.min(280, window.innerWidth - 16),
+        height: measured.height || menu.scrollHeight || 220,
+      }
+      const next = placeComposerPopup({
+        trigger: rect,
+        menu: { width: bounds.width, height: bounds.height },
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+      })
+      if (samePlacement(placementRef.current, next)) return
+      placementRef.current = next
+      applyPopupStyle(menu.style, next as CSSProperties)
+    }
+
+    place()
     const trigger = triggerRef.current
-    if (trigger === null) return
-    const rect = trigger.getBoundingClientRect()
-    const gutter = 8
-    const maxWidth = Math.min(420, window.innerWidth - gutter * 2)
-    const preferredWidth = Math.min(320, maxWidth)
-    const right = Math.min(
-      Math.max(gutter, window.innerWidth - rect.right),
-      Math.max(gutter, window.innerWidth - gutter - preferredWidth),
-    )
-    const safeRight = 'max(' + right + 'px, calc(env(safe-area-inset-right) + ' + gutter + 'px))'
-    setMenuStyle({
-      position: 'fixed',
-      right: safeRight,
-      bottom: 'max(' + Math.max(gutter, window.innerHeight - rect.top + gutter) + 'px, calc(env(safe-area-inset-bottom) + ' + gutter + 'px))',
-      maxWidth: 'max(0px, calc(100vw - ' + safeRight + ' - env(safe-area-inset-left) - ' + gutter + 'px))',
-      zIndex: 4000,
-    })
-  }, [open, options.embedded, options.pane])
+    const menu = menuRef.current
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(place)
+    if (trigger !== null) observer?.observe(trigger)
+    if (menu !== null) observer?.observe(menu)
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open, options.pane])
 
   useEffect(() => {
-    if (!open || options.tone === 'capsule') return
+    if (!open || typeof document === 'undefined') return
     const interaction = options.resolveInteractionOperations?.()
     return installPickerDismissal({
       documentTarget: document,
@@ -90,12 +126,11 @@ export function useComposerPickerSurface(options: ComposerPickerSurfaceOptions):
       popup: () => menuRef.current,
       dismiss: close,
     })
-  }, [close, id, open, options.resolveInteractionOperations, options.tone])
+  }, [close, id, open, options.resolveInteractionOperations])
 
   return {
     id,
     open,
-    menuStyle,
     triggerRef,
     menuRef,
     show,

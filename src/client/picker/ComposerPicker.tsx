@@ -204,7 +204,7 @@ export function ComposerPicker({
   }
 
   const {
-    id, open, menuStyle, triggerRef, menuRef, close,
+    id, open, triggerRef, menuRef, close,
     onTriggerPointerDown, onTriggerClick,
   } = useComposerPickerSurface({
     locked,
@@ -320,18 +320,17 @@ export function ComposerPicker({
     ? t('trigger.selectAria')
     : t('trigger.aria', { model: triggerLabel })
 
-  const onRootKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (lockedRef.current) return
-    if (event.key === 'Escape' && open) {
-      event.preventDefault()
-      if (pane === 'model' && searching) {
-        setSearching(false)
-        setQuery('')
-      } else if (pane !== 'root') {
-        returnToRoot()
-      } else {
-        close(true)
-      }
+  const onPickerKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
+    if (lockedRef.current || event.key !== 'Escape' || !open) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (pane === 'model' && searching) {
+      setSearching(false)
+      setQuery('')
+    } else if (pane !== 'root') {
+      returnToRoot()
+    } else {
+      close(true)
     }
   }
 
@@ -364,12 +363,14 @@ export function ComposerPicker({
       ref={menuRef}
       id={`${id}-menu`}
       className={css.menu}
-      style={menuStyle}
+      style={{ position: 'fixed', zIndex: 4000 }}
+      data-dsh-plan-review-menu="true"
       role="menu"
       tabIndex={-1}
       aria-label={t('menu.aria')}
       aria-busy={state.status === 'loading' || busy}
       onPointerDown={event => { event.stopPropagation() }}
+      onKeyDown={onPickerKeyDown}
     >
       {paneHeader}
       <div className={css.list}>
@@ -568,7 +569,7 @@ export function ComposerPicker({
   ) : null
 
   return (
-    <div className={classNames(css.root, tone === 'capsule' ? css.capsule : embedded && css.embedded)} onKeyDown={onRootKeyDown}>
+    <div className={classNames(css.root, tone === 'capsule' ? css.capsule : embedded && css.embedded)} onKeyDown={onPickerKeyDown}>
       <button
         ref={triggerRef}
         type="button"
@@ -585,7 +586,7 @@ export function ComposerPicker({
         <span className={css.triggerLabel}>{currentSelection !== null ? <RuntimeIcon provider={currentSelection.provider} {...(roleOf === undefined ? {} : { roleOf })} /> : null}{triggerLabel}</span>
         <IconChevronDownOutlineRegular size={14} className={classNames(css.chevron, open && css.chevronOpen)} />
       </button>
-      {menu !== null && (tone === 'capsule' ? menu : createPortal(menu, document.body))}
+      {menu !== null && typeof document !== 'undefined' ? createPortal(menu, document.body) : null}
       {toast !== null && (
         <Toast
           key={toast.seq}

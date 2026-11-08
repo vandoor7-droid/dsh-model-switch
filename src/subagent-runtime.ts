@@ -1,64 +1,57 @@
-import { Context } from '@deepseek-ai/cordis'
+import { symbols, type Context } from '@deepseek-ai/cordis'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
-import OfficialSubagentRuntime, {
-  type ContinuableStart,
-  type ContinuableStartSpec,
-  type SubagentRun,
-  type SubagentStartRequest,
-} from '@deepseek-ai/dsh-subagent'
+import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { ModelSwitchSettings } from './host-settings.js'
 import { sessionSubagentRouteOf, type SubagentRoute } from './session-route.js'
 
-/** Raised only when an explicit startup check finds an unsupported public surface. */
-export class StartupIncompatibilityError extends Error {
-  override readonly name = 'StartupIncompatibilityError'
-  readonly surface: string
-
-  /**
-   * @param surfaceOrMessage - the incompatible public surface, or the error message.
-   * @param message - the missing or incompatible requirement.
-   */
-  constructor(surfaceOrMessage: string, message?: string) {
-    super(message ?? surfaceOrMessage)
-    this.surface = message === undefined ? 'startup' : surfaceOrMessage
-  }
-}
-
-/** One idempotent cleanup operation tracked during runtime startup. */
-export type StartupDisposer = () => void | PromiseLike<void>
-
-/** Register one cleanup operation for a startup attempt. */
-export type StartupCleanupTracker = (dispose: StartupDisposer) => void
-
-/** A successfully mounted runtime and its idempotent cleanup operation. */
-export interface MountedStartup<T> {
-  readonly value: T
-  readonly dispose: () => Promise<void>
-}
+// Keep the previously published startup helpers and subclass importable. The
+// bundle no longer mounts the subclass; only the official service owns Typert.
+export {
+  ModelSwitchSubagentRuntime,
+  StartupIncompatibilityError,
+  mountWithStartupFallback,
+  routedRuntimeUnavailableNotice,
+  subagentRuntimeInject,
+  subagentSurfaceOf,
+} from './subagent-runtime-legacy.js'
+export type {
+  MountedStartup,
+  StartupCleanupTracker,
+  StartupDisposer,
+  SubagentSurfaceLine,
+} from './subagent-runtime-legacy.js'
 
 interface ModelSwitchSurface {
   currentSettings(): ModelSwitchSettings
 }
-type RoutableSubagentRequest = Pick<SubagentStartRequest, 'parent' | 'agentOptions'>
 
-/**
- * The 0.2.1+ activation spec, declared structurally.
- *
- * The pinned dependency typings predate the activation API, so the modern entry
- * is described here and delegated through the base prototype. `request` carries
- * the same `parent`/`agentOptions` pair the legacy start request does, which is
- * why one route adapter serves both lines.
- */
+type RoutableSubagentRequest = Pick<SubagentStartRequest, 'parent' | 'agentOptions'>
+type RuntimeMethod = (this: unknown, ...args: unknown[]) => unknown
+
+interface SubagentProviderSurface {
+  readonly capabilities?: { readonly agentOptions?: boolean }
+}
+
+interface SubagentRuntimeSurface {
+  getProvider?(name: string): SubagentProviderSurface | undefined
+  readonly startActivation?: unknown
+  readonly start?: unknown
+  readonly startContinuable?: unknown
+}
+
+/** The public 0.2.1+ activation shape used by tools and Agent Teams. */
 export interface SubagentActivationSpecLike {
   readonly provider: string
-  readonly request: Pick<SubagentStartRequest, 'parent' | 'agentOptions'> & Record<string, unknown>
+  readonly request: RoutableSubagentRequest & Record<string, unknown>
   readonly [field: string]: unknown
 }
 
-interface ProfileContext {
-  readonly modelSwitch?: unknown
-  readonly subagents?: unknown
+/** Structural form of the pre-0.2.1 continuation start API. */
+export interface ContinuableStartSpecLike {
+  readonly provider: string
+  readonly request: RoutableSubagentRequest & Record<string, unknown>
+  readonly [field: string]: unknown
 }
 
 function present(value: unknown): value is string {
@@ -70,20 +63,11 @@ function spawnHasAnyRouteField(options: AgentOptions | undefined): boolean {
 }
 
 /**
- * Inject one resolved route into a spawn that names none.
- *
- * A spawn that already names a provider, model, or effort keeps it: the caller's
- * explicit selection outranks any profile policy. The route itself is derived
- * from the DELEGATING session (its provider selects a saved group, else the flat
- * Subagent card in `fixed` mode), so two sessions on different providers route
- * their own spawns and neither can rewrite the other's policy.
- * @param request - the caller's spawn request.
- * @param route - the delegating session's resolved route, or undefined for official inherit.
- * @returns The request to hand the official runtime.
+ * Inject a parent-session route only when the caller named no provider, model,
+ * or reasoning effort. All other request and Agent options pass through.
  */
 export function routeSubagentRequest<T extends RoutableSubagentRequest>(request: T, route: SubagentRoute | undefined): T {
-  if (spawnHasAnyRouteField(request.agentOptions)) return request
-  if (route === undefined) return request
+  if (spawnHasAnyRouteField(request.agentOptions) || route === undefined) return request
   return {
     ...request,
     agentOptions: {
@@ -95,301 +79,137 @@ export function routeSubagentRequest<T extends RoutableSubagentRequest>(request:
   }
 }
 
-function assertPublicMethod(value: unknown, surface: string, method: string): void {
-  if (value === null || (typeof value !== 'object' && typeof value !== 'function') || typeof Reflect.get(value, method) !== 'function') {
-    throw new StartupIncompatibilityError(surface, surface + ' must expose public ' + method + '()')
-  }
+/** Resolve the current public route surface, never retaining a disposed service. */
+export function routedSubagentRequest<T extends RoutableSubagentRequest>(ctx: Context, runtime: SubagentRuntimeSurface, providerName: string, request: T): T {
+  if (spawnHasAnyRouteField(request.agentOptions)) return request
+  const provider = runtime.getProvider?.(providerName)
+  if (provider !== undefined && provider.capabilities?.agentOptions !== true) return request
+  let modelSwitch: ModelSwitchSurface | undefined
+  try { modelSwitch = ctx.get('modelSwitch') as ModelSwitchSurface | undefined } catch { return request }
+  if (typeof modelSwitch?.currentSettings !== 'function') return request
+  return routeSubagentRequest(request, sessionSubagentRouteOf(ctx, request.parent.session, modelSwitch.currentSettings()))
 }
 
-/** The public start surface one installed Subagent runtime publishes. */
-export type SubagentSurfaceLine = 'activation' | 'start'
-
-/**
- * Classify the runtime surface this Host publishes.
- *
- * DSH 0.2.1 replaced `start()` / `startContinuable()` with the activation API
- * (`startActivation`), so a version-agnostic adapter has to recognize both
- * lines instead of hard-coding one.
- *
- * @param value - a runtime class's prototype or a mounted runtime instance.
- * @returns `activation` (0.2.1+), `start` (0.1.7/0.2.0), or undefined when neither is published.
- */
-export function subagentSurfaceOf(value: unknown): SubagentSurfaceLine | undefined {
-  if (value === null || (typeof value !== 'object' && typeof value !== 'function')) return undefined
-  if (typeof Reflect.get(value, 'startActivation') === 'function') return 'activation'
-  const hasStart = typeof Reflect.get(value, 'start') === 'function'
-  const hasContinuable = typeof Reflect.get(value, 'startContinuable') === 'function'
-  return hasStart && hasContinuable ? 'start' : undefined
+/** A tracing proxy is for calls, not method ownership or descriptor restoration. */
+function originalService<T extends object>(value: T): T {
+  const original = Reflect.get(value, symbols.original) as unknown
+  return original !== null && (typeof original === 'object' || typeof original === 'function') ? original as T : value
 }
 
-/** Read one public method, failing with the typed startup error when it is absent. */
-function publicMethod(prototype: unknown, surface: string, method: string): (...args: unknown[]) => unknown {
-  if (prototype === null || (typeof prototype !== 'object' && typeof prototype !== 'function')) {
-    throw new StartupIncompatibilityError(surface, surface + ' must expose public ' + method + '()')
-  }
-  const value = Reflect.get(prototype, method)
-  if (typeof value !== 'function') {
-    throw new StartupIncompatibilityError(surface, surface + ' must expose public ' + method + '()')
-  }
-  return value as (...args: unknown[]) => unknown
+function isRequest(value: unknown): value is RoutableSubagentRequest {
+  if (typeof value !== 'object' || value === null) return false
+  const parent = Reflect.get(value, 'parent') as unknown
+  return typeof parent === 'object' && parent !== null && Reflect.get(parent, 'session') !== undefined
 }
 
-function constructible(value: unknown): value is Function {
-  if (typeof value !== 'function') return false
-  try {
-    Reflect.construct(Object, [], value)
-    return true
-  } catch (error) {
-    if (error instanceof TypeError) return false
-    throw error
-  }
+function warn(ctx: Context, message: string): void {
+  try { ctx.logger.warn(message) } catch { /* Missing optional diagnostics must not stop delegation. */ }
 }
 
-function assertOfficialRuntimeSurface(): SubagentSurfaceLine {
-  const runtime = OfficialSubagentRuntime as unknown
-  if (!constructible(runtime)) {
-    throw new StartupIncompatibilityError('OfficialSubagentRuntime', 'OfficialSubagentRuntime must be constructible')
-  }
-  const line = subagentSurfaceOf(Reflect.get(runtime, 'prototype'))
-  if (line === undefined) {
-    throw new StartupIncompatibilityError(
-      'OfficialSubagentRuntime',
-      'OfficialSubagentRuntime must expose public startActivation() (0.2.1+) or start()/startContinuable()',
-    )
-  }
-  return line
+interface RouteLease { readonly ctx: Context }
+interface WrapperState {
+  readonly runtime: SubagentRuntimeSurface
+  readonly leases: Set<RouteLease>
+  readonly restores: Array<() => void>
 }
 
-function assertRoutingSurface(ctx: Context): void {
-  const modelSwitch = ctx.get('modelSwitch', false)
-  assertPublicMethod(modelSwitch, 'Model Switch runtime', 'currentSettings')
+// One physical wrapper per service, even when the Loader briefly overlaps two
+// adapter fibers. A released lease cannot leave its context in a nested wrapper.
+const wrappers = new WeakMap<object, WrapperState>()
+
+function routeFor(state: WrapperState, provider: string, request: RoutableSubagentRequest): RoutableSubagentRequest {
+  const leases = [...state.leases]
+  const ctx = leases.at(-1)?.ctx
+  return ctx === undefined ? request : routedSubagentRequest(ctx, state.runtime, provider, request)
 }
 
-function routingSurface(ctx: Context): ModelSwitchSurface {
-  return (ctx as ProfileContext).modelSwitch as ModelSwitchSurface
-}
-
-function assertMountedSurface(ctx: Context): void {
-  const service = (ctx as ProfileContext).subagents
-  assertPublicMethod(service, 'mounted Subagent runtime', 'resolveMaxDepth')
-  if (subagentSurfaceOf(service) === undefined) {
-    throw new StartupIncompatibilityError(
-      'mounted Subagent runtime',
-      'mounted Subagent runtime must expose public startActivation() (0.2.1+) or start()/startContinuable()',
-    )
-  }
-}
-
-function once(dispose: StartupDisposer): () => Promise<void> {
-  let pending: Promise<void> | undefined
+function wrapMethod(target: object, key: string, factory: (original: RuntimeMethod) => RuntimeMethod): (() => void) | undefined {
+  const original = Reflect.get(target, key) as unknown
+  if (typeof original !== 'function') return undefined
+  const previous = Object.getOwnPropertyDescriptor(target, key)
+  const wrapped = factory(original as RuntimeMethod)
+  Object.defineProperty(target, key, {
+    configurable: true,
+    enumerable: previous?.enumerable ?? false,
+    writable: true,
+    value: wrapped,
+  })
   return () => {
-    pending ??= Promise.resolve().then(() => dispose()).then(() => undefined)
-    return pending
+    // Do not undo another extension's later method replacement.
+    if (Object.getOwnPropertyDescriptor(target, key)?.value !== wrapped) return
+    if (previous === undefined) Reflect.deleteProperty(target, key)
+    else Object.defineProperty(target, key, previous)
   }
 }
 
-class CleanupLedger {
-  private readonly attempts: (() => Promise<void>)[] = []
-
-  add(dispose: StartupDisposer): void {
-    this.attempts.push(once(dispose))
+/**
+ * Wrap the official service's start entries only. Its identity, prototype,
+ * registry, manager, Typert binding and prompt/interrupt methods are untouched.
+ * Disposers are idempotent and safe when overlapping adapter fibers unload in
+ * either order. Unsupported or sealed surfaces leave the official route usable.
+ */
+export function installSubagentRouteWrappers(ctx: Context): () => void {
+  const service = ctx.get('subagents') as SubagentRuntimeSurface | undefined
+  if (service === undefined) {
+    warn(ctx, 'model-switch: subagents service is unavailable; delegation keeps the official route')
+    return () => {}
   }
-
-  async disposeAll(): Promise<unknown[]> {
-    const failures: unknown[] = []
-    for (const dispose of [...this.attempts].reverse()) {
-      try {
-        await dispose()
-      } catch (error) {
-        failures.push(error)
-      }
+  const runtime = originalService(service)
+  let state = wrappers.get(runtime)
+  if (state === undefined) {
+    state = { runtime, leases: new Set(), restores: [] }
+    const current = state
+    const wrap = (key: string, factory: (original: RuntimeMethod) => RuntimeMethod): void => {
+      const restore = wrapMethod(runtime, key, factory)
+      if (restore !== undefined) current.restores.push(restore)
     }
-    return failures
-  }
-}
-
-function startupFailure(error: unknown, cleanupFailures: readonly unknown[]): never {
-  if (cleanupFailures.length === 0) throw error
-  throw new AggregateError([error, ...cleanupFailures], 'Subagent runtime startup and cleanup failed', { cause: error })
-}
-
-function cleanupDisposer(ledger: CleanupLedger): () => Promise<void> {
-  return async () => {
-    const failures = await ledger.disposeAll()
-    if (failures.length > 0) throw new AggregateError(failures, 'Subagent runtime cleanup failed')
-  }
-}
-
-/**
- * Mount a candidate and use the fallback only for typed startup incompatibility.
- *
- * Every resource registered by an attempt is disposed in reverse order before a
- * fallback starts and again when the mounted result is disposed. Cleanup keeps
- * running after failures, and a startup error stays first in any aggregate.
- *
- * @param candidate - startup callback for the routed candidate.
- * @param fallback - startup callback for the untouched official runtime.
- * @returns the selected value and an idempotent disposer.
- * @throws the candidate error unless it is a StartupIncompatibilityError.
- * @throws the fallback startup error when fallback startup fails.
- */
-export async function mountWithStartupFallback<T>(
-  candidate: (track: StartupCleanupTracker) => Promise<T>,
-  fallback: (track: StartupCleanupTracker) => Promise<T>,
-): Promise<MountedStartup<T>> {
-  const ledger = new CleanupLedger()
-  try {
-    const value = await candidate(dispose => ledger.add(dispose))
-    return { value, dispose: cleanupDisposer(ledger) }
-  } catch (error) {
-    const cleanupFailures = await ledger.disposeAll()
-    if (!(error instanceof StartupIncompatibilityError)) startupFailure(error, cleanupFailures)
-    if (cleanupFailures.length > 0) startupFailure(error, cleanupFailures)
-  }
-
-  try {
-    const value = await fallback(dispose => ledger.add(dispose))
-    return { value, dispose: cleanupDisposer(ledger) }
-  } catch (error) {
-    startupFailure(error, await ledger.disposeAll())
-  }
-}
-
-/**
- * Operator-facing notice for a Host whose Subagent runtime cannot be routed.
- *
- * DSH 0.2.1 replaced `start()`/`startContinuable()` with the activation API, so
- * this adapter's override point is gone; the row then mounts the untouched
- * official runtime instead of guessing a new seam.
- * @param error - the typed startup incompatibility that rejected the candidate.
- * @returns The notice logged once at startup.
- */
-export function routedRuntimeUnavailableNotice(error: StartupIncompatibilityError): string {
-  return `model-switch: the routed Subagent runtime is unavailable on this DSH Host (${error.message}); delegation follows the official route instead`
-}
-
-/** Log one notice without letting a missing logger service fail the startup. */
-function reportNotice(ctx: Context, message: string): void {
-  try {
-    ctx.logger.warn(message)
-  } catch {
-    // A Host that exposes no logger service must still boot.
-  }
-}
-
-async function mountProfileRuntime(ctx: Context): Promise<() => Promise<void>> {
-  // Lazy on purpose: a hard dependency on the provider row would leave this row
-  // pending and block every later row in the same composition. Without the
-  // provider route there is nothing to override, so the official runtime mounts.
-  if (ctx.get('modelSwitch', false) === undefined) {
-    reportNotice(ctx, 'model-switch: the subagent runtime row is mounted without the modelSwitch service; subagent calls keep the official route')
-    const official = ctx.plugin(OfficialSubagentRuntime)
-    return async () => { await official.dispose() }
-  }
-  const mounted = await mountWithStartupFallback(
-    async track => {
-      try {
-        assertOfficialRuntimeSurface()
-      } catch (error) {
-        // DSH 0.2.1 replaced the start surface with the activation API. The row
-        // stays mounted on the official runtime (fail-closed); the operator sees
-        // exactly why the route override is not applied.
-        if (error instanceof StartupIncompatibilityError) reportNotice(ctx, routedRuntimeUnavailableNotice(error))
-        throw error
+    try {
+      for (const key of ['startActivation', 'startContinuable']) {
+        wrap(key, original => function (this: unknown, ...args: unknown[]): unknown {
+          const rawSpec = args[0]
+          if (typeof rawSpec !== 'object' || rawSpec === null) return Reflect.apply(original, this, args)
+          const spec = rawSpec as SubagentActivationSpecLike
+          if (typeof spec.provider !== 'string' || !isRequest(spec.request)) return Reflect.apply(original, this, args)
+          const request = routeFor(current, spec.provider, spec.request)
+          return Reflect.apply(original, this, [request === spec.request ? spec : { ...spec, request }, ...args.slice(1)])
+        })
       }
-      assertRoutingSurface(ctx)
-      const candidate = ctx.plugin(ModelSwitchSubagentRuntime)
-      track(() => candidate.dispose())
-      await candidate
-      const surface = ctx.inject(['subagents'], (surfaceCtx: Context) => { assertMountedSurface(surfaceCtx) })
-      track(() => surface.dispose())
-      await surface
-      return candidate
-    },
-    async track => {
-      const official = ctx.plugin(OfficialSubagentRuntime)
-      track(() => official.dispose())
-      await official
-      return official
-    },
-  )
-  return mounted.dispose
+      wrap('start', original => function (this: unknown, ...args: unknown[]): unknown {
+        const [provider, request] = args
+        if (typeof provider !== 'string' || !isRequest(request)) return Reflect.apply(original, this, args)
+        return Reflect.apply(original, this, [provider, routeFor(current, provider, request), ...args.slice(2)])
+      })
+    } catch (error) {
+      for (const restore of current.restores.reverse()) restore()
+      warn(ctx, `model-switch: Subagent starts cannot be wrapped (${String(error)}); delegation keeps the official route`)
+      return () => {}
+    }
+    if (current.restores.length === 0) {
+      warn(ctx, 'model-switch: no supported public Subagent start entry; delegation keeps the official route')
+      return () => {}
+    }
+    wrappers.set(runtime, state)
+  }
+  const lease: RouteLease = { ctx }
+  state.leases.add(lease)
+  const owned = state
+  return () => {
+    if (!owned.leases.delete(lease) || owned.leases.size > 0) return
+    for (const restore of [...owned.restores].reverse()) restore()
+    wrappers.delete(runtime)
+  }
 }
 
-/** Profile replacement that selects the routed runtime or the untouched official runtime. */
-export const profileSubagentRuntime = Object.assign(
-  async (ctx: Context): Promise<() => Promise<void>> => mountProfileRuntime(ctx),
-  {},
-)
-
 /**
- * The services the official runtime declares for its own plugin.
- *
- * Subclassing keeps the official behavior, but cordis resolves a plugin's
- * `inject` from the class it mounts — a static list on this subclass *replaces*
- * the base class's list instead of adding to it. DSH 0.2.1's runtime declares
- * `workingDirectory` and reads it on every activation
- * (`ctx.workingDirectory.ensure(...)`); declaring only `modelSwitch` hid that
- * dependency, so every delegation failed with
- * `cannot get property "workingDirectory" without inject`. The list is read from
- * the installed runtime instead of hard-coded so a future Host dependency is
- * mirrored too.
+ * Wait for the official service without replacing it or copying its dependency
+ * list. Model Switch is read optionally per call, so its absence cannot hold a
+ * startup fiber or retain a stale settings service. Cordis rebinds this effect
+ * when the official service is recreated.
  */
-const OFFICIAL_RUNTIME_INJECT: readonly string[] = (() => {
-  const declared = (OfficialSubagentRuntime as unknown as { inject?: readonly string[] }).inject
-  return Array.isArray(declared) ? [...declared] : []
-})()
-
-/**
- * The plugin dependency list for the mounted runtime.
- *
- * Static inheritance does not merge `inject`: cordis reads the static list off
- * the class it mounts, so the subclass must repeat every service the official
- * runtime's own code reads and add the route surface this adapter uses.
- * @param officialInject - the installed runtime's declared dependencies (absent on 0.1.7/0.2.0).
- * @returns The deduplicated list, official dependencies first.
- */
-export function subagentRuntimeInject(officialInject: readonly string[] | undefined): string[] {
-  return [...new Set([...(officialInject ?? []), 'modelSwitch'])]
-}
-
-/** Official runtime with only a pre-descriptor route-selection adapter. */
-export class ModelSwitchSubagentRuntime extends OfficialSubagentRuntime {
-  static inject = subagentRuntimeInject(OFFICIAL_RUNTIME_INJECT)
-
-  private routed<T extends RoutableSubagentRequest>(name: string, request: T): T {
-    const provider = this.ctx.subagents.getProvider(name)
-    // External Product Workers are one-shot process adapters. They do not
-    // accept DSH Agent options, so Model Switch must not reinterpret them as
-    // Native continuable Subagents or inject a provider/model route.
-    if (provider !== undefined && provider.capabilities.agentOptions !== true) return request
-    const modelSwitch = routingSurface(this.ctx)
-    return routeSubagentRequest(request, sessionSubagentRouteOf(this.ctx, request.parent.session, modelSwitch.currentSettings()))
-  }
-
-  override start(name: string, request: SubagentStartRequest): Promise<SubagentRun> {
-    const base = publicMethod(OfficialSubagentRuntime.prototype, 'OfficialSubagentRuntime', 'start')
-    return base.call(this, name, this.routed(name, request)) as Promise<SubagentRun>
-  }
-
-  override startContinuable(spec: ContinuableStartSpec): Promise<ContinuableStart> {
-    const base = publicMethod(OfficialSubagentRuntime.prototype, 'OfficialSubagentRuntime', 'startContinuable')
-    return base.call(this, { ...spec, request: this.routed(spec.provider, spec.request) }) as Promise<ContinuableStart>
-  }
-
-  /**
-   * 0.2.1+ activation entry: delegation tools call this instead of
-   * `start()`/`startContinuable()`, and its spec carries the same
-   * `request.agentOptions` this adapter already rewrites. Every other spec
-   * field (label, childId, signal, delivery) passes through untouched.
-   *
-   * @param spec - the activation spec published by the installed Host.
-   * @returns The official activation result.
-   */
-  startActivation(spec: SubagentActivationSpecLike): Promise<unknown> {
-    const base = publicMethod(OfficialSubagentRuntime.prototype, 'OfficialSubagentRuntime', 'startActivation')
-    return base.call(this, { ...spec, request: this.routed(spec.provider, spec.request) }) as Promise<unknown>
-  }
+export function profileSubagentRuntime(ctx: Context): void {
+  ctx.inject(['subagents'], scope => {
+    scope.effect(() => installSubagentRouteWrappers(scope), 'Model Switch: route official Subagent starts')
+  })
 }
 
 export default profileSubagentRuntime

@@ -1,13 +1,10 @@
-# Replace independently packaged host modules only through public profile patches.
-# Existing rows are disabled with their original name; replacements use unique ids.
+# Adapt public DSH rows only through profile patches and released runtime APIs.
 # Do not replace agent-presets: a nested AgentPresets instance loads a second
 # @deepseek-ai/dsh-scope identity, and session.create then fails as unscoped.
+# Keep the official Subagent row enabled: its package-owned Typert manifest
+# defines prompt/interruptByParent. The inserted adapter wraps only start methods.
 # Web selection is a deployment opt-in: preserve the existing complete Web config.
 # An id-targeted config patch replaces (not merges) it, including fetchProvider.
-
-- id: subagent
-  name: '@deepseek-ai/dsh-subagent'
-  disabled: true
 
 # The official Auto reviewer hardwires the session route; Model Switch replaces
 # it with its own row so the reviewer model stays configurable (one registerAuto

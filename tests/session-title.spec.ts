@@ -160,6 +160,16 @@ function bench(options: {
         return async () => {}
       },
     },
+    inject(deps: readonly string[], callback: (scope: { modelSwitch: { currentSettings(): Record<string, unknown> }; effect(body: () => unknown): unknown }) => void) {
+      if (options.host === false || !deps.includes('modelSwitch')) return
+      // The fake scope mirrors Cordis's effect lifecycle: the body binds and
+      // runs now; its dispose would run when the service went away, which these
+      // structural tests never simulate.
+      callback({
+        modelSwitch: { currentSettings: () => ({ ...settings }) },
+        effect(body: () => unknown) { body() },
+      })
+    },
     on(event: string, listener: () => void, listenerOptions?: unknown) {
       listeners.push({ event, listener, options: listenerOptions })
     },

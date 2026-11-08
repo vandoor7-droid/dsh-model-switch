@@ -1,7 +1,13 @@
+// @vitest-environment happy-dom
+
 import React, { useState } from 'react'
 import { act, create } from 'react-test-renderer'
 import { describe, expect, it, vi } from 'vitest'
 
+// react-test-renderer cannot commit a real portal container (happy-dom's live
+// `children` collection is not its internal array), so the portal stays a
+// pass-through here: menu assertions run on the React tree. The real portal
+// and its DOM placement are covered by composer-picker-portal.spec.tsx.
 vi.mock('react-dom', () => ({ createPortal: (node: React.ReactNode) => node }))
 vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => {
   const Icon = () => <span />
@@ -16,11 +22,6 @@ vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => {
 vi.mock('../../src/client/picker/popup-dismissal.ts', () => ({ installPickerDismissal: () => () => undefined }))
 
 import { ComposerPicker } from '../../src/client/picker/ComposerPicker.tsx'
-
-Object.assign(globalThis, {
-  document: { body: {} },
-  window: { innerWidth: 390, innerHeight: 844 },
-})
 
 const snapshot = { current: null, routable: null, groups: [], failures: [], status: 'ready', error: null }
 function props(locked: boolean) {
@@ -234,6 +235,15 @@ describe('ComposerPicker Plan transaction lock', () => {
     expect(picker.root.findAllByProps({ role: 'menu' })).toHaveLength(1)
   })
 
+  it('closes the open menu when a lock arrives mid-review', async () => {
+    let picker!: ReturnType<typeof create>
+    await act(async () => { picker = create(<ComposerPicker {...props(false) as never} />) })
+    await act(async () => { picker.root.findByProps({ 'aria-haspopup': 'menu' }).props.onClick() })
+    expect(picker.root.findAllByProps({ role: 'menu' })).toHaveLength(1)
+    await act(async () => { picker.update(<ComposerPicker {...props(true) as never} />) })
+    expect(picker.root.findAllByProps({ role: 'menu' })).toHaveLength(0)
+  })
+
   it('disables other provider rows while keeping Antigravity rows selectable', async () => {
     const current = { provider: 'antigravity', model: 'gemini' }
     const lockedSnapshot = {
@@ -316,39 +326,9 @@ describe('ComposerPicker Plan transaction lock', () => {
     expect(picker.root.findAllByProps({ role: 'menu' })).toHaveLength(0)
   })
 
-  it('positions its portaled menu inside mobile right and bottom safe areas', async () => {
-    let picker!: ReturnType<typeof create>
-    await act(async () => {
-      picker = create(<ComposerPicker {...props(false) as never} />, {
-        createNodeMock: element => element.props['aria-haspopup'] === 'menu'
-          ? { getBoundingClientRect: () => ({ top: 700, right: 370 }) }
-          : element.props.role === 'menu'
-            ? { contains: () => false, focus: vi.fn() }
-            : {},
-      })
-    })
-    await act(async () => { picker.root.findByProps({ 'aria-haspopup': 'menu' }).props.onClick() })
-    const style = picker.root.findByProps({ role: 'menu' }).props.style
-    expect(String(style.right)).toContain('safe-area-inset-right')
-    expect(String(style.bottom)).toContain('safe-area-inset-bottom')
-    expect(String(style.maxWidth)).toContain('safe-area-inset-left')
-    expect(String(style.maxWidth)).toContain('safe-area-inset-right')
-  })
-
-  it('shifts away from its trigger to preserve the 320px preferred mobile width', async () => {
-    let picker!: ReturnType<typeof create>
-    await act(async () => {
-      picker = create(<ComposerPicker {...props(false) as never} />, {
-        createNodeMock: element => element.props['aria-haspopup'] === 'menu'
-          ? { getBoundingClientRect: () => ({ top: 700, right: 250 }) }
-          : element.props.role === 'menu'
-            ? { contains: () => false, focus: vi.fn() }
-            : {},
-      })
-    })
-    await act(async () => { picker.root.findByProps({ 'aria-haspopup': 'menu' }).props.onClick() })
-    expect(String(picker.root.findByProps({ role: 'menu' }).props.style.right)).toContain('62px')
-  })
+  // The mobile safe-area and 320px preferred-width placement assertions moved
+  // to composer-picker-portal.spec.tsx (real DOM, since placement is now an
+  // imperative viewport write instead of a style prop).
 
   it('opens the Model/Effort root pane on a capsule trigger', async () => {
     let picker!: ReturnType<typeof create>

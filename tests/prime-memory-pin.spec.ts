@@ -1,5 +1,4 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { clearStaticPin, writeStaticPin } from '../src/prime-memory-compat.js'
@@ -19,8 +18,11 @@ const document = [
 ].join('\n')
 
 /** Write a patch document into a throwaway directory and return its path. */
+const TEST_ROOT = 'D:/dsh-artifacts/dsh-model-switch-tests/prime-memory-pin'
+
 async function scratch(name: string): Promise<string> {
-  const directory = await mkdtemp(join(tmpdir(), 'dsh-model-switch-pin-'))
+  await mkdir(TEST_ROOT, { recursive: true })
+  const directory = await mkdtemp(join(TEST_ROOT, 'case-'))
   const path = join(directory, name)
   await writeFile(path, document, 'utf8')
   return path
@@ -49,7 +51,8 @@ describe('dsh-prime-memory static pin', () => {
   })
 
   it('reports a document without the memory row instead of guessing', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'dsh-model-switch-pin-'))
+    await mkdir(TEST_ROOT, { recursive: true })
+    const directory = await mkdtemp(join(TEST_ROOT, 'case-'))
     const path = join(directory, 'cordis.patch.yml')
     await writeFile(path, '- id: model-switch\n  name: dsh-model-switch\n', 'utf8')
 
@@ -58,6 +61,6 @@ describe('dsh-prime-memory static pin', () => {
   })
 
   it('reports a missing document rather than throwing', async () => {
-    expect(await clearStaticPin(join(tmpdir(), 'dsh-model-switch-no-such-patch.yml'))).toBe('missing')
+    expect(await clearStaticPin(join(TEST_ROOT, 'absent', 'cordis.patch.yml'))).toBe('missing')
   })
 })

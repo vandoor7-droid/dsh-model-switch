@@ -22,6 +22,47 @@ request while it still sat on `next`. It followed the same evidence bar as a
 `latest` move (contract diff + real-host lab run + rc.2 regression), so the line
 is listed as verified even though `latest` still points at `0.2.1-rc.2`.
 
+## rc.1 (`0.2.2-rc.1`) partial verification (2026-11-07)
+
+`latest` moved to `0.2.2-rc.1` (`next` also `0.2.2-rc.1`, `alpha` `0.2.2-alpha.3`).
+A real-host lab run against `@deepseek-ai/dsh@0.2.2-rc.1` with this build
+(`D:/dsh-artifacts/rc1-diff/home-next`, port 3084, `tools/route-probe.mjs` on
+4719) verified:
+
+- the shipped `subagents` Remote surface still resolves: the composer stop call
+  `subagents/interruptByParent` answered `{accepted:true}` where the replaced
+  runtime previously failed with `gateway/definition-unavailable … strict
+  definition was withdrawn`;
+- a replayed `subagent` tool call produced a child LLM request on the configured
+  subagent route (`apigoto/mimo-v2.6-pro`, the provider-group pin) while the
+  parent ran on `gpt-6.1-sol`; the official runtime started the child;
+- with the experimental Agent Teams bundle mounted, replayed `spawn_teammate`
+  calls (`context: fresh` and `context: fork`) produced the same routed child
+  request, so Team member creation still goes through the preserved official
+  runtime and inherits the Model Switch route;
+- the session-title row activates and every human message produces a title
+  request on the configured Model Switch title route (probe alternated
+  `gpt-6.1-sol` for the turn and `mimo-v2.6-flash` for naming). Moving that
+  session provider group's title pin through `settings/update` changed the next
+  title request to `mimo-v2.6-pro` without a restart (flat-only changes
+  deliberately lose to a saved group pin).
+
+Not yet verified on rc.1, so **no compatibility declaration is added** and the
+baseline stays at `0.2.1-rc.5`:
+
+- Team `interrupt_agent` on a running teammate and goal-round waiting (the
+  composer's `subagents/interruptByParent` stop path is verified above);
+- ~~the Plan Review picker visually in a real browser~~ **verified**: the shared
+  ComposerPicker portal (same component and hook as the plan-review card) was
+  opened via the composer model chip in headless Edge at 1300x626 — the menu
+  portals to document.body, position:fixed, right-aligned to the trigger
+  (0px delta), placed above, fully inside the viewport, with correct CSS
+  variables (--dsh-menu-top/right/max-height). Screenshot:
+  D:/dsh-artifacts/subagent-route-stop/lab/picker-menu.png
+
+Publishing stays frozen until the user's explicit "发布并推送"; this section is
+evidence only.
+
 ## rc.3 change surface (2026-10-24)
 
 Compared `dsh-v0.2.1-rc.2...dsh-v0.2.1-rc.3` (300 files). Everything this plugin

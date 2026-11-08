@@ -1,5 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context, Service } from '@deepseek-ai/cordis'
@@ -9,11 +8,12 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import OfficialSubagentRuntime, { type ResolvedSubagentStartRequest, type SubagentCapabilities, type SubagentProvider, type SubagentRun } from '@deepseek-ai/dsh-subagent'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
-import profileSubagentRuntime, { ModelSwitchSubagentRuntime } from '../src/subagent-runtime.js'
+import profileSubagentRuntime from '../src/subagent-runtime.js'
 import type { Config } from '../src/host-settings.js'
 import type { ModelSelection } from '../src/capabilities.js'
 
 let ctx: Context | undefined
+const LAB_TEST_ROOT = 'D:/dsh-artifacts/subagent-route-stop/tests'
 let root: string | undefined
 
 afterEach(async () => {
@@ -33,8 +33,9 @@ class TestModelSwitch extends Service {
 async function loadComposition(): Promise<Context> {
   const context = new Context()
   ctx = context
+  await mountAgentLoopTestDependencies(context)
   await context.plugin(TestModelSwitch)
-  await context.plugin(profileSubagentRuntime)
+  await context.plugin(OfficialSubagentRuntime)
   return context
 }
 
@@ -77,10 +78,12 @@ const processWorkerCapabilities: SubagentCapabilities = {
   persona: false,
 }
 
-describe('public profile-patched Subagent replacement', () => {
+describe('official Subagent route adapter', () => {
   it('does not inject a route when Default Subagent is unset', async () => {
     const context = await loadComposition()
-    expect(context.subagents).toBeInstanceOf(ModelSwitchSubagentRuntime)
+    await context.plugin(profileSubagentRuntime)
+    expect(context.subagents).toBeInstanceOf(OfficialSubagentRuntime)
+    expect(typeof context.subagents.interruptByParent).toBe('function')
 
     let observed: ResolvedSubagentStartRequest | undefined
     const provider: Omit<SubagentProvider, 'name'> = {
@@ -98,6 +101,7 @@ describe('public profile-patched Subagent replacement', () => {
 
   it('injects a fixed Default Subagent route before the official descriptor is created', async () => {
     const context = await loadComposition()
+    await context.plugin(profileSubagentRuntime)
     ;(context.modelSwitch as unknown as TestModelSwitch).settings = {
       subagentMode: 'fixed', subagentProvider: 'fixed-provider', subagentModel: 'fixed-model',
     }
@@ -114,19 +118,26 @@ describe('public profile-patched Subagent replacement', () => {
     expect(observed?.agentOptions).toMatchObject({ provider: 'fixed-provider', model: 'fixed-model' })
   })
 
-  it('inherits the official public resolveMaxDepth policy on the routed runtime', async () => {
-    expect(typeof Reflect.get(OfficialSubagentRuntime.prototype, 'resolveMaxDepth')).toBe('function')
+  it('keeps the official service and its public stop surface through adapter install/unload', async () => {
     const context = await loadComposition()
-    expect(context.subagents).toBeInstanceOf(ModelSwitchSubagentRuntime)
-    const runtime = context.subagents as ModelSwitchSubagentRuntime
-    expect(typeof runtime.resolveMaxDepth).toBe('function')
-    expect(runtime.resolveMaxDepth('provider-managed')).toBeUndefined()
-    expect(runtime.resolveMaxDepth(3)).toBe(3)
-    expect(runtime.resolveMaxDepth()).toBe(1)
+    const binding = context.subagents.typertRemote
+    expect(context.subagents).toBeInstanceOf(OfficialSubagentRuntime)
+    expect(typeof context.subagents.resolveMaxDepth).toBe('function')
+    expect(typeof context.subagents.interruptByParent).toBe('function')
+    expect(binding?.serviceKey).toBe('subagents')
+    expect(context.subagents.resolveMaxDepth('provider-managed')).toBeUndefined()
+    expect(context.subagents.resolveMaxDepth(3)).toBe(3)
+    expect(context.subagents.resolveMaxDepth()).toBe(1)
+    const adapter = await context.plugin(profileSubagentRuntime)
+    expect(context.subagents.typertRemote?.serviceKey).toBe(binding?.serviceKey)
+    await adapter.dispose()
+    expect(typeof context.subagents.interruptByParent).toBe('function')
+    expect(context.subagents.typertRemote?.serviceKey).toBe(binding?.serviceKey)
   })
 
   it('lets an explicit provider and model override fixed policy', async () => {
     const context = await loadComposition()
+    await context.plugin(profileSubagentRuntime)
     ;(context.modelSwitch as unknown as TestModelSwitch).settings = {
       subagentMode: 'fixed', subagentProvider: 'fixed-provider', subagentModel: 'fixed-model',
     }
@@ -146,6 +157,7 @@ describe('public profile-patched Subagent replacement', () => {
 
   it('does not inject a Native route into one-shot process workers', async () => {
     const context = await loadComposition()
+    await context.plugin(profileSubagentRuntime)
     let observed: ResolvedSubagentStartRequest | undefined
     await registerCapture(context, {
       capabilities: processWorkerCapabilities,
@@ -162,12 +174,16 @@ describe('public profile-patched Subagent replacement', () => {
   it('routes a continuable child before official descriptor and Agent creation', async () => {
     const context = new Context()
     ctx = context
-    root = await mkdtemp(join(tmpdir(), 'dsh-model-switch-continuable-'))
+    await mkdir(LAB_TEST_ROOT, { recursive: true })
+    root = join(LAB_TEST_ROOT, 'continuable-home')
+    await rm(root, { recursive: true, force: true })
+    await mkdir(root, { recursive: true })
     await mountAgentLoopTestDependencies(context)
     // SessionProjectionRegistry is mounted by the 0.1.5-rc.1 testkit; a second mount double-registers sessionProjections.
     await context.plugin(JsonlSessionPersistence, { root })
     await context.plugin(AgentLoop, { agents: [] })
     await context.plugin(TestModelSwitch)
+    await context.plugin(OfficialSubagentRuntime)
     await context.plugin(profileSubagentRuntime)
     await context.plugin(SubagentSpawn, { providerName: 'spawn' })
     // AgentLoop.create is async on the 0.1.5-rc.1 host; an unawaited call hands startContinuable a Promise without .session.
