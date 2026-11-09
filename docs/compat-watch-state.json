@@ -1,7 +1,7 @@
 {
   "$schema-note": "Baseline for the scheduled compatibility watch (see docs/dsh-compat-watch.md). `latest` is the npm dist-tag an ordinary install gets.",
   "schema": "dsh-model-switch/compat-watch-state/v1",
-  "checkedAt": "2026-11-08T05:30:12.868Z",
+  "checkedAt": "2026-11-09T01:45:00.000Z",
   "dsh": {
     "distTagWatched": "latest",
     "latest": "0.2.2-rc.1",
@@ -29,25 +29,27 @@
   "memory": {
     "package": "dsh-prime-memory",
     "distTagWatched": "latest",
-    "latestVerified": "0.26.24",
+    "latestVerified": "0.26.37",
     "verifiedWith": {
-      "dsh": "0.2.1-rc.5",
-      "dshTag": "dsh-0.2.1-rc.5"
+      "dsh": "0.2.2-rc.1",
+      "dshTag": "dsh-0.2.2-rc.1"
     },
     "adapter": "src/prime-memory-compat.ts (0.4.57: scoped inject of modelSwitch + webServer, read-back verified push, live-rejected fallback)",
-    "observedLatest": "0.26.24",
+    "observedLatest": "0.26.37",
     "observedDshTags": {
       "0.2.1-rc.4": "0.26.15",
-      "0.2.1-rc.5": "0.26.16"
+      "0.2.1-rc.5": "0.26.35"
     },
-    "pendingVerification": "none for 0.26.24 on rc.5 with plugin 0.4.60; desktop plane still unverified",
-    "verifiedAt": "2026-11-02",
+    "pendingVerification": "the seven-step lab adoption matrix for 0.26.37 has not been re-run; only the desktop plane is attested (user-reported, 2026-11-09, DSH 0.2.2-rc.1 + plugin 0.4.63 + prime-memory 0.26.37)",
+    "verifiedAt": "2026-11-09",
+    "verifiedPlane": "desktop (user-attested); previous lab matrix stands for 0.26.24 on DSH 0.2.1-rc.5 with plugin 0.4.60",
     "verifiedRuns": [
       "boot with a cleared live route: adapter push lands, settings-get returns the configured pair, status.primeMemory installed:true + route apigoto/mimo-v2.6-flash",
       "profile-edit save without restart moved the live route (apigoto/mimo-v2.6-flash -> apigoto/deepseek-flash, replays:1); restoring the old pair moved it back (replays:2), distillLayerChains.l2 followed both times",
       "direct settings-set with a top-level patch answers 200 with a changed value; a follow-up read-back returns the plugin's route again because the adapter re-asserts it on the next settings event (by design)",
       "ruminate-start made the virtual recorder log the newly configured model (deepseek-flash, stream=true)",
-      "no stale llm: static pin in the profile patch; no incompatible-with-dsh / did-not-activate line on boot"
+      "no stale llm: static pin in the profile patch; no incompatible-with-dsh / did-not-activate line on boot",
+      "2026-11-09 desktop plane: prime-memory 0.26.37 installed alongside plugin 0.4.63 on DSH 0.2.2-rc.1 is reported compatible by the user (real deployment, not a lab reproduction)"
     ]
   }
 }

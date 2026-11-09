@@ -465,3 +465,23 @@ a dropped write.
 Result: 0.26.24 is verified on rc.5 with plugin 0.4.60; `docs/compat-watch-state.json` records it
 as `memory.latestVerified`. No code change was needed — this entry is documentation only.
 
+## 2026-11-09 check: dsh `0.2.2-rc.1`, dsh-prime-memory `0.26.37` (desktop plane, user-reported)
+
+- DSH `latest` = **`0.2.2-rc.1`** (`next`/`alpha` unchanged: `0.2.2-rc.1`, `0.2.2-alpha.3`). The desktop
+  app itself runs `@deepseek-ai/dsh-desktop-runtime@0.2.2-rc.1`
+  (`D:\Program Files\DeepSeek Harness\resources\app.asar\dsh\package.json`). This matches the baseline
+  recorded by 0.4.63, so **no `latest` move** and no new adaptation is required.
+- Watched memory package moved past the recorded baseline: `latest` = **`0.26.37`** (baseline
+  `0.26.24`; `beta` = `0.26.36`, `dsh-0.2.1-rc.5` tag still `0.26.35`). Its `engines.dsh` is
+  `>=0.1.1-rc.2 <0.3.0`, so both `0.2.1-rc.5` and `0.2.2-rc.1` are admitted.
+- **User-reported desktop result (2026-11-09):** on the live desktop plane — DSH `0.2.2-rc.1`,
+  `dsh-model-switch` `0.4.63`, `dsh-prime-memory` **`0.26.37`** installed — the current plugin is
+  reported as already compatible with the latest prime-memory: the memory row activates and the
+  distillation route is served by this plugin. This is the desktop plane, i.e. the real deployment,
+  not a lab reproduction; it is recorded as a user-attested verification, and the lab matrix for
+  0.26.37 has not been re-run.
+- automode stays frozen (support removed in 0.4.59): recorded, never re-verified.
+- Baseline updated by this check: `memory.latestVerified` = `0.26.37` with `dsh` `0.2.2-rc.1`; the
+  full seven-step lab adoption matrix for `0.26.37` remains outstanding and is listed as pending
+  rather than claimed. **Documentation only — no code change, no release.**
+
