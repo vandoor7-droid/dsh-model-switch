@@ -15,10 +15,15 @@ interface SubagentRuntimeSurface {
     readonly start?: unknown;
     readonly startContinuable?: unknown;
 }
-/** The public 0.2.1+ activation shape used by tools and Agent Teams. */
-export interface SubagentActivationSpecLike {
+/**
+ * The public activation shape used by tools and Agent Teams. 0.2.1 through
+ * 0.2.2-rc.1 nest the SubagentStartRequest under a request field; 0.2.2-rc.2+
+ * flatten those fields onto the spec itself, so the request field is absent
+ * there and the spec's own parent/agentOptions carry the same meaning.
+ */
+export interface SubagentActivationSpecLike extends RoutableSubagentRequest {
     readonly provider: string;
-    readonly request: RoutableSubagentRequest & Record<string, unknown>;
+    readonly request?: RoutableSubagentRequest & Record<string, unknown>;
     readonly [field: string]: unknown;
 }
 /** Structural form of the pre-0.2.1 continuation start API. */

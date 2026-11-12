@@ -22,6 +22,68 @@ request while it still sat on `next`. It followed the same evidence bar as a
 `latest` move (contract diff + real-host lab run + rc.2 regression), so the line
 is listed as verified even though `latest` still points at `0.2.1-rc.2`.
 
+## rc.2 (`0.2.2-rc.2`) verification (2026-11-12)
+
+`latest` stayed at `0.2.2-rc.1`; `0.2.2-rc.2` sat on `next` and the desktop
+runtime had already updated to it, so the line was verified at the same evidence
+bar as a `latest` move (the `0.2.1-rc.3` precedent). Full-lockstep release: 81
+subpackages moved to `0.2.2-rc.2`, `dsh-cua-bundle` was added, and
+`dsh-experimental-agent-team-profile` was dropped from the main package's
+dependencies (a Teams deployment that still needs it installs it separately).
+
+Static diff of the packages this plugin imports (rc.1 → rc.2 tarballs):
+`dsh-launch-environment` and `dsh-session-title-llm` are byte-identical in
+`lib/`; `dsh-session-projection` changed a doc comment only;
+`dsh-compaction-basic` is an internal `LlmError.fromFailure` refactor;
+`dsh-subagent` renamed the Remote stop endpoint `interruptByParent` →
+`interruptByUser` (1-arg, Gateway-authorized on the target session) and
+**flattened `SubagentActivationSpec`** — the `SubagentStartRequest` fields moved
+onto the spec itself (`...request` in `dsh-tool-subagent`), with no nested
+`request` field anymore.
+
+The flattened spec broke 0.4.63's delegation routing: the wrapper read
+`spec.request`, saw `undefined`, and passed the spawn through, so children fell
+back to the parent session model. Fixed in 0.4.64 by accepting both shapes
+(`routedSpecOf` in `src/subagent-runtime.ts`); the stop surface was never touched
+and kept working through the official rename.
+
+Lab evidence (virtual, zero quota; `D:/dsh-artifacts/rc2-diff`, host 3084, probe
+4719, plugin 0.4.64 build, `dsh-prime-memory@0.26.37` +
+`dsh-reference-session-collector@0.2.8`):
+
+- every plugin row active, no incompatible/did-not-activate diagnostic;
+  `session/create` passes rc.2's new never-started preset validation once the
+  referenced tool rows resolve;
+- `subagents/interruptByUser` → `{accepted:true}` (the rc.2 UI stop call); the
+  rc.1 name `interruptByParent` answers `not found` (rename confirmed upstream);
+- replayed `subagent` tool call: probe recorded `gpt-6.1-sol` (parent) →
+  `mimo-v2.6-pro` (child, the configured provider-group pin) → `gpt-6.1-sol`
+  (parent resume); a diagnostic row confirmed the injected agentOptions were
+  `apigoto/mimo-v2.6-pro/high`;
+- rc.1 regression with the same build: nested-shape delegation still hits
+  `mimo-v2.6-pro`;
+- session titles: per-turn naming requests on the configured route, and moving
+  the apigoto group's title pin to `mimo-v2.6-pro` switched the next title
+  request without a restart (the all-prompts cadence chain —
+  `dsh-session-title` host service plus `dsh-session-title-all-prompts-llm` —
+  is byte-identical between rc.1 and rc.2);
+- prime-memory 0.26.37: adapter push landed (`installed:true`, route
+  `apigoto/deepseek-flash`), `/dsh-memory/rpc/settings-get` read the pair back,
+  the memory log's distillation-route line matched, and distillation requests
+  hit the probe.
+
+dsh-prime-memory watch (same run): `latest` stayed 0.26.37; the dsh-* dist-tags
+were refreshed upstream (0.26.37 across the 0.1.x–0.2.1-rc.4 range,
+`dsh-0.2.1-rc.5` → 0.26.35) with still no `dsh-0.2.2-*` tag, and
+`engines.dsh` widened from an exact-version enum (0.26.24, capped at
+`0.2.1-rc.5`) to the range `>=0.1.1-rc.2 <0.3.0` — that range is what makes
+0.26.37 activate on rc.1/rc.2 hosts. The desktop plane had already been running
+0.26.37 on the rc.2 runtime (memory.log active, distillation route live) before
+this lab. One upstream note: 0.26.37 logs "settings 服务无可用的
+register/installSection API,记忆模式开关降级为恒开" on rc.2 — its memory-mode
+toggle section cannot register, so the mode stays always-on; unrelated to this
+plugin's settings-forms writes, which the lab verified keep round-tripping.
+
 ## rc.1 (`0.2.2-rc.1`) partial verification (2026-11-07)
 
 `latest` moved to `0.2.2-rc.1` (`next` also `0.2.2-rc.1`, `alpha` `0.2.2-alpha.3`).

@@ -119,6 +119,7 @@ export class ModelSwitchSubagentRuntime extends OfficialSubagentRuntime {
     return Reflect.apply(publicMethod('startContinuable'), this, [{ ...spec, request: this.routed(spec.provider, spec.request) }]) as Promise<ContinuableStart>
   }
   startActivation(spec: SubagentActivationSpecLike): Promise<unknown> {
-    return Reflect.apply(publicMethod('startActivation'), this, [{ ...spec, request: this.routed(spec.provider, spec.request) }]) as Promise<unknown>
+    const request = spec.request ?? spec
+    return Reflect.apply(publicMethod('startActivation'), this, [{ ...spec, request: this.routed(spec.provider, request) }]) as Promise<unknown>
   }
 }

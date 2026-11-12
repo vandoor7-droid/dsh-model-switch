@@ -1,3 +1,17 @@
+## v0.4.64
+
+DSH `0.2.2-rc.2` 兼容 + 子代理委派路由修复。
+
+- **根因**：`0.2.2-rc.2` 把 `subagents.startActivation` 的规格从嵌套改为扁平——`@deepseek-ai/dsh-tool-subagent` 以 `...request` 把 `SubagentStartRequest` 字段（`parent`/`prompt`/`agentOptions` 等）直接展开到 spec 顶层，不再有嵌套的 `request` 字段。0.4.63 的包装器检查 `spec.request` 看到 `undefined` 后原样放行，子代理回退到父会话模型，固定/分组路由都不再注入。
+- **修复（`src/subagent-runtime.ts`）**：新增 `routedSpecOf`，同一包装器接受两种规格形状——嵌套（0.2.1–0.2.2-rc.1）与扁平（0.2.2-rc.2+）；无法识别的形状继续原样放行（未来形状保持官方回退可达）。`SubagentActivationSpecLike` 的 `request` 变为可选并继承 `RoutableSubagentRequest`；`src/subagent-runtime-legacy.ts` 的废弃入口同步类型。旧版 `start()` 线不受影响。
+- **验证（virtual / 零真实额度）**：
+  - **rc.2 lab**（`D:/dsh-artifacts/rc2-diff/home`，端口 3084，探针 4719，DSH `0.2.2-rc.2` + 本构建 + `dsh-prime-memory@0.26.37` + `dsh-reference-session-collector@0.2.8`）：回放一次 `subagent` 工具调用，探针记录 `gpt-6.1-sol`（父）→ `mimo-v2.6-pro`（子代理实际请求，配置的分组固定对）→ `gpt-6.1-sol`（父续跑）；诊断行确认注入的 `agentOptions` 为 `apigoto/mimo-v2.6-pro/high`。同轮 `subagents/interruptByUser` 返回 `{accepted:true}`（rc.2 的 UI 停止端点；旧名 `interruptByParent` 已被上游撤回，返回 not found），全部插件行 active、无 incompatible/did-not-activate；`session/create` 正常（rc.2 对 standard preset 引用行新增 never-started 校验，lab 装齐依赖后通过）。
+  - **rc.1 回归**（`D:/dsh-artifacts/rc1-diff/home-next`）：同一构建在嵌套形状上 delegation 仍命中 `mimo-v2.6-pro`。
+  - **标题路由**：rc.2 上每轮命名请求走配置路由（`mimo-v2.6-flash`），改分组 pin 后下一请求即 `mimo-v2.6-pro`（免重启热切换）。all-prompts 节奏的触发依赖宿主在会话 log 中记录 `request/header` 事件——官方 all-prompts 行与本插件行走同一链路（`dsh-session-title-all-prompts-llm` 与 `dsh-session-title` 两包在 rc.1/rc.2 间 byte-identical）。
+  - **prime-memory 0.26.37**：适配器 push `apigoto/deepseek-flash`（capabilities 报告 `installed:true`），`/dsh-memory/rpc/settings-get` 读回一致，memory.log「蒸馏模型路由」行匹配，蒸馏请求命中探针 `deepseek-flash`。0.26.37 的 `engines.dsh` 从精确枚举改为范围 `>=0.1.1-rc.2 <0.3.0`，是其支持 rc.1/rc.2 宿主的方式；上游已知降级：rc.2 上其 settings 分区注册 API 不可用（「记忆模式开关降级为恒开」），与本插件的 settings-forms 写入无关（适配器写入与读回均已验证）。
+- **`dshReleases`**：新增 `0.2.2-rc.2: compatible`。npm `latest` 仍为 `0.2.2-rc.1`（`0.2.2-rc.2` 在 `next` 上，且桌面 runtime 已实际更新至该版本），按 0.2.1-rc.3 先例以 `latest` 同等证据标准验证。
+- `pnpm run check` 全绿（tsc + tsdown + 679 测试 + pack 闸门）。
+
 ## v0.4.62
 
 修复设置页「模型目录偶发加载失败后整个页面卡死」的问题：两个会话在不同供应商上并行、后台任务（如记忆蒸馏）恰在加载瞬间占用 Host 时，`session/modelCatalog` 的一次瞬时失败会把设置页永久留在空目录状态——供应商配置组下拉里所有供应商都带 ⚠、模型下拉没有选项、依赖目录的开关全部禁用，只能重开设置页恢复。

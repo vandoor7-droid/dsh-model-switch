@@ -40,10 +40,15 @@ interface SubagentRuntimeSurface {
   readonly startContinuable?: unknown
 }
 
-/** The public 0.2.1+ activation shape used by tools and Agent Teams. */
-export interface SubagentActivationSpecLike {
+/**
+ * The public activation shape used by tools and Agent Teams. 0.2.1 through
+ * 0.2.2-rc.1 nest the SubagentStartRequest under a request field; 0.2.2-rc.2+
+ * flatten those fields onto the spec itself, so the request field is absent
+ * there and the spec's own parent/agentOptions carry the same meaning.
+ */
+export interface SubagentActivationSpecLike extends RoutableSubagentRequest {
   readonly provider: string
-  readonly request: RoutableSubagentRequest & Record<string, unknown>
+  readonly request?: RoutableSubagentRequest & Record<string, unknown>
   readonly [field: string]: unknown
 }
 
@@ -100,6 +105,26 @@ function isRequest(value: unknown): value is RoutableSubagentRequest {
   if (typeof value !== 'object' || value === null) return false
   const parent = Reflect.get(value, 'parent') as unknown
   return typeof parent === 'object' && parent !== null && Reflect.get(parent, 'session') !== undefined
+}
+
+/**
+ * Route one activation spec under either released shape. 0.2.1 through
+ * 0.2.2-rc.1 nest the SubagentStartRequest under spec.request; 0.2.2-rc.2
+ * flattens those fields onto the spec itself. Unknown shapes pass through
+ * untouched, so an unanticipated future shape keeps the official route.
+ */
+function routedSpecOf<T extends object>(spec: T, provider: string, state: WrapperState): T {
+  const nested = Reflect.get(spec, 'request') as unknown
+  if (typeof nested === 'object' && nested !== null && isRequest(nested)) {
+    const request = routeFor(state, provider, nested as RoutableSubagentRequest)
+    return request === nested ? spec : ({ ...spec, request } as T)
+  }
+  if (isRequest(spec)) {
+    const request = routeFor(state, provider, spec)
+    if (request === spec) return spec
+    return { ...spec, agentOptions: request.agentOptions } as T
+  }
+  return spec
 }
 
 function warn(ctx: Context, message: string): void {
@@ -169,9 +194,8 @@ export function installSubagentRouteWrappers(ctx: Context): () => void {
           const rawSpec = args[0]
           if (typeof rawSpec !== 'object' || rawSpec === null) return Reflect.apply(original, this, args)
           const spec = rawSpec as SubagentActivationSpecLike
-          if (typeof spec.provider !== 'string' || !isRequest(spec.request)) return Reflect.apply(original, this, args)
-          const request = routeFor(current, spec.provider, spec.request)
-          return Reflect.apply(original, this, [request === spec.request ? spec : { ...spec, request }, ...args.slice(1)])
+          if (typeof spec.provider !== 'string') return Reflect.apply(original, this, args)
+          return Reflect.apply(original, this, [routedSpecOf(spec, spec.provider, current), ...args.slice(1)])
         })
       }
       wrap('start', original => function (this: unknown, ...args: unknown[]): unknown {

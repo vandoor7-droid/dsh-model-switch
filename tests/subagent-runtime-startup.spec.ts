@@ -102,8 +102,26 @@ describe('official Subagent service route adapter', () => {
     expect(result.value.request.parent === value.request.parent).toBe(true)
     expect(value.request).not.toHaveProperty('agentOptions')
     dispose()
-    dispose()
     expect(Object.getOwnPropertyDescriptors(runtime)).toEqual(original)
+  })
+
+  it('routes the flattened 0.2.2-rc.2 activation shape (request fields on the spec itself)', async () => {
+    const { ctx, runtime } = await bench()
+    const dispose = installSubagentRouteWrappers(ctx)
+    const flat = {
+      provider: 'spawn', childId: 'flat-child', label: 'flat-child', delivery: 'parent',
+      signal: new AbortController().signal,
+      parent: { options: {}, session: { requestHeader: () => undefined } },
+      prompt: [],
+    }
+    const result = await runtime.startActivation(flat)
+    expect(result.receiver === runtime).toBe(true)
+    expect(result.value).toMatchObject({ agentOptions: { provider: 'route-provider', model: 'route-model' } })
+    expect(result.value.parent).toBe(flat.parent)
+    expect(result.value.label).toBe('flat-child')
+    expect(result.value.signal).toBe(flat.signal)
+    expect(flat).not.toHaveProperty('agentOptions')
+    dispose()
   })
 
   it.each([false, true])('shares one wrapper and releases overlapping installs in either order (reverse=%s)', async reverse => {
