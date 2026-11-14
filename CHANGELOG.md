@@ -1,3 +1,12 @@
+## v0.4.65
+
+DSH `0.2.2-rc.3` 兼容声明（无代码变更）。
+
+- **变化面（rc.2 → rc.3）**：主包 `lib/` 零变化（仅 6 个 docs 与 package.json 版本推进）；83 个子包 lockstep 升 `0.2.2-rc.3`，新增 `dsh-deepseek-chat-import`；对本插件接触面最关键的三个包 `dsh-subagent`、`dsh-tool-subagent`、`dsh-session-title-llm` 的 `lib/` 均 byte-identical（仅版本号变），`dsh-compaction-basic` 同样零代码变化——rc.2 的扁平 `SubagentActivationSpec` 与 `interruptByUser` 端点在 rc.3 上原样保留。
+- **验证（virtual / 零真实额度）**：rc.3 lab（`D:/dsh-artifacts/rc2-diff/home`，CLI 升 `0.2.2-rc.3`，端口 3084，探针 4719，插件 0.4.64 构建 + `dsh-prime-memory@0.26.37` + `dsh-reference-session-collector@0.2.8`）全项通过：全部插件行 active、无 incompatible/did-not-activate；`subagents/interruptByUser` → `{accepted:true}`（旧名 `interruptByParent` 仍为 not found）；回放 `subagent` 工具调用探针记录 `gpt-6.1-sol`（父）→ `mimo-v2.6-pro`（子代理实际请求，配置的分组固定对）→ 续跑，即 0.4.64 的双形状路由在 rc.3 上完整生效；标题每轮命名请求 + 改分组 pin 免重启热切换（`mimo-v2.6-pro`）；prime-memory 适配器 push（`installed:true, route apigoto/deepseek-flash`）+ settings-get 读回 + 蒸馏请求命中探针。
+- **`dshReleases`**：新增 `0.2.2-rc.3: compatible`。npm `latest` 仍为 `0.2.2-rc.1`（`0.2.2-rc.3` 在 `next` 上，桌面 runtime 已实际更新至该版本），延续 0.2.1-rc.3 / 0.2.2-rc.2 的 `next` 线同等证据标准先例。
+- 上游观察：`dsh-prime-memory` 无新版本（`latest` 0.26.37 不变，无 `dsh-0.2.2-*` tag）；automode `latest` 0.18.0（冻结中，仅记录）。
+- `pnpm run check` 全绿（tsc + tsdown + 679 测试 + pack 闸门）。
 ## v0.4.64
 
 DSH `0.2.2-rc.2` 兼容 + 子代理委派路由修复。

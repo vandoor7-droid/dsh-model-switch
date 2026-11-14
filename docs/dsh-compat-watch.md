@@ -22,6 +22,32 @@ request while it still sat on `next`. It followed the same evidence bar as a
 `latest` move (contract diff + real-host lab run + rc.2 regression), so the line
 is listed as verified even though `latest` still points at `0.2.1-rc.2`.
 
+## rc.3 (`0.2.2-rc.3`) verification (2026-11-14)
+
+`latest` stayed at `0.2.2-rc.1`; `0.2.2-rc.3` sat on `next` with the desktop runtime
+already updated to it, so the line was verified at the same evidence bar as a `latest`
+move (the `0.2.1-rc.3` / `0.2.2-rc.2` precedent).
+
+Static diff (rc.2 → rc.3 tarballs): the main package `lib/` is unchanged (6 docs files
+plus the version bump); 83 subpackages moved lockstep and `dsh-deepseek-chat-import` is
+new (unused here). The three packages this plugin's delegation chain touches —
+`dsh-subagent`, `dsh-tool-subagent`, `dsh-session-title-llm` — plus `dsh-compaction-basic`
+are byte-identical in `lib/` (only `package.json` versions moved), so the flattened
+`SubagentActivationSpec` and the `interruptByUser` stop endpoint carry over unchanged.
+
+Lab evidence (virtual, zero quota; `D:/dsh-artifacts/rc2-diff`, CLI upgraded to
+`0.2.2-rc.3`, host 3084, probe 4719, plugin 0.4.64 build, `dsh-prime-memory@0.26.37`):
+every check green — all plugin rows active with no incompatible/did-not-activate;
+`subagents/interruptByUser` → `{accepted:true}` (rc.1 name still `not found`); a replayed
+`subagent` tool call put the child on `mimo-v2.6-pro` (the configured group pin) while the
+parent ran `gpt-6.1-sol` — the 0.4.64 dual-shape routing works unchanged on rc.3;
+per-turn title requests on the configured route plus the no-restart hot switch; and the
+prime-memory adapter push (`apigoto/deepseek-flash`), settings-get read-back, and probe
+distillation hits all confirmed.
+
+dsh-prime-memory: `latest` unchanged at 0.26.37 (no new version, no `dsh-0.2.2-*` tags,
+engines range unchanged). automode: `latest` 0.18.0, still frozen.
+
 ## rc.2 (`0.2.2-rc.2`) verification (2026-11-12)
 
 `latest` stayed at `0.2.2-rc.1`; `0.2.2-rc.2` sat on `next` and the desktop
