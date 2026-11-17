@@ -48,6 +48,31 @@ distillation hits all confirmed.
 dsh-prime-memory: `latest` unchanged at 0.26.37 (no new version, no `dsh-0.2.2-*` tags,
 engines range unchanged). automode: `latest` 0.18.0, still frozen.
 
+## dsh-prime-memory 0.26.61 check (2026-11-17)
+
+`latest` jumped 0.26.37 → **0.26.61** (24 releases; the dsh-* dist-tags now all sit at
+0.26.41, `dsh-0.2.1-rc.5` included) and `engines.dsh` widened to `>=0.1.0-rc.2 <0.3.0-0`,
+still covering every line this plugin declares. The desktop plane had already installed
+0.26.61 alongside plugin 0.4.65 on the rc.3 runtime.
+
+Adapter-surface diff (0.26.37 → 0.26.61 tarballs): `cordis.patch.yml` unchanged (the
+`dsh-memory` row and its config shape are intact); `package.json`'s `dsh` field —
+bundle patch, client inject, `pluginDependencies: [dsh-reference-session-collector]` —
+identical; `projectDistillChain` and `effectiveCfg` are byte-identical, so the
+distillChain projection and the static-pin precedence our `clearStaticPin` relies on
+carry over unchanged; the settings-get/settings-set RPC registrations live in the same
+file set with the same `distill*` field keys. The 75 changed + 57 added files are the
+new ext-memory module, graph/hooks/pipeline enhancements — none on our seam.
+
+Lab evidence (virtual, zero quota; same `D:/dsh-artifacts/rc2-diff` host 3084 / probe
+4719, DSH `0.2.2-rc.3`, plugin 0.4.65 build, `dsh-prime-memory@0.26.61`): every check
+green — `include:dsh-memory` active with no incompatible/did-not-activate; the adapter
+push landed (`installed:true`, route `apigoto/deepseek-flash`, replays 0);
+`/dsh-memory/rpc/settings-get` read the configured pair back; the memory log's
+distillation-route line matched; and the rest of the suite (stop endpoint, per-turn
+titles, hot switch) stayed green. No code change needed; docs-only per the release
+policy, pushed to main without a tag.
+
 ## rc.2 (`0.2.2-rc.2`) verification (2026-11-12)
 
 `latest` stayed at `0.2.2-rc.1`; `0.2.2-rc.2` sat on `next` and the desktop

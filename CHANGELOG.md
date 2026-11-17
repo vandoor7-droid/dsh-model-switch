@@ -1,3 +1,6 @@
+## Unreleased（仅文档，不发版）
+
+- **兼容巡检（2026-11-17，仅文档）**：`dsh-prime-memory` 从 **0.26.37 前进到 0.26.61**（跨 24 个版本；dsh-* dist-tags 全部刷到 0.26.41），`engines.dsh` 放宽为 `>=0.1.0-rc.2 <0.3.0-0`，覆盖本插件声明的全部线。适配面 diff（0.26.37 → 0.26.61 tarball）：`cordis.patch.yml` 未变（`dsh-memory` 行结构完整）；`package.json` 的 `dsh` 字段（bundle patch / client inject / `pluginDependencies: [dsh-reference-session-collector]`）一致；`projectDistillChain` 与 `effectiveCfg` 逐字节相同（distillChain 投影与静态 pin 优先级语义原样保留）；settings-get/set RPC 注册文件集与 `distill*` 字段键集相同——75 变更 + 57 新增（ext-memory 新模块、graph/hooks/pipeline 增强）均不在本插件接缝上。**运行时验证（virtual / 零真实额度）**：DSH `0.2.2-rc.3` lab（`D:/dsh-artifacts/rc2-diff`，3084/4719，本插件 0.4.65 构建 + `dsh-prime-memory@0.26.61`）全项通过——`include:dsh-memory` active、无 incompatible/did-not-activate；适配器 push 落地（`installed:true, route apigoto/deepseek-flash, replays 0`）；`/dsh-memory/rpc/settings-get` 读回一致；memory.log「蒸馏模型路由」行匹配。**无需任何代码变更，按纯文档处理：仅推送 main，不打标签、不发 npm**（DSH `latest` 仍为 `0.2.2-rc.1`、`next` 0.2.2-rc.3 未动；automode 0.18.0 冻结中）。注：本文件中部另有一个 0.4.5x 时代遗留的 `## Unreleased` 章节（历史记录，未清理）。
 ## v0.4.65
 
 DSH `0.2.2-rc.3` 兼容声明（无代码变更）。
