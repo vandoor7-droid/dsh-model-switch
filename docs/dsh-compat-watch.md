@@ -22,6 +22,38 @@ request while it still sat on `next`. It followed the same evidence bar as a
 `latest` move (contract diff + real-host lab run + rc.2 regression), so the line
 is listed as verified even though `latest` still points at `0.2.1-rc.2`.
 
+## rc.5 (`0.2.2-rc.5`) verification (2026-11-18)
+
+`latest` stayed at `0.2.2-rc.1`; `0.2.2-rc.5` sat on `next` (rc.4 was never published
+separately to this watch — its change is folded into the rc.5 verification) and the
+desktop runtime had already updated to it, so the line was verified at the same evidence
+bar as a `latest` move (the `0.2.1-rc.3` / rc.2 / rc.3 precedent).
+
+Static diff (rc.3 → rc.5 tarballs): the main package `lib/` is unchanged (docs plus four
+upgrade guides — rc.3 renames the DeepSeek refusal code `MALFORMED_RESPONSE` →
+`CONTENT_REFUSED`, rc.4 stops pinning `web.searchProvider` in the base composition so
+DeepSeek-model searches run the legacy Messages provider); 83 subpackages moved
+lockstep. The delegation chain — `dsh-subagent`, `dsh-tool-subagent`,
+`dsh-session-title-llm` — changed only `package.json` versions: the flattened
+`SubagentActivationSpec`, `interruptByUser`, and the `...request` spread all carry over
+byte-identical. This plugin's `src/` has zero references to either error code, and the
+search-adapter seam reads/writes the official `searchProvider` field, which a default
+change does not break.
+
+dsh-prime-memory 0.26.61 → 0.26.63 in the same run: adapter surface unchanged
+(`projectDistillChain` byte-identical, `distill*` key set identical, `dsh.plugin.json`
+engines/components identical, `package.json` dsh-field and deps identical,
+`cordis.patch.yml` untouched); the 7 changed files are stats/type-level.
+
+Lab evidence (virtual, zero quota; `D:/dsh-artifacts/rc2-diff`, CLI `0.2.2-rc.5`, host
+3084, probe 4719, plugin 0.4.65 build, `dsh-prime-memory@0.26.63`): every check green —
+all plugin rows active with no incompatible/did-not-activate; `subagents/interruptByUser`
+→ `{accepted:true}` (rc.1 name still `not found`); a replayed `subagent` tool call put the
+child on `mimo-v2.6-pro` (the configured group pin) while the parent ran `gpt-6.1-sol`;
+per-turn title requests on the configured route plus the no-restart hot switch; the
+prime-memory adapter push (`installed:true`, route `apigoto/deepseek-flash`),
+settings-get read-back, and the memory-log distillation-route line all confirmed.
+
 ## rc.3 (`0.2.2-rc.3`) verification (2026-11-14)
 
 `latest` stayed at `0.2.2-rc.1`; `0.2.2-rc.3` sat on `next` with the desktop runtime

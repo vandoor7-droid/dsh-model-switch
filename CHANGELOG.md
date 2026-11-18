@@ -1,6 +1,13 @@
-## Unreleased（仅文档，不发版）
+## v0.4.66
 
-- **兼容巡检（2026-11-17，仅文档）**：`dsh-prime-memory` 从 **0.26.37 前进到 0.26.61**（跨 24 个版本；dsh-* dist-tags 全部刷到 0.26.41），`engines.dsh` 放宽为 `>=0.1.0-rc.2 <0.3.0-0`，覆盖本插件声明的全部线。适配面 diff（0.26.37 → 0.26.61 tarball）：`cordis.patch.yml` 未变（`dsh-memory` 行结构完整）；`package.json` 的 `dsh` 字段（bundle patch / client inject / `pluginDependencies: [dsh-reference-session-collector]`）一致；`projectDistillChain` 与 `effectiveCfg` 逐字节相同（distillChain 投影与静态 pin 优先级语义原样保留）；settings-get/set RPC 注册文件集与 `distill*` 字段键集相同——75 变更 + 57 新增（ext-memory 新模块、graph/hooks/pipeline 增强）均不在本插件接缝上。**运行时验证（virtual / 零真实额度）**：DSH `0.2.2-rc.3` lab（`D:/dsh-artifacts/rc2-diff`，3084/4719，本插件 0.4.65 构建 + `dsh-prime-memory@0.26.61`）全项通过——`include:dsh-memory` active、无 incompatible/did-not-activate；适配器 push 落地（`installed:true, route apigoto/deepseek-flash, replays 0`）；`/dsh-memory/rpc/settings-get` 读回一致；memory.log「蒸馏模型路由」行匹配。**无需任何代码变更，按纯文档处理：仅推送 main，不打标签、不发 npm**（DSH `latest` 仍为 `0.2.2-rc.1`、`next` 0.2.2-rc.3 未动；automode 0.18.0 冻结中）。注：本文件中部另有一个 0.4.5x 时代遗留的 `## Unreleased` 章节（历史记录，未清理）。
+DSH `0.2.2-rc.5` 兼容声明 + 双线上游巡检（无代码变更；含 2026-11-17 的 prime-memory 0.26.61 巡检记录）。
+
+- **dsh rc.3 → rc.5 变化面**：主包 `lib/` 零变化（6 个 docs + 新增 4 篇 upgrade-guide：rc.3 的 DeepSeek 拒绝码 `MALFORMED_RESPONSE`→`CONTENT_REFUSED`、rc.4 的 web-search 默认供应商改为按模型路由）；83 子包 lockstep。委派链三包 `dsh-subagent` / `dsh-tool-subagent` / `dsh-session-title-llm` 的 `lib/` 均仅版本号——扁平 `SubagentActivationSpec` 与 `interruptByUser` 原样保留；本插件 `src/` 对两个错误码零引用，搜索适配器读写面不受官方默认值变化影响。
+- **prime-memory 0.26.61 → 0.26.63**：适配面全部不变（`projectDistillChain` 逐字节相同、`distill*` 键集无差异、`dsh.plugin.json` engines/components 一致、`package.json` 的 dsh 字段与依赖一致、`cordis.patch.yml` 未动）；7 个变更文件集中在 stats/类型层面。
+- **验证（virtual / 零真实额度）**：rc.5 lab（`D:/dsh-artifacts/rc2-diff`，CLI `0.2.2-rc.5`，3084/4719，本插件 0.4.65 构建 + `dsh-prime-memory@0.26.63` + collector 0.2.8）全项通过——全部插件行 active、无 incompatible/did-not-activate；`subagents/interruptByUser` → `{accepted:true}`（旧名 not found）；回放 `subagent` 工具调用探针记录 `gpt-6.1-sol`（父）→ `mimo-v2.6-pro`（子代理，配置的分组固定对）→ 续跑；标题每轮路由 + 改分组 pin 免重启热切换；适配器 push（`installed:true, route apigoto/deepseek-flash, replays 0`）+ settings-get 读回 + memory.log 蒸馏路由行匹配。
+- **`dshReleases`**：新增 `0.2.2-rc.5: compatible`（rc.4 未单独发布，其变化已并入 rc.5 验证）。npm `latest` 仍为 `0.2.2-rc.1`（`0.2.2-rc.5` 在 `next`，桌面 runtime 已实际更新至该版本），延续 `next` 线同等证据标准先例。
+- 上游观察（2026-11-18）：`dsh-prime-memory` `latest` 0.26.63（dsh-* tags 0.26.41，无 `dsh-0.2.2-*` tag，engines `>=0.1.0-rc.2 <0.3.0-0` 不变）；automode 0.18.0 冻结中。
+- `pnpm run check` 全绿（tsc + tsdown + 679 测试 + pack 闸门）。
 ## v0.4.65
 
 DSH `0.2.2-rc.3` 兼容声明（无代码变更）。

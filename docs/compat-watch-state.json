@@ -1,11 +1,11 @@
 {
   "$schema-note": "Baseline for the scheduled compatibility watch (see docs/dsh-compat-watch.md). `latest` is the npm dist-tag an ordinary install gets.",
   "schema": "dsh-model-switch/compat-watch-state/v1",
-  "checkedAt": "2026-11-17T15:32:25.852Z",
+  "checkedAt": "2026-11-18T15:25:40.005Z",
   "dsh": {
     "distTagWatched": "latest",
     "latest": "0.2.2-rc.1",
-    "next": "0.2.2-rc.3",
+    "next": "0.2.2-rc.5",
     "verifiedDeclared": [
       "0.1.7-alpha.2",
       "0.1.7-rc.1",
@@ -16,7 +16,8 @@
       "0.2.1-rc.5",
       "0.2.2-rc.1",
       "0.2.2-rc.2",
-      "0.2.2-rc.3"
+      "0.2.2-rc.3",
+      "0.2.2-rc.5"
     ],
     "declaredFloor": ">=0.2.0-rc.2"
   },
@@ -32,21 +33,21 @@
   "memory": {
     "package": "dsh-prime-memory",
     "distTagWatched": "latest",
-    "latestVerified": "0.26.61",
+    "latestVerified": "0.26.63",
     "verifiedWith": {
-      "dsh": "0.2.2-rc.3",
+      "dsh": "0.2.2-rc.5",
       "dshTag": "latest (engines range >=0.1.0-rc.2 <0.3.0-0)"
     },
     "adapter": "src/prime-memory-compat.ts (0.4.57: scoped inject of modelSwitch + webServer, read-back verified push, live-rejected fallback)",
-    "observedLatest": "0.26.61",
+    "observedLatest": "0.26.63",
     "observedDshTags": {
       "note": "all dsh-* tags sit at 0.26.41 as of 2026-11-17 (dsh-0.2.1-rc.5 included); no dsh-0.2.2-* tags"
     },
-    "pendingVerification": "none for 0.26.61 with plugin 0.4.65 (rc.3 lab, 2026-11-17); desktop plane already runs 0.26.61 + 0.4.65 on rc.3",
-    "verifiedAt": "2026-11-17",
+    "pendingVerification": "none for 0.26.63 with plugin 0.4.65 (rc.5 lab, 2026-11-18); desktop plane already runs 0.26.63 + 0.4.65 on rc.5",
+    "verifiedAt": "2026-11-18",
     "verifiedPlane": "rc.2 lab (virtual) + desktop (user-attested 2026-11-09); previous lab matrix stands for 0.26.24 on DSH 0.2.1-rc.5 with plugin 0.4.60",
     "verifiedRuns": [
-      "rc.3 lab 2026-11-17 (3084/4719, plugin 0.4.65, prime-memory 0.26.61): adapter push landed (capabilities reports installed:true, route apigoto/deepseek-flash)",
+      "rc.5 lab 2026-11-18 (3084/4719, plugin 0.4.65, prime-memory 0.26.63): adapter push landed (installed:true, route apigoto/deepseek-flash)",
       "/dsh-memory/rpc/settings-get read the configured pair back",
       "memory.log distillation-route line matched apigoto/deepseek-flash",
       "include:dsh-memory active; no incompatible-with-dsh / did-not-activate line on boot"
