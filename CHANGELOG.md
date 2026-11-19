@@ -1,3 +1,7 @@
+## Unreleased
+
+- 文档：README 的「正式版安装」段不再链接本仓库 Release 页不存在的 tarball / sha256 附件（该页从未带附件，旧链接一直是 404）——本插件安装统一指向 npm 注册表，固定版本用 `npm pack dsh-model-switch@<版本>` 取归档后本地安装；Release 链接只指向发布页并注明 npm provenance。仅文档，不发版。
+
 ## v0.4.67
 
 冻结审查超时功能（按用户 2026-11-19 要求）+ README 重构（中文升主）。

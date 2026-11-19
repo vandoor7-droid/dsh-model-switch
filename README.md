@@ -210,32 +210,24 @@ pnpm run check
 
 本版在官方 DeepSeek Harness `0.1.7-rc.2` 至 `0.2.2-rc.5` 上验证了子代理、Composer、Plan Review 与能力路由；发布包只包含构建后的 Host/Client 产物，不包含兄弟仓库源码或本机路径。
 
-Latest 安装命令（资产文件名必须与当前 latest Release 一致）：
+本插件从 npm 注册表安装（本仓库的 Release 页不带附件，安装不依赖 Release 资产）；需要固定版本时先用 `npm pack dsh-model-switch@<版本>` 取得归档，再按上文本地 tarball 方式安装：
+
+~~~sh
+dsh plugin --profile web add --force dsh-model-switch
+~~~
+
+Provider Adapter 从其各自 Release 安装：
 
 ~~~sh
 dsh plugin --profile web add --force \
   https://github.com/NOirBRight/dsh-llm-providers-ui/releases/latest/download/dsh-llm-providers-ui-0.2.14.tgz
-dsh plugin --profile web add --force \
-  https://github.com/vandoor7-droid/dsh-model-switch/releases/latest/download/dsh-model-switch-0.4.67.tgz
-~~~
-
-固定版本安装命令：
-
-~~~sh
-dsh plugin --profile web add --force \
-  https://github.com/NOirBRight/dsh-llm-providers-ui/releases/download/v0.2.14/dsh-llm-providers-ui-0.2.14.tgz
-dsh plugin --profile web add --force \
-  https://github.com/vandoor7-droid/dsh-model-switch/releases/download/v0.4.67/dsh-model-switch-0.4.67.tgz
 ~~~
 
 更新、卸载与验证：
 
 ~~~sh
-# 更新到最新 Release
-dsh plugin --profile web add --force \
-  https://github.com/NOirBRight/dsh-llm-providers-ui/releases/latest/download/dsh-llm-providers-ui-0.2.14.tgz
-dsh plugin --profile web add --force \
-  https://github.com/vandoor7-droid/dsh-model-switch/releases/latest/download/dsh-model-switch-0.4.67.tgz
+# 更新到最新版
+dsh plugin --profile web add --force dsh-model-switch
 # 验证加载与版本
 dsh plugin --profile web list
 # 只卸载本插件
@@ -244,6 +236,6 @@ dsh plugin --profile web remove dsh-model-switch
 
 配置入口：Web 使用「设置」中的本插件页面；Host-only 插件使用 profile 的 dsh.profile.bundles 配置。
 
-回滚：重新安装上一版（v0.4.66）的不可变归档并恢复已记录的 profile；不需要降级 Host。失败时查看 DSH Host 日志，不要将源码 checkout 链入生产 profile。
+回滚：重新安装上一版（`npm pack dsh-model-switch@0.4.66` 后本地安装）并恢复已记录的 profile；不需要降级 Host。失败时查看 DSH Host 日志，不要将源码 checkout 链入生产 profile。
 
-Release 与完整性：[v0.4.67](https://github.com/vandoor7-droid/dsh-model-switch/releases/tag/v0.4.67) · [SHA256](https://github.com/vandoor7-droid/dsh-model-switch/releases/download/v0.4.67/dsh-model-switch-0.4.67.tgz.sha256)。
+Release 记录：[v0.4.67](https://github.com/vandoor7-droid/dsh-model-switch/releases/tag/v0.4.67)（npm 包附带构建来源 provenance 签名）。

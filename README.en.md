@@ -212,32 +212,24 @@ pnpm run check
 
 Explicit model routing for Subagents, Composer, Plan Review, and capability tools, checked on official DeepSeek Harness `0.1.7-rc.2` through `0.2.2-rc.5`. The release artifact contains built Host/Client files, not sibling source or local paths.
 
-Latest installation (the asset filename must match the current latest release):
+This plugin installs from the npm registry (this repository's releases carry no attachments, so an install never depends on release assets); to pin a version, fetch the archive with `npm pack dsh-model-switch@<version>` and install the local tarball as shown above:
+
+~~~sh
+dsh plugin --profile web add --force dsh-model-switch
+~~~
+
+Provider adapters install from their own releases:
 
 ~~~sh
 dsh plugin --profile web add --force \
   https://github.com/NOirBRight/dsh-llm-providers-ui/releases/latest/download/dsh-llm-providers-ui-0.2.14.tgz
-dsh plugin --profile web add --force \
-  https://github.com/vandoor7-droid/dsh-model-switch/releases/latest/download/dsh-model-switch-0.4.67.tgz
-~~~
-
-Fixed-version installation:
-
-~~~sh
-dsh plugin --profile web add --force \
-  https://github.com/NOirBRight/dsh-llm-providers-ui/releases/download/v0.2.14/dsh-llm-providers-ui-0.2.14.tgz
-dsh plugin --profile web add --force \
-  https://github.com/vandoor7-droid/dsh-model-switch/releases/download/v0.4.67/dsh-model-switch-0.4.67.tgz
 ~~~
 
 Update, uninstall, and verify:
 
 ~~~sh
-# Update to the latest Release
-dsh plugin --profile web add --force \
-  https://github.com/NOirBRight/dsh-llm-providers-ui/releases/latest/download/dsh-llm-providers-ui-0.2.14.tgz
-dsh plugin --profile web add --force \
-  https://github.com/vandoor7-droid/dsh-model-switch/releases/latest/download/dsh-model-switch-0.4.67.tgz
+# Update to the latest release
+dsh plugin --profile web add --force dsh-model-switch
 # Verify the loaded version
 dsh plugin --profile web list
 # Uninstall only this plugin
@@ -246,6 +238,6 @@ dsh plugin --profile web remove dsh-model-switch
 
 Configuration: use the plugin section in Settings for Web UI plugins, or the profile dsh.profile.bundles entry for Host-only plugins.
 
-Rollback: reinstall the previous release (v0.4.66) archive and restore the recorded profile; no Host downgrade is required. Inspect the DSH Host logs; never link a checkout into production.
+Rollback: reinstall the previous release (`npm pack dsh-model-switch@0.4.66`, then the local tarball) and restore the recorded profile; no Host downgrade is required. Inspect the DSH Host logs; never link a checkout into production.
 
-Release and integrity: [v0.4.67](https://github.com/vandoor7-droid/dsh-model-switch/releases/tag/v0.4.67) · [SHA256](https://github.com/vandoor7-droid/dsh-model-switch/releases/download/v0.4.67/dsh-model-switch-0.4.67.tgz.sha256).
+Release record: [v0.4.67](https://github.com/vandoor7-droid/dsh-model-switch/releases/tag/v0.4.67) (the npm package carries a signed build-provenance statement).
