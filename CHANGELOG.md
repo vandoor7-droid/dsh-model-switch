@@ -1,6 +1,15 @@
-## Unreleased
+## v0.4.68
 
-- 文档：README 的「正式版安装」段不再链接本仓库 Release 页不存在的 tarball / sha256 附件（该页从未带附件，旧链接一直是 404）——本插件安装统一指向 npm 注册表，固定版本用 `npm pack dsh-model-switch@<版本>` 取归档后本地安装；Release 链接只指向发布页并注明 npm provenance。仅文档，不发版。
+`list_subagent_models` 现在同时报出「未点名 spawn 的实际默认路由」（按用户 2026-11-19 要求）。
+
+- **动机**：官方发现工具只列「显式点名」的授权路由（数据来自会话投影 `subagent/model-selection-policy`，无 policy 时回落父路由），按设计不含本插件在 Subagent 运行时注入的未命名路由（供应商组 pin → 固定卡片 → 官方继承）——排查时曾因此误判「无识图子代理路由可用」。
+- **实现（`src/subagent-runtime.ts`，挂在 `model-switch-subagent-runtime` 行）**：在 `ctx.tools` 注册表上挂钩 `register` 本身——任何注册路径（宿主行，以及每个会话的 preset 层：Web 面按 agent preset 组装该工具，作用域层会 shadow 全局注册，扫描全局视图够不着）把 definition 存入层之前，发现 `list_subagent_models` 即原地包装其 `execute`：官方文本输出尾部追加一行 `Default route for spawns that name no provider/model (Model Switch, <provider group pin|fixed card>): <provider/model>[, effort <e>]`，无固定时明确写 official inherit。非字符串结果原样放行；包装幂等（符号标记）、行卸载时恢复官方 execute；另保留全局视图的迟到扫描与 `tools/change` 重挂。路由解析复用 `sessionSubagentRouteOf`（与委派注入同源同优先级）。
+- **状态面**：capabilities RPC 的 `status` 新增 `subagentDiscoveryHint{installed, toolWrapped}`（与 automode / prime-memory / reviewTimeout 的适配器状态同构）。
+- **测试**：`tests/subagent-runtime.spec.ts` 新增 10 条（footer 纯函数四种形态、安装追加、卸载恢复、重挂、非字符串放行、无注册表静默）；`tests/subagent-discovery.integration.spec.ts` 新增 4 条真实 cordis + 真实 `ToolsService` 组合测试（根注册、行加载后注册、兄弟插件上下文注册、卸载恢复）。
+- **验证（virtual / 零真实额度）**：DSH `0.2.2-rc.5` lab（`D:\dsh-artifacts\rc2-diff`，端口 3084/4719）+ 0.4.68 构建：`model-switch-subagent-runtime` 行 active；lab 临时启用 `tool-subagent` 行使工具注册（`provider: subagent-spawn-in-process` + `modelDiscovery: true`，运行后还原）。无头 UI 回合中模型（探针回放）调用 `list_subagent_models`，**回传给模型的工具结果**（探针 `--capture-last` 逐字捕获）为：`apigoto — apigoto\nDefault route for spawns that name no provider/model (Model Switch, provider group pin): apigoto/mimo-v2.6-flash, effort high`——授权清单与实际默认路由（组 pin + effort）并列，与 lab patch 的 apigoto 组配置一致。`status.subagentDiscoveryHint = {installed:true, toolWrapped:true}`。证据：`D:\dsh-artifacts\rc2-diff\report-hint-0468-2026-11-19T15-43-28-382Z.json`、`probe-hint-2026-11-19T15-43-28-382Z.jsonl`。
+- 探针 `tools/route-probe.mjs` 新增 `--capture-last` 开关（记录每条 chat 请求末条消息的截断文本，默认关闭），本轮为取证引入，保留为 lab 工具能力。
+- 文档：README 的「正式版安装」段不再链接本仓库 Release 页不存在的 tarball / sha256 附件（该页从未带附件，旧链接一直是 404）——本插件安装统一指向 npm 注册表，固定版本用 `npm pack dsh-model-switch@<版本>` 取归档后本地安装；Release 链接只指向发布页并注明 npm provenance。
+- `pnpm run check` 全绿（tsc + tsdown + 693 测试 + pack 闸门）。
 
 ## v0.4.67
 

@@ -4,8 +4,10 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import OfficialSubagentRuntime, { type SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import {
+  installSubagentDiscoveryHint,
   ModelSwitchSubagentRuntime,
   routeSubagentRequest,
+  subagentDiscoveryFooter,
   subagentRuntimeInject,
   type SubagentActivationSpecLike,
 } from '../src/subagent-runtime.js'
@@ -307,5 +309,117 @@ describe('ModelSwitchSubagentRuntime mounted dependencies', () => {
     const declared = (OfficialSubagentRuntime as unknown as { inject?: readonly string[] }).inject ?? []
     expect(ModelSwitchSubagentRuntime.inject).toEqual(subagentRuntimeInject(declared))
     expect(ModelSwitchSubagentRuntime.inject).toContain('modelSwitch')
+  })
+})
+
+describe('subagentDiscoveryFooter', () => {
+  it('states official inherit when no route is pinned', () => {
+    expect(subagentDiscoveryFooter(undefined, false))
+      .toBe('Default route for spawns that name no provider/model (Model Switch): official inherit (nothing pinned).')
+  })
+
+  it('names the provider group pin as the source', () => {
+    expect(subagentDiscoveryFooter({ provider: 'apigoto', model: 'mimo-v2.6-pro' }, true))
+      .toBe('Default route for spawns that name no provider/model (Model Switch, provider group pin): apigoto/mimo-v2.6-pro')
+  })
+
+  it('names the fixed card as the source', () => {
+    expect(subagentDiscoveryFooter({ provider: 'xiaomi', model: 'mimo-v2.6-flash' }, false))
+      .toBe('Default route for spawns that name no provider/model (Model Switch, fixed card): xiaomi/mimo-v2.6-flash')
+  })
+
+  it('carries the effort when the route has one', () => {
+    expect(subagentDiscoveryFooter({ provider: 'apigoto', model: 'mimo-v2.6-pro', reasoningEffort: 'high' }, true))
+      .toBe('Default route for spawns that name no provider/model (Model Switch, provider group pin): apigoto/mimo-v2.6-pro, effort high')
+  })
+})
+
+/** Minimal context face the discovery hint reads; nothing else is touched. */
+function discoveryContext(options: {
+  tools?: { get: (name: string) => unknown }
+  modelSwitch?: { currentSettings: () => unknown }
+}): { get: (name: string) => unknown; on: (event: string, listener: () => void) => () => void; emit: () => void } {
+  const listeners: Array<() => void> = []
+  return {
+    get: (name: string) => name === 'tools' ? options.tools : name === 'modelSwitch' ? options.modelSwitch : undefined,
+    on: (_event: string, listener: () => void) => { listeners.push(listener); return () => {} },
+    emit: () => { for (const listener of [...listeners]) listener() },
+  }
+}
+
+const discoveryExec = (provider?: string): { agent: { session: Session } } => ({
+  agent: { session: sessionOf(provider) },
+})
+
+describe('installSubagentDiscoveryHint', () => {
+  it('appends the effective group route and restores the official execute on dispose', async () => {
+    const definition = { execute: async () => 'provider list' }
+    const settings = {
+      subagentMode: 'follow-main',
+      providerGroups: { apigoto: { provider: 'apigoto', subagentProvider: 'apigoto', subagentModel: 'mimo-v2.6-pro' } },
+    }
+    const ctx = discoveryContext({
+      tools: { get: name => name === 'list_subagent_models' ? definition : undefined },
+      modelSwitch: { currentSettings: () => settings },
+    })
+    const dispose = installSubagentDiscoveryHint(ctx as never)
+    const output = await definition.execute({}, discoveryExec('apigoto'))
+    expect(output).toBe('provider list\nDefault route for spawns that name no provider/model (Model Switch, provider group pin): apigoto/mimo-v2.6-pro')
+    dispose()
+    expect(await definition.execute({}, discoveryExec('apigoto'))).toBe('provider list')
+  })
+
+  it('appends the fixed-card route when no group pins the session provider', async () => {
+    const definition = { execute: async () => 'provider list' }
+    const settings = { subagentMode: 'fixed', subagentProvider: 'xiaomi', subagentModel: 'mimo-v2.6-flash' }
+    const ctx = discoveryContext({
+      tools: { get: name => name === 'list_subagent_models' ? definition : undefined },
+      modelSwitch: { currentSettings: () => settings },
+    })
+    const dispose = installSubagentDiscoveryHint(ctx as never)
+    const output = await definition.execute({}, discoveryExec('apigoto'))
+    expect(output).toBe('provider list\nDefault route for spawns that name no provider/model (Model Switch, fixed card): xiaomi/mimo-v2.6-flash')
+    dispose()
+  })
+
+  it('states official inherit when nothing is pinned', async () => {
+    const definition = { execute: async () => 'provider list' }
+    const ctx = discoveryContext({
+      tools: { get: name => name === 'list_subagent_models' ? definition : undefined },
+      modelSwitch: { currentSettings: () => ({ subagentMode: 'follow-main' }) },
+    })
+    const dispose = installSubagentDiscoveryHint(ctx as never)
+    const output = await definition.execute({}, discoveryExec('apigoto'))
+    expect(output).toBe('provider list\nDefault route for spawns that name no provider/model (Model Switch): official inherit (nothing pinned).')
+    dispose()
+  })
+
+  it('passes non-string results through untouched', async () => {
+    const definition = { execute: async () => 42 as unknown }
+    const ctx = discoveryContext({ tools: { get: name => name === 'list_subagent_models' ? definition : undefined } })
+    const dispose = installSubagentDiscoveryHint(ctx as never)
+    expect(await definition.execute({}, discoveryExec('apigoto'))).toBe(42)
+    dispose()
+  })
+
+  it('re-applies when the registry changes and the tool is re-registered', async () => {
+    const holder: { definition?: { execute: (args: unknown, exec: unknown) => Promise<string> } } = {}
+    const settings = { subagentMode: 'fixed', subagentProvider: 'xiaomi', subagentModel: 'mimo-v2.6-flash' }
+    const ctx = discoveryContext({
+      tools: { get: name => name === 'list_subagent_models' ? holder.definition : undefined },
+      modelSwitch: { currentSettings: () => settings },
+    })
+    const dispose = installSubagentDiscoveryHint(ctx as never)
+    expect(holder.definition).toBeUndefined() // nothing registered yet: the sweep stays silent
+    holder.definition = { execute: async () => 'provider list' }
+    ctx.emit() // tools/change fires the sweep
+    const output = await holder.definition.execute({}, discoveryExec('apigoto'))
+    expect(output).toBe('provider list\nDefault route for spawns that name no provider/model (Model Switch, fixed card): xiaomi/mimo-v2.6-flash')
+    dispose()
+  })
+
+  it('is a no-op when the tools registry is unavailable', () => {
+    const ctx = discoveryContext({})
+    expect(() => installSubagentDiscoveryHint(ctx as never)).not.toThrow()
   })
 })

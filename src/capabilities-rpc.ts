@@ -6,6 +6,7 @@ import { readToolCatalog, type ToolCatalogSnapshot } from './tool-catalog.js'
 import { DEFAULT_READ_ONLY_TOOLS } from './tool-allowlist.js'
 import { autoReviewStatus } from './auto-review.js'
 import { automodeCompatView } from './automode-compat.js'
+import { subagentDiscoveryHintStatus } from './subagent-runtime.js'
 import { reviewTimeoutStatus } from './review-timeout.js'
 import { primeMemoryCompatStatus } from './prime-memory-compat.js'
 
@@ -161,6 +162,10 @@ export function installCapabilitiesRpc(ctx: Context, registry: ModelSwitchAdapte
           hotApplied: reviewTimeoutStatus.hotApplied,
           hot: reviewTimeoutStatus.hot,
           hotReason: reviewTimeoutStatus.hotReason,
+        },
+        subagentDiscoveryHint: {
+          installed: subagentDiscoveryHintStatus.installed,
+          toolWrapped: subagentDiscoveryHintStatus.toolWrapped,
         },
       }),
     )

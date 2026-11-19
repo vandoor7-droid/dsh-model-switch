@@ -3,7 +3,8 @@ import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { AgentOptions } from '@deepseek-ai/dsh-agent'
 import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { ModelSwitchSettings } from './host-settings.js'
-import { sessionSubagentRouteOf, type SubagentRoute } from './session-route.js'
+import type { Session } from '@deepseek-ai/dsh-session'
+import { groupRoute, sessionProviderOf, sessionSubagentRouteOf, type SubagentRoute } from './session-route.js'
 
 // Keep the previously published startup helpers and subclass importable. The
 // bundle no longer mounts the subclass; only the official service owns Typert.
@@ -224,6 +225,162 @@ export function installSubagentRouteWrappers(ctx: Context): () => void {
   }
 }
 
+//#region Subagent model discovery hint
+
+/** The official tool that lists routes available for explicit child selection. */
+const SUBAGENT_MODEL_DISCOVERY_TOOL = 'list_subagent_models'
+
+/**
+ * Live state of the discovery-hint adapter, surfaced through the capabilities
+ * RPC next to the other adapter states.
+ */
+export const subagentDiscoveryHintStatus = {
+  /** The tools registry was reachable and the adapter installed. */
+  installed: false,
+  /** The discovery tool was found and its execute wrapped. */
+  toolWrapped: false,
+}
+
+/** Marker so a re-sweep never wraps a wrapper. */
+const discoveryHintMarker = Symbol('modelSwitchSubagentDiscoveryHint')
+
+/** Minimal tools-registry face this row reads; the Host provides the service. */
+interface ToolsRegistrySurface {
+  get(name: string): { readonly execute?: unknown } | undefined
+}
+
+/** The calling agent's session handle, as discovery executions carry it. */
+function sessionOfExec(exec: unknown): Session | undefined {
+  const agent = (exec as { agent?: { session?: unknown } } | undefined)?.agent
+  const session = agent === null || typeof agent !== 'object' ? undefined : (agent as { session?: unknown }).session
+  return session === null || typeof session !== 'object' ? undefined : session as Session
+}
+
+/**
+ * Compose the route footer appended to the discovery tool's text output.
+ *
+ * Pure so the copy and the source attribution stay unit-testable.
+ *
+ * @param route - the route an unnamed spawn from this session would use.
+ * @param pinnedByGroup - whether a provider group (not the flat card) pinned it.
+ * @returns the footer line; undefined routes are stated as official inherit.
+ */
+export function subagentDiscoveryFooter(route: SubagentRoute | undefined, pinnedByGroup: boolean): string {
+  if (route === undefined) {
+    return 'Default route for spawns that name no provider/model (Model Switch): official inherit (nothing pinned).'
+  }
+  const source = pinnedByGroup ? 'provider group pin' : 'fixed card'
+  const effort = route.reasoningEffort === undefined ? '' : `, effort ${route.reasoningEffort}`
+  return `Default route for spawns that name no provider/model (Model Switch, ${source}): ${route.provider}/${route.model}${effort}`
+}
+
+/** Read the effective route and its source for one discovery execution. */
+function discoveryRouteOf(ctx: Context, exec: unknown): { route: SubagentRoute | undefined; pinnedByGroup: boolean } {
+  const session = sessionOfExec(exec)
+  let settings: ModelSwitchSettings | undefined
+  try {
+    const modelSwitch = ctx.get('modelSwitch') as ModelSwitchSurface | undefined
+    settings = typeof modelSwitch?.currentSettings === 'function' ? modelSwitch.currentSettings() : undefined
+  } catch { settings = undefined }
+  const route = sessionSubagentRouteOf(ctx, session, settings)
+  const pinnedByGroup = route !== undefined
+    && groupRoute(settings, sessionProviderOf(ctx, session), 'subagent') !== undefined
+  return { route, pinnedByGroup }
+}
+
+/**
+ * Wrap the official discovery tool's execute so its text output also states the
+ * route an unnamed spawn would actually take — the one piece the
+ * authorized-route listing cannot know.
+ *
+ * The wrap is in place on the registered definition (the registry resolves
+ * tools per call), idempotent across re-sweeps, and re-applied when the
+ * registry changes so a re-registered tool is covered too. Unknown result
+ * shapes pass through untouched; unload restores the official execute.
+ *
+ * @param ctx - this row's context.
+ * @returns a disposer that detaches the listener and restores the execute.
+ */
+export function installSubagentDiscoveryHint(ctx: Context): () => void {
+  const tools = ctx.get('tools', false) as ToolsRegistrySurface | undefined
+  if (tools === undefined || typeof tools.get !== 'function') {
+    warn(ctx, 'model-switch: the tools registry is unavailable; list_subagent_models keeps its official output')
+    return () => {}
+  }
+  subagentDiscoveryHintStatus.installed = true
+  const restores: Array<() => void> = []
+  let announced = false
+  const wrapExecute = (definition: object): boolean => {
+    const current = (definition as { execute?: unknown }).execute
+    if (typeof current !== 'function' || Reflect.get(current, discoveryHintMarker) === true) return false
+    const restore = wrapMethod(definition, 'execute', original => {
+      const wrapped = function (this: unknown, ...args: unknown[]): unknown {
+        const returned = Reflect.apply(original as RuntimeMethod, this, args)
+        const append = (value: unknown): unknown => {
+          if (typeof value !== 'string') return value
+          const { route, pinnedByGroup } = discoveryRouteOf(ctx, args[1])
+          return `${value}\n${subagentDiscoveryFooter(route, pinnedByGroup)}`
+        }
+        if (returned !== null && (typeof returned === 'object' || typeof returned === 'function')
+          && typeof (returned as { then?: unknown }).then === 'function') {
+          return (returned as Promise<unknown>).then(append)
+        }
+        return append(returned)
+      } as RuntimeMethod
+      Object.defineProperty(wrapped, discoveryHintMarker, { value: true })
+      return wrapped
+    })
+    if (restore === undefined) return false
+    restores.push(restore)
+    return true
+  }
+  const announce = (): void => {
+    if (announced) return
+    announced = true
+    subagentDiscoveryHintStatus.toolWrapped = true
+    try { ctx.logger.info('model-switch: list_subagent_models now states the effective default route for unnamed spawns') } catch { /* diagnostics only */ }
+  }
+  // The Web surface composes the discovery tool per agent preset, in the
+  // session's own scope layer, which SHADOWS the global registration a sweep
+  // can see. Hooking register itself covers every registration path: the host
+  // row, each preset layer, and any future seam — the definition passes here
+  // before any layer stores it.
+  const registerRestore = wrapMethod(tools as object, 'register', original => {
+    const wrapped = function (this: unknown, ...args: unknown[]): unknown {
+      const definition = args[0] as { name?: unknown } | undefined
+      if (definition !== null && typeof definition === 'object' && definition.name === SUBAGENT_MODEL_DISCOVERY_TOOL
+        && wrapExecute(definition)) announce()
+      return Reflect.apply(original as RuntimeMethod, this, args)
+    } as RuntimeMethod
+    return wrapped
+  })
+  if (registerRestore !== undefined) restores.push(registerRestore)
+  // A host-plane registration may predate this row (or land while it loads):
+  // sweep the global view for it, retrying briefly and on registry changes.
+  const sweep = (): void => {
+    const definition = tools.get(SUBAGENT_MODEL_DISCOVERY_TOOL)
+    if (definition !== undefined && wrapExecute(definition as object)) announce()
+  }
+  sweep()
+  let attempts = 0
+  const retry = setInterval(() => {
+    attempts += 1
+    sweep()
+    if (announced || attempts >= 15) clearInterval(retry)
+  }, 1_000)
+  const off = ctx.on('tools/change', sweep)
+  return () => {
+    off()
+    clearInterval(retry)
+    for (const restore of restores.reverse()) restore()
+    restores.length = 0
+    subagentDiscoveryHintStatus.installed = false
+    subagentDiscoveryHintStatus.toolWrapped = false
+  }
+}
+
+//#endregion
+
 /**
  * Wait for the official service without replacing it or copying its dependency
  * list. Model Switch is read optionally per call, so its absence cannot hold a
@@ -233,6 +390,9 @@ export function installSubagentRouteWrappers(ctx: Context): () => void {
 export function profileSubagentRuntime(ctx: Context): void {
   ctx.inject(['subagents'], scope => {
     scope.effect(() => installSubagentRouteWrappers(scope), 'Model Switch: route official Subagent starts')
+  })
+  ctx.inject(['tools'], scope => {
+    scope.effect(() => installSubagentDiscoveryHint(scope), 'Model Switch: annotate the subagent model discovery tool')
   })
 }
 

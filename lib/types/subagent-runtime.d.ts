@@ -47,6 +47,40 @@ export declare function routedSubagentRequest<T extends RoutableSubagentRequest>
  */
 export declare function installSubagentRouteWrappers(ctx: Context): () => void;
 /**
+ * Live state of the discovery-hint adapter, surfaced through the capabilities
+ * RPC next to the other adapter states.
+ */
+export declare const subagentDiscoveryHintStatus: {
+    /** The tools registry was reachable and the adapter installed. */
+    installed: boolean;
+    /** The discovery tool was found and its execute wrapped. */
+    toolWrapped: boolean;
+};
+/**
+ * Compose the route footer appended to the discovery tool's text output.
+ *
+ * Pure so the copy and the source attribution stay unit-testable.
+ *
+ * @param route - the route an unnamed spawn from this session would use.
+ * @param pinnedByGroup - whether a provider group (not the flat card) pinned it.
+ * @returns the footer line; undefined routes are stated as official inherit.
+ */
+export declare function subagentDiscoveryFooter(route: SubagentRoute | undefined, pinnedByGroup: boolean): string;
+/**
+ * Wrap the official discovery tool's execute so its text output also states the
+ * route an unnamed spawn would actually take — the one piece the
+ * authorized-route listing cannot know.
+ *
+ * The wrap is in place on the registered definition (the registry resolves
+ * tools per call), idempotent across re-sweeps, and re-applied when the
+ * registry changes so a re-registered tool is covered too. Unknown result
+ * shapes pass through untouched; unload restores the official execute.
+ *
+ * @param ctx - this row's context.
+ * @returns a disposer that detaches the listener and restores the execute.
+ */
+export declare function installSubagentDiscoveryHint(ctx: Context): () => void;
+/**
  * Wait for the official service without replacing it or copying its dependency
  * list. Model Switch is read optionally per call, so its absence cannot hold a
  * startup fiber or retain a stale settings service. Cordis rebinds this effect

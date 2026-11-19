@@ -114,6 +114,12 @@ function readBody(request) {
 /** Models that already got their one-shot tool call (see `--map` `once`). */
 const servedOnce = new Set()
 
+/**
+ * When set, every chat request also logs a truncated tail of its LAST message,
+ * so a test can read what the caller fed back (e.g. a tool result) verbatim.
+ */
+const captureLast = process.argv.includes('--capture-last')
+
 const server = createServer(async (request, response) => {
   const url = new URL(request.url ?? '/', `http://127.0.0.1:${port}`)
   if (request.method === 'GET' && url.pathname === '/healthz') {
@@ -131,10 +137,18 @@ const server = createServer(async (request, response) => {
     const body = await readBody(request)
     let model = ''
     let stream = false
+    let lastMessage = ''
     try {
       const parsed = JSON.parse(body)
       model = typeof parsed.model === 'string' ? parsed.model : ''
       stream = parsed.stream === true
+      if (captureLast) {
+        const last = Array.isArray(parsed.messages) ? parsed.messages.at(-1) : undefined
+        const content = last?.content
+        lastMessage = typeof content === 'string' ? content.slice(0, 600)
+          : Array.isArray(content) ? JSON.stringify(content).slice(0, 600)
+          : ''
+      }
     } catch {
       // A non-JSON body still gets recorded, so a malformed call is visible.
     }
@@ -153,7 +167,7 @@ const server = createServer(async (request, response) => {
     const replyAnswer = pinned?.answer !== undefined
       ? String(pinned.answer)
       : (pinned?.preset !== undefined ? PRESETS[pinned.preset] : answer)
-    record({ path: url.pathname, model, stream, tool: replyTool, preset: replyPreset, authPresent: request.headers.authorization !== undefined, port })
+    record({ path: url.pathname, model, stream, tool: replyTool, preset: replyPreset, authPresent: request.headers.authorization !== undefined, port, ...(captureLast ? { lastMessage } : {}) })
     // `--hang <ms>` opens nothing for that long: a provider profile with a short
     // `streamIdleTimeoutMs` must abort here, which is how the review-timeout write
     // is verified end to end. A map entry may override it per model, so the main
