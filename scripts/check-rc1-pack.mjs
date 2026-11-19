@@ -71,7 +71,7 @@ try {
       assert(names.has(`package/${target.replace(/^\.\//u, '')}`), `missing export ${target}`)
     }
   }
-  for (const file of ['cordis.patch.yml', 'README.md', 'README.zh.md', 'lib/index.js', 'lib/client.js']) {
+  for (const file of ['cordis.patch.yml', 'README.md', 'README.en.md', 'lib/index.js', 'lib/client.js']) {
     assert(names.has(`package/${file}`), `missing ${file}`)
   }
   assert(names.has('package/package.json'))

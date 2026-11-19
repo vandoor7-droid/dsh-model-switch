@@ -1,6 +1,10 @@
 /**
  * Configurable Auto-reviewer stream idle timeout.
  *
+ * @deprecated 2026-11-19 冻结：审查超时功能已移除，`model-switch-review-timeout`
+ * 行已从 `cordis.patch.yml` 移除，本模块不再被挂载。保留源码仅为可回退，下个大
+ * 版本删除；不再修 bug、不再适配新版本。
+ *
  * The reviewer call is a normal llm stream, so its idle watchdog is the one
  * `@deepseek-ai/dsh-llm-pi-ai` puts on the **provider profile**:
  * `providers.<id>.streamIdleTimeoutMs` (default 300 000 ms). There is no

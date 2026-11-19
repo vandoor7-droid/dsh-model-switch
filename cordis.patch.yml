@@ -81,9 +81,6 @@
     - id: model-switch-prime-memory-compat
       name: 'dsh-model-switch/prime-memory-compat'
 
-    # Write the configured reviewer stream idle timeout into the reviewer
-    # routes' pi-ai provider profiles (the only place the upstream watchdog
-    # reads it). The write lands in the profile document, so it takes effect on
-    # the next start — same channel as the memory static pin.
-    - id: model-switch-review-timeout
-      name: 'dsh-model-switch/review-timeout'
+    # 2026-11-19 冻结：审查超时适配行已移除，本插件不再写 reviewer provider 的
+    # streamIdleTimeoutMs。源码保留一个版本（src/review-timeout.ts 标注
+    # deprecated），下个大版本删除。

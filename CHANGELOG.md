@@ -1,3 +1,14 @@
+## v0.4.67
+
+冻结审查超时功能（按用户 2026-11-19 要求）+ README 重构（中文升主）。
+
+- **审查超时已移除**。`cordis.patch.yml` 里 `model-switch-review-timeout` 的 insert 行已删除，运行时不再挂载；`src/review-timeout.ts` 标注 `@deprecated`，源码保留一个版本用于回退，下个大版本删除。设置页「审查豁免」区只剩纯读名单卡，Provider 的流式空闲超时回归上游默认（300 秒）。此前写入过 `streamIdleTimeoutMs` 的 profile 不会被自动清理，需要时可自行删除该行（桌面 profile 已只读勘察：`cordis.yml` / `cordis.patch.yml` / `package.json` 均无残留）。
+- **客户端面清理**：设置页超时卡、`saveReviewTimeout` 保存通道与全部 `reviewTimeout*` 文案（中英各 10 键）已删除；`client-contract` 不再暴露 `autoReviewTimeoutMs` 视图字段与死常量（`AUTO_REVIEW_TIMEOUT_FIELD` / `UPSTREAM_DEFAULT_IDLE_TIMEOUT_MS`，全仓无引用）。**保留面**（对齐 0.4.59 automode 冻结先例）：host 侧 `autoReviewTimeoutMs` 设置键留在 schema（冻结模块仍读，存量值惰性留存，回退即恢复生效）；capabilities RPC 的 `status.reviewTimeout` 休眠保留（`applied` / `hotApplied` 恒空）；`package.json` 的 `./review-timeout` 导出与 tsdown 构建入口保留；`tests/review-timeout.spec.ts` 的纯函数测试保留全绿。
+- **README 重构**：中文版升为主 `README.md`，英文版移至 `README.en.md`（npm 包页面随包内 README.md 显示中文）；`package.json` files 与 pack 闸门归档断言同步。过时内容修正（两份同步）：设置页卡片枚举补记忆蒸馏 / 审查豁免 / 供应商配置组并注明审查超时卡 0.4.67 移除；简介能力清单补记忆蒸馏；验证版本清单补 0.2.2-rc.1–rc.5（英文版原先停在 0.2.0-rc.2）；安装 / 发布段 `NOirBRight/dsh-model-switch` 链接全部改 `vandoor7-droid/dsh-model-switch`（第三方 providers-ui / codex / grok 链接保留）、版本示例统一 0.4.67、删除「复制本 README 的最小 YAML/JSON 示例」（README 无此示例）与 `journalctl --user -u dsh-web.service`（Linux 模板残留）、回滚指向 v0.4.66、「验证了 Main」措辞修正（Main 卡 0.4.23 已移除）；automode 冻结段后并列补「审查超时（0.4.67 起移除）」段。
+- **截图重制**（原三张全部过时：settings 截图仍展示 0.4.25 已移除的「Compact on switch」卡且缺审查豁免 / 记忆蒸馏 / 供应商配置组卡；plan-review 截图为官方卡形态按钮；composer-picker 停留在 v0.4.1 时代）：lab 内无头重拍，中文界面——composer picker 弹层（模型 / 推理等级）、设置页内容列整高拼接图（内层滚动容器分段截取后按滚动偏移拼接，九张卡全可见）、本插件的计划审核卡（四动作按钮）。三张均经识图子代理逐项核对通过：预期元素齐全、无「审查超时 / 保存超时设置」字样、拼接无错位。
+- **验证（virtual / 零真实额度）**：`D:\dsh-artifacts\rc2-diff` 的 DSH `0.2.2-rc.5` lab（端口 3084，探针 4719）+ 0.4.67 构建产物：217 行全部激活、无 incompatible / did-not-activate；**`model-switch-review-timeout` 不在 loader 行列**；我方六行（model-switch / subagent-runtime / auto-review / compaction / session-title / prime-memory-compat）全部 active；`tools` RPC 正常且 `status.reviewTimeout` 休眠；设置命名空间在位；无头 Edge + CDP 驱动实测：设置页渲染**无「审查超时」卡**且含审查豁免 / 记忆蒸馏模型 / 供应商配置组（DOM 断言 + 截图复核双重确认）、composer picker 弹层与计划审核卡（标题 / 四按钮 / 模型选择）正常驱动。探针记录：会话模型 `gpt-6.1-sol`（含 `exit_plan_mode` 工具回放）与标题模型 `mimo-v2.6-flash`。证据：`D:\dsh-artifacts\rc2-diff\report-freeze-0467-2026-11-19T14-21-15-749Z.json`、`probe-freeze-2026-11-19T14-21-15-749Z.jsonl`。
+- `pnpm run check` 全绿（tsc + tsdown + 679 测试 + pack 闸门，归档含 README.en.md 断言）。
+
 ## v0.4.66
 
 DSH `0.2.2-rc.5` 兼容声明 + 双线上游巡检（无代码变更；含 2026-11-17 的 prime-memory 0.26.61 巡检记录）。
