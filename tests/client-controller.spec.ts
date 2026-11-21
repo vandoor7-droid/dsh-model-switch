@@ -1,6 +1,24 @@
 import { describe, expect, it, vi } from 'vitest'
 import { CATALOG_LOAD_ATTEMPTS, deriveRouteChoices, groupProviderChoices, loadCatalogWithRetry, selectRouteModel, withCatalogFailures } from '../src/client/main-row-controller.js'
 
+describe('groupProviderChoices vision-twin dedupe', () => {
+  const groups = [
+    { id: 'yijia925', name: 'Yijia', models: [] },
+    { id: 'yijia925-vision', name: 'Yijia + auto vision', models: [] },
+    { id: 'apigoto', name: 'Apigoto', models: [] },
+  ]
+  it('hides a twin whose base provider is listed', () => {
+    expect(groupProviderChoices(groups, [], undefined).map(choice => choice.id)).toEqual(['yijia925', 'apigoto'])
+  })
+  it('keeps an orphan twin and the current selection reachable', () => {
+    expect(groupProviderChoices([{ id: 'orphan-vision', name: 'Orphan', models: [] }], [], undefined).map(choice => choice.id)).toEqual(['orphan-vision'])
+    expect(groupProviderChoices(groups, [], 'yijia925-vision').map(choice => choice.id)).toContain('yijia925-vision')
+  })
+  it('skips a stored twin key whose base is also configured', () => {
+    expect(groupProviderChoices(groups, ['yijia925', 'yijia925-vision'], undefined).map(choice => choice.id)).toEqual(['yijia925', 'apigoto'])
+  })
+})
+
 describe('Model Switch Settings route helpers', () => {
   const groups = [{ id: 'codex', name: 'Codex', models: [
     { id: 'gpt-a', name: 'GPT A', reasoning: { efforts: [{ id: 'low', name: 'Low' }], defaultEffort: 'low' } },

@@ -167,6 +167,23 @@ register/installSection API,记忆模式开关降级为恒开" on rc.2 — its m
 toggle section cannot register, so the mode stays always-on; unrelated to this
 plugin's settings-forms writes, which the lab verified keep round-tripping.
 
+## dsh-vision-router watch (from 2026-11-20)
+
+The vision-router adapter shipped with 0.4.69. Watched because two of its
+conventions are load-bearing for this plugin:
+
+- the `vision-router` row config shape (`providers[{provider, model, fallbacks}]`,
+  declared in its Config schema) is what the adapter writes through ConfigEditor;
+- the twin-route naming ${provider}-vision is what the provider-group merge
+  keys on — if the plugin renames twins, groups simply stop folding (visible,
+  not silent) and this plugin needs a matching update.
+
+Baseline at adoption: 3.4.0 (desktop-installed). The runtime caps are mirrored
+in `src/vision-router-route.ts` (row limit 32, identifier budget 512). The
+daily watch records `latest`; a move needs an adapter-surface diff (row
+config schema plus twin naming) and a lab run before a version is marked
+verified.
+
 ## rc.1 (`0.2.2-rc.1`) partial verification (2026-11-07)
 
 `latest` moved to `0.2.2-rc.1` (`next` also `0.2.2-rc.1`, `alpha` `0.2.2-alpha.3`).

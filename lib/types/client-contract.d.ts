@@ -23,6 +23,11 @@ export interface ModelSwitchSettingsView {
     /** Distillation route for the memory plugin; both unset means it keeps its own default. */
     memoryProvider?: string;
     memoryModel?: string;
+    /** Distillation reasoning effort; unset means the memory plugin's auto resolution. */
+    memoryReasoningEffort?: string;
+    /** Vision backend route for dsh-vision-router; both unset means it keeps its own chain. */
+    visionProvider?: string;
+    visionModel?: string;
     /** Raw saved per-provider groups; edited whole through the provider-groups card. */
     providerGroups?: ProviderGroupsStorage;
 }
@@ -35,6 +40,12 @@ export interface SubagentSettingsView {
 export interface CapabilityRouteView {
     provider?: string;
     model?: string;
+}
+/** The memory distillation route plus the reasoning effort a distillation call carries. */
+export interface MemoryRouteView {
+    provider?: string;
+    model?: string;
+    reasoningEffort?: string;
 }
 export declare const SUBAGENT_SETTINGS_FIELDS: Readonly<{
     readonly mode: "subagentMode";
@@ -90,6 +101,12 @@ export declare const TITLE_SETTINGS_FIELDS: Readonly<{
 export declare const MEMORY_SETTINGS_FIELDS: Readonly<{
     readonly provider: "memoryProvider";
     readonly model: "memoryModel";
+    readonly reasoningEffort: "memoryReasoningEffort";
+}>;
+/** Vision backend route handed to dsh-vision-router when it follows its own chain. */
+export declare const VISION_SETTINGS_FIELDS: Readonly<{
+    readonly provider: "visionProvider";
+    readonly model: "visionModel";
 }>;
 export declare function deriveSubagentSettings(settings: ModelSwitchSettingsView): SubagentSettingsView;
 export declare function deriveSearchSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
@@ -97,7 +114,8 @@ export declare function deriveImageSettings(settings: ModelSwitchSettingsView): 
 export declare function deriveAutoReviewSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 export declare function deriveCompactionSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 export declare function deriveTitleSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
-export declare function deriveMemorySettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
+export declare function deriveMemorySettings(settings: ModelSwitchSettingsView): MemoryRouteView;
+export declare function deriveVisionSettings(settings: ModelSwitchSettingsView): CapabilityRouteView;
 /** Whether both fields of a model route form a complete pair; an incomplete pair stays off. */
 export declare function routePairConfigured(route: CapabilityRouteView | undefined): boolean;
 /** Live reviewer counters shown beside the allowlist editor. */
@@ -111,6 +129,20 @@ export interface ReviewStatusView {
         readonly routeSkipped?: string | undefined;
         readonly added: number;
         readonly skipped: number;
+    } | undefined;
+    /** Memory-plugin adapter state: whether our distillation route reached the plugin. */
+    readonly primeMemory?: {
+        readonly installed: boolean;
+        readonly route?: string | undefined;
+        readonly routeSkipped?: string | undefined;
+        readonly replays?: number | undefined;
+    } | undefined;
+    /** Vision-plugin adapter state: whether our backend-chain head reached dsh-vision-router. */
+    readonly visionRouter?: {
+        readonly installed: boolean;
+        readonly route?: string | undefined;
+        readonly routeSkipped?: string | undefined;
+        readonly replays?: number | undefined;
     } | undefined;
 }
 /**

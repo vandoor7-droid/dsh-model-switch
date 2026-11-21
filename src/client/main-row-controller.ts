@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ModelCatalogFailure, ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { CapabilityRouteView } from '../client-contract.js'
+import { canonicalGroupProvider } from '../provider-group.js'
 import type { ModelSwitchLocaleKey } from './locales.js'
 
 export interface Choice { id: string; name: string; unavailable?: true }
@@ -37,10 +38,24 @@ export function deriveRouteChoices(groups: readonly ModelProviderGroup[], route:
  */
 export function groupProviderChoices(groups: readonly ModelProviderGroup[], configured: readonly string[], current: string | undefined): Choice[] {
   const route = current === undefined || current.trim() === '' ? undefined : { provider: current }
-  const choices = deriveRouteChoices(groups, route).providers
+  const listed = deriveRouteChoices(groups, route).providers
+  // dsh-vision-router twins: an id ending in -vision is the same provider
+  // with vision on, so one group per provider, listed under its base id. A
+  // twin whose base is absent stays listed so a stored group never becomes
+  // unreachable, and the current selection is never filtered away.
+  const ids = new Set(listed.map(choice => choice.id))
+  const choices = listed.filter(choice => {
+    if (choice.id === current) return true
+    const base = canonicalGroupProvider(choice.id)
+    return base === choice.id || !ids.has(base)
+  })
   const seen = new Set(choices.map(choice => choice.id))
   for (const provider of configured) {
     if (provider.trim() === '' || seen.has(provider)) continue
+    // A stored twin key whose base is also configured folds into it (the
+    // normalized view already does this; the guard covers raw snapshots).
+    const base = canonicalGroupProvider(provider)
+    if (base !== provider && configured.includes(base)) continue
     seen.add(provider)
     choices.push({ id: provider, name: provider, unavailable: true })
   }

@@ -9,18 +9,27 @@ import {
 } from '../src/tool-allowlist.ts'
 import { decodeReviewStatus, decodeToolCatalog } from '../src/client-contract.ts'
 
-/** Tools that must never be covered by the shipped defaults. */
+/**
+ * Tools that must never be covered by the shipped defaults.
+ *
+ * The prime-memory write tools and todo/update_goal were released by explicit
+ * user decision (2026-11-20) and are asserted as covered below instead.
+ * schedule_edit was reviewed the same day and deliberately kept out: it can
+ * modify or delete tasks other sessions created.
+ */
 const MUTATING = [
-  'write', 'edit', 'pwsh', 'ops_bash', 'todo_write', 'create_skill',
+  'write', 'edit', 'pwsh', 'run_code', 'ops_bash', 'create_skill',
   'job_kill', 'terminal_send', 'terminal_close',
-  'team_task_update', 'memory_write', 'memory_delete',
+  'team_task_update', 'schedule_edit',
   'memory_delete_all', 'memory_prune',
   'mcp__wincu__windows_computer_use_click', 'mcp__wincu__windows_computer_use_type_text',
   'mcp__wincu__windows_computer_use_keypress', 'mcp__wincu__windows_computer_use_drag',
   'bcdp_navigate', 'bcdp_script', 'browser_window_open', 'generate_image',
   'bcdp_click', 'bcdp_js', 'bcdp_tab', 'browser_embedded_click', 'browser_embedded_navigate',
-  'memory_add', 'memory_update', 'memory_import', 'memory_ruminate', 'memory_slot_write',
-  'memory_room_admin', 'ops_batch', 'ops_edit_file', 'working_directory',
+  'ops_batch', 'ops_edit_file', 'working_directory',
+  'univer_new', 'univer_unit', 'univer_execute', 'univer_import', 'univer_export',
+  'univer_print_pdf', 'univer_screenshot', 'univer_compile_svg', 'univer_worktree', 'univer_resources',
+  'vision_screenshot',
   'qq_send__YiXuan', 'session_send__YiXuan',
 ]
 
@@ -38,8 +47,8 @@ const DELEGATION_SPAWNS = ['subagent', 'subagent_fork', 'spawn_teammate']
 
 describe('DEFAULT_READ_ONLY_TOOLS', () => {
   it('ships the calibrated catalog', () => {
-    expect(DEFAULT_READ_ONLY_TOOLS).toHaveLength(84)
-    expect(new Set(DEFAULT_READ_ONLY_TOOLS).size).toBe(84)
+    expect(DEFAULT_READ_ONLY_TOOLS).toHaveLength(126)
+    expect(new Set(DEFAULT_READ_ONLY_TOOLS).size).toBe(126)
   })
 
   it('never covers a mutating tool', () => {
@@ -59,6 +68,16 @@ describe('DEFAULT_READ_ONLY_TOOLS', () => {
       'load_workspace_dependencies', 'wait_agent', 'ask_user_question', 'present',
       'sidebar_open', 'exit_plan_mode', 'send_message', 'team_task_create',
       'terminal_open', 'create_goal', 'schedule_create',
+      // Released 2026-11-20: quota-spending vision calls, the mineru parse
+      // task, session-scoped core writes, and the prime-memory write set.
+      'vision_describe', 'vision_bootstrap', 'vision_ground', 'vision_detect',
+      'vision_ocr', 'vision_long_screenshot_ocr', 'mcp__mineru-mcp__document_parse',
+      'todo_write', 'update_goal', 'list_subagent_models',
+      'memory_write', 'memory_resolve_conflict', 'memory_room_admin',
+      'memory_room_review', 'memory_ruminate', 'memory_skill_archive',
+      'memory_skill_pin', 'memory_slot_close', 'memory_slot_write',
+      'memory_add', 'memory_update', 'memory_delete', 'memory_import',
+      'memory_migrate_relation', 'memory_reproject', 'memory_ruminate_cancel',
     ]) {
       expect(isAllowedByList(tool, DEFAULT_READ_ONLY_TOOLS), tool).toBe(true)
     }
@@ -70,6 +89,12 @@ describe('DEFAULT_READ_ONLY_TOOLS', () => {
       // Added 2026-11-01 for the plugins installed after the first calibration.
       'bcdp_page_info', 'ops_grep', 'memory_search', 'browser_embedded_snapshot',
       'conversation_search',
+      // Added 2026-11-20 for dsh-vision-router, dsh-univer-office, and mineru-mcp.
+      'schedule_view', 'vision_colors', 'vision_crop', 'vision_trace',
+      'vision_extract_foreground', 'vision_materialize', 'vision_pixel_diff',
+      'vision_html_screenshot', 'vision_present', 'univer_status', 'univer_inspect',
+      'univer_lint', 'univer_api', 'mcp__mineru-mcp__get_task_progress',
+      'mcp__mineru-mcp__get_recent_logs', 'mcp__mineru-mcp__wait_for_task',
     ]) {
       expect(isAllowedByList(tool, DEFAULT_READ_ONLY_TOOLS), tool).toBe(true)
     }
@@ -81,7 +106,8 @@ describe('DEFAULT_READ_ONLY_TOOLS', () => {
       expect(source.kind, entry).not.toBe('unknown')
       expect(source.repo, entry).toBeTruthy()
     }
-    for (const source of SOURCE_CATALOG) expect(source.repo).toMatch(/^https:\/\/github\.com\//)
+    // The mineru MCP lives on Gitee; every other source is on GitHub.
+    for (const source of SOURCE_CATALOG) expect(source.repo).toMatch(/^https:\/\/(github|gitee)\.com\//)
   })
 })
 
@@ -144,6 +170,10 @@ describe('resolveToolSource', () => {
     expect(resolveToolSource('ops_bash').repo).toBe('https://github.com/T-Auto/dsh-ops')
     expect(resolveToolSource('memory_read').repo).toBe('https://github.com/AskTheWay/dsh-auto-memory')
     expect(resolveToolSource('generate_image').repo).toBe('https://github.com/vandoor7-droid/dsh-model-switch')
+    expect(resolveToolSource('vision_describe').repo).toBe('https://github.com/ysr666/dsh-vision-router')
+    expect(resolveToolSource('univer_status').repo).toBe('https://github.com/dream-num/dsh-univer-office')
+    expect(resolveToolSource('mcp__mineru-mcp__get_task_progress').repo).toBe('https://gitee.com/vandoor2/mineru-mcp')
+    expect(resolveToolSource('mcp__mineru-mcp__get_task_progress').owner).toBe('mineru-mcp')
   })
 
   it('splits the memory_ prefix between the two memory plugins', () => {

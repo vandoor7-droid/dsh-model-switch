@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-session-controller/types'
 import type { ConfigForm, ConfigFormSnapshot } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { deriveAutoReviewAllowlist, routePairConfigured, subagentModeForEnabled, type CapabilityRouteView, type ModelSwitchSettingsView, type ReviewStatusView, type SubagentSettingsView, type ToolCatalogRow } from '../client-contract.js'
+import { deriveAutoReviewAllowlist, routePairConfigured, subagentModeForEnabled, type CapabilityRouteView, type MemoryRouteView, type ModelSwitchSettingsView, type ReviewStatusView, type SubagentSettingsView, type ToolCatalogRow } from '../client-contract.js'
 import { DEFAULT_READ_ONLY_TOOLS, isAllowedByList, resolveToolSource, validateAllowEntry } from '../tool-allowlist.js'
 import { groupOf, normalizeProviderGroups, type ProviderGroupConfig } from '../provider-group.js'
 import { capabilityGroupPins, type CapabilityGroupPin } from '../session-route.js'
@@ -16,14 +16,16 @@ import type { ConfigViewForm, ConfigViewOp } from './derived-config-form.js'
 
 export interface ModelSwitchSettingsFace {
   t: (key: ModelSwitchLocaleKey) => string
-  hooks: { subagentSettings: ConfigViewForm<SubagentSettingsView>; searchSettings: ConfigViewForm<CapabilityRouteView>; imageSettings: ConfigViewForm<CapabilityRouteView>; autoReviewSettings: ConfigViewForm<CapabilityRouteView>; compactionSettings: ConfigViewForm<CapabilityRouteView>; titleSettings: ConfigViewForm<CapabilityRouteView>; memorySettings: ConfigViewForm<CapabilityRouteView>; switchSettings: Pick<ConfigForm<ModelSwitchSettingsView>, 'getSnapshot' | 'subscribe'> }
+  hooks: { subagentSettings: ConfigViewForm<SubagentSettingsView>; searchSettings: ConfigViewForm<CapabilityRouteView>; imageSettings: ConfigViewForm<CapabilityRouteView>; autoReviewSettings: ConfigViewForm<CapabilityRouteView>; compactionSettings: ConfigViewForm<CapabilityRouteView>; titleSettings: ConfigViewForm<CapabilityRouteView>; memorySettings: ConfigViewForm<MemoryRouteView>; visionSettings: ConfigViewForm<CapabilityRouteView>; switchSettings: Pick<ConfigForm<ModelSwitchSettingsView>, 'getSnapshot' | 'subscribe'> }
   capabilities: RuntimeCapabilities
   /**
    * Apply one row's changes as a SINGLE revision-fenced write, so a refused
    * write can never leave a half-written provider/model pair behind.
    */
   saveSubagent: (ops: readonly ConfigViewOp<SubagentSettingsView>[]) => Promise<void>
-  saveCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction' | 'title' | 'memory', ops: readonly ConfigViewOp<CapabilityRouteView>[]) => Promise<void>
+  saveCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction' | 'title' | 'memory' | 'vision', ops: readonly ConfigViewOp<CapabilityRouteView>[]) => Promise<void>
+  /** The memory row save; its ops carry the reasoning-effort field alongside the pair. */
+  saveMemory: (ops: readonly ConfigViewOp<MemoryRouteView>[]) => Promise<void>
   /** Persist the read-only skip switch and its allowlist as one atomic write. */
   saveReviewAllowlist: (value: { enabled: boolean; tools: readonly string[] }) => Promise<void>
   /** The Host's live tool catalog; absent on a Host without the `tools` RPC endpoint. */
@@ -39,7 +41,7 @@ export interface ModelSwitchSettingsFace {
 }
 
 export type ModelSwitchSettingsProps = PropsRuntime<'settings.section'> & InjectFace<ModelSwitchSettingsFace>
-type RouteId = 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction' | 'sessionTitle' | 'memory' | 'providerGroups' | 'allowlist'
+type RouteId = 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction' | 'sessionTitle' | 'memory' | 'vision' | 'providerGroups' | 'allowlist'
 type RouteIconKind = RouteId
 
 function cx(...values: Array<string | undefined | false>): string { return values.filter(Boolean).join(' ') }
@@ -79,6 +81,7 @@ function RouteIcon({ kind }: { kind: RouteIconKind }): ReactNode {
   if (kind === 'autoReview') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 2.5 14.5 4.8v4.1c0 3.1-2.3 5.7-5.5 6.6-3.2-.9-5.5-3.5-5.5-6.6V4.8L9 2.5Z" stroke="currentColor" strokeLinejoin="round" /><path d="m6.6 8.9 1.7 1.7 3.2-3.4" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" /></svg>
   if (kind === 'sessionTitle') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M3 4.5h7.5l4.2 4.2-5.7 5.7L3 9.8V4.5Z" stroke="currentColor" strokeLinejoin="round" /><circle cx="6.2" cy="7.2" r="1.1" stroke="currentColor" /></svg>
   if (kind === 'memory') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M4.5 3.5h9v11h-9z" stroke="currentColor" strokeLinejoin="round" /><path d="M7 6.5h4M7 9h4M7 11.5h2.5" stroke="currentColor" strokeLinecap="round" /></svg>
+  if (kind === 'vision') return <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M9 4.5C5.9 4.5 3.6 6.7 2.5 9c1.1 2.3 3.4 4.5 6.5 4.5S14.4 11.3 15.5 9C14.4 6.7 12.1 4.5 9 4.5Z" stroke="currentColor" strokeLinejoin="round" /><circle cx="9" cy="9" r="2" stroke="currentColor" /></svg>
   return null
 }
 
@@ -109,8 +112,8 @@ function InstantSwitch({ checked, disabled, label, onChange }: {
   </button>
 }
 
-function Field({ label, value, disabled, choices, onChange, full = false }: { label: string; value: string | undefined; disabled: boolean; choices: readonly Choice[]; onChange: (value: string) => void; full?: boolean }): ReactNode {
-  return <label className={cx(css.field, full && css.fieldFull)}><span className={css.fieldLabel}>{label}</span><select className={css.input} disabled={disabled} value={value ?? ''} onChange={event => { onChange(event.target.value) }}><option value="">—</option>{choices.map(option => <option key={option.id} value={option.id}>{option.name}{option.unavailable === true ? ' ⚠' : ''}</option>)}</select></label>
+function Field({ label, value, disabled, choices, onChange, full = false, emptyLabel = '—' }: { label: string; value: string | undefined; disabled: boolean; choices: readonly Choice[]; onChange: (value: string) => void; full?: boolean; emptyLabel?: string }): ReactNode {
+  return <label className={cx(css.field, full && css.fieldFull)}><span className={css.fieldLabel}>{label}</span><select className={css.input} disabled={disabled} value={value ?? ''} onChange={event => { onChange(event.target.value) }}><option value="">{emptyLabel}</option>{choices.map(option => <option key={option.id} value={option.id}>{option.name}{option.unavailable === true ? ' ⚠' : ''}</option>)}</select></label>
 }
 
 function Actions({ t, busy, disabled, message, extra, onCancel, onSave }: { t: ModelSwitchSettingsFace['t']; busy: boolean; disabled: boolean; message?: string; extra?: ReactNode; onCancel: () => void; onSave: () => void }): ReactNode {
@@ -207,6 +210,16 @@ function capabilityChoices(groups: readonly ModelProviderGroup[], route: Capabil
  */
 const MEMORY_CAPABILITY_UI: boolean = true
 
+/**
+ * Whether the vision-router card and its provider-group row render.
+ *
+ * The card needs dsh-vision-router on the Host to have any effect; the adapter
+ * row no-ops without it, and this flag keeps the UI shippable behind a single
+ * constant the same way the memory card was (typed as boolean so the bundler
+ * cannot drop the card's code when it is on).
+ */
+const VISION_CAPABILITY_UI: boolean = true
+
 export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode {
   // The catalog state machine keeps the last good groups across a transient load
   // failure and exposes reload(); groups already include the host's load
@@ -219,6 +232,7 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const compaction = props.useCompactionSettings(value => value)
   const sessionTitle = props.useTitleSettings(value => value)
   const memory = props.useMemorySettings(value => value)
+  const vision = props.useVisionSettings(value => value)
   const switchSettings = props.useSwitchSettings(value => value)
   const [open, setOpen] = useState<RouteId | undefined>()
   const [subagentDraft, setSubagentDraft, resetSubagent] = useDraft(subagent)
@@ -228,6 +242,7 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const [compactionDraft, setCompactionDraft, resetCompaction] = useDraft(compaction)
   const [titleDraft, setTitleDraft, resetTitle] = useDraft(sessionTitle)
   const [memoryDraft, setMemoryDraft, resetMemory] = useDraft(memory)
+  const [visionDraft, setVisionDraft, resetVision] = useDraft(vision)
   const [busy, setBusy] = useState<RouteId | undefined>()
   const [message, setMessage] = useState<{ route: RouteId; text: string } | undefined>()
   const [groupProvider, setGroupProvider] = useState<string>('')
@@ -279,6 +294,7 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     compaction: capabilityGroupPins(providerGroups, 'compaction'),
     title: capabilityGroupPins(providerGroups, 'title'),
     memory: capabilityGroupPins(providerGroups, 'memory'),
+    vision: capabilityGroupPins(providerGroups, 'vision'),
     subagent: capabilityGroupPins(providerGroups, 'subagent'),
   }
   /**
@@ -301,6 +317,12 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     const fixedSubagent = subagent.value !== undefined && subagent.value.mode === 'fixed' && routePairConfigured(subagent.value)
       ? { provider: subagent.value.provider ?? '', model: subagent.value.model ?? '', reasoningEffort: subagent.value.reasoningEffort }
       : undefined
+    const memoryPin = memory.value !== undefined && routePairConfigured(memory.value)
+      ? { provider: memory.value.provider ?? '', model: memory.value.model ?? '', reasoningEffort: memory.value.reasoningEffort }
+      : undefined
+    const visionPin = vision.value !== undefined && routePairConfigured(vision.value)
+      ? { provider: vision.value.provider ?? '', model: vision.value.model ?? '' }
+      : undefined
     return {
       ...(compactionPin === undefined ? {} : { compactProvider: compactionPin.provider, compactModel: compactionPin.model }),
       ...(reviewPin === undefined ? {} : { autoReviewProvider: reviewPin.provider, autoReviewModel: reviewPin.model }),
@@ -310,6 +332,12 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
         subagentModel: fixedSubagent.model,
         ...(fixedSubagent.reasoningEffort === undefined ? {} : { subagentReasoningEffort: fixedSubagent.reasoningEffort }),
       }),
+      ...(memoryPin === undefined ? {} : {
+        memoryProvider: memoryPin.provider,
+        memoryModel: memoryPin.model,
+        ...(memoryPin.reasoningEffort === undefined || memoryPin.reasoningEffort === '' ? {} : { memoryReasoningEffort: memoryPin.reasoningEffort }),
+      }),
+      ...(visionPin === undefined ? {} : { visionProvider: visionPin.provider, visionModel: visionPin.model }),
     }
   }
   /** Reload the editor draft: the saved group when one exists, else a seed from the live routes. */
@@ -357,6 +385,14 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const compactionOn = routePairConfigured(compaction.value)
   const titleChoices = deriveRouteChoices(groups, titleDraft)
   const memoryChoices = deriveRouteChoices(groups, memoryDraft)
+  const visionChoices = deriveRouteChoices(groups, visionDraft)
+  const memoryCatalogModel = matchCatalogModel(groups.find(group => group.id === memoryDraft?.provider)?.models ?? [], memoryDraft?.model)
+  const memoryEfforts = ((): Choice[] => {
+    const efforts = (memoryCatalogModel?.model.reasoning?.efforts ?? []).map(effort => ({ id: effort.id, name: effort.name }))
+    const current = memoryDraft?.reasoningEffort
+    if (current !== undefined && current !== '' && !efforts.some(option => option.id === current)) efforts.push({ id: current, name: current })
+    return efforts
+  })()
   const titleOn = routePairConfigured(sessionTitle.value)
   const catalogSeed = firstCatalogRoute(groups)
   const synced = [subagent, search, image, autoReview, compaction, sessionTitle].every(snapshot => snapshot.status === 'ready')
@@ -575,12 +611,21 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const groupAutoReview = groupDraft === undefined ? undefined : draftPair(groupDraft.autoReviewProvider, groupDraft.autoReviewModel)
   const groupTitle = groupDraft === undefined ? undefined : draftPair(groupDraft.titleProvider, groupDraft.titleModel)
   const groupMemory = groupDraft === undefined ? undefined : draftPair(groupDraft.memoryProvider, groupDraft.memoryModel)
+  const groupVision = groupDraft === undefined ? undefined : draftPair(groupDraft.visionProvider, groupDraft.visionModel)
   const groupSubagent = groupDraft === undefined ? undefined : draftPair(groupDraft.subagentProvider, groupDraft.subagentModel)
   const groupCompactionChoices = deriveRouteChoices(groups, groupCompaction)
   const groupAutoReviewChoices = deriveRouteChoices(groups, groupAutoReview)
   const groupTitleChoices = deriveRouteChoices(groups, groupTitle)
   const groupMemoryChoices = deriveRouteChoices(groups, groupMemory)
+  const groupVisionChoices = deriveRouteChoices(groups, groupVision)
   const groupSubagentChoices = deriveRouteChoices(groups, groupSubagent)
+  const groupMemoryCatalogModel = matchCatalogModel(groups.find(group => group.id === groupDraft?.memoryProvider)?.models ?? [], groupDraft?.memoryModel ?? '')
+  const groupMemoryEfforts = ((): Choice[] => {
+    const efforts = (groupMemoryCatalogModel?.model.reasoning?.efforts ?? []).map(effort => ({ id: effort.id, name: effort.name }))
+    const current = groupDraft?.memoryReasoningEffort
+    if (current !== undefined && current !== '' && !efforts.some(option => option.id === current)) efforts.push({ id: current, name: current })
+    return efforts
+  })()
   const groupSubMatched = matchCatalogModel(groups.find(group => group.id === (groupDraft?.subagentProvider ?? ''))?.models ?? [], groupDraft?.subagentModel ?? '')
   const groupSubEfforts = ((): Choice[] => {
     const efforts: Choice[] = (groupSubMatched?.model.reasoning?.efforts ?? []).map(effort => ({ id: effort.id, name: effort.name }))
@@ -592,7 +637,7 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
    * Enable a capability row inside a provider group by pinning it: to that
    * capability's live route when one is configured, else to the catalog head.
    */
-  const enableGroupCapability = (kind: 'compaction' | 'autoReview' | 'sessionTitle' | 'memory' | 'subagent'): void => {
+  const enableGroupCapability = (kind: 'compaction' | 'autoReview' | 'sessionTitle' | 'memory' | 'vision' | 'subagent'): void => {
     const active = seedGroupFromActive()
     setGroupDraft(draft => {
       if (draft === undefined) return draft
@@ -618,7 +663,14 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
         const provider = active.memoryProvider ?? catalogSeed?.provider
         const model = active.memoryModel ?? catalogSeed?.model
         if (provider === undefined || model === undefined) return draft
-        return { ...draft, memoryProvider: provider, memoryModel: model }
+        const effort = active.memoryReasoningEffort
+        return { ...draft, memoryProvider: provider, memoryModel: model, ...(effort === undefined || effort === '' ? {} : { memoryReasoningEffort: effort }) }
+      }
+      if (kind === 'vision') {
+        const provider = active.visionProvider ?? catalogSeed?.provider
+        const model = active.visionModel ?? catalogSeed?.model
+        if (provider === undefined || model === undefined) return draft
+        return { ...draft, visionProvider: provider, visionModel: model }
       }
       const provider = active.subagentProvider ?? catalogSeed?.provider
       const model = active.subagentModel ?? catalogSeed?.model
@@ -627,13 +679,14 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
       return { ...draft, subagentProvider: provider, subagentModel: model, ...(effort === undefined || effort === '' ? {} : { subagentReasoningEffort: effort }) }
     })
   }
-  const disableGroupCapability = (kind: 'compaction' | 'autoReview' | 'sessionTitle' | 'memory' | 'subagent'): void => {
+  const disableGroupCapability = (kind: 'compaction' | 'autoReview' | 'sessionTitle' | 'memory' | 'vision' | 'subagent'): void => {
     setGroupDraft(draft => {
       if (draft === undefined) return draft
       if (kind === 'compaction') return { ...draft, compactProvider: '', compactModel: '' }
       if (kind === 'autoReview') return { ...draft, autoReviewProvider: '', autoReviewModel: '' }
       if (kind === 'sessionTitle') return { ...draft, titleProvider: '', titleModel: '' }
-      if (kind === 'memory') return { ...draft, memoryProvider: '', memoryModel: '' }
+      if (kind === 'memory') return { ...draft, memoryProvider: '', memoryModel: '', memoryReasoningEffort: '' }
+      if (kind === 'vision') return { ...draft, visionProvider: '', visionModel: '' }
       return { ...draft, subagentProvider: '', subagentModel: '', subagentReasoningEffort: '' }
     })
   }
@@ -644,6 +697,18 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const deleteProviderGroupCard = (): void => {
     if (groupProvider === '') return
     void run('providerGroups', () => props.saveProviderGroup(groupProvider, undefined))
+  }
+  /**
+   * The vision adapter status line: what the host-side compat row last did.
+   * Rendered only when a tool scan has delivered the live adapter state.
+   */
+  const visionStatusRow = reviewStatus?.visionRouter
+  const visionAdapterStatus = (): string => {
+    if (visionStatusRow === undefined) return ''
+    if (visionStatusRow.installed && visionStatusRow.route !== undefined) return props.t('visionLinked').replace('{route}', visionStatusRow.route)
+    if (visionStatusRow.routeSkipped === 'no-row') return props.t('visionLinkedMissing')
+    if (visionStatusRow.routeSkipped === 'rejected') return props.t('visionLinkedRejected')
+    return props.t('visionLinkedUnset')
   }
 
   return <main className={css.section}>
@@ -706,7 +771,17 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
         {memoryDraft === undefined ? <p className={css.hint}>{props.t('loading')}</p> : <><p className={css.hint}>{props.t('memoryRouteHelp')}</p><div className={css.formGrid}>
           <Field label={props.t('provider')} value={memoryDraft.provider ?? ''} disabled={busy !== undefined || !memory.writable} choices={memoryChoices.providers} onChange={provider => { const first = groups.find(group => group.id === provider)?.models[0]; setMemoryDraft({ provider, ...(first === undefined ? {} : { model: first.id }) }) }} />
           <Field label={props.t('model')} value={memoryDraft.model ?? ''} disabled={busy !== undefined || !memory.writable} choices={memoryChoices.models} onChange={model => { setMemoryDraft({ ...memoryDraft, model }) }} />
-        </div><Actions t={props.t} busy={busy === 'memory'} disabled={busy !== undefined || !memory.writable} {...(message?.route === 'memory' ? { message: message.text } : {})} onCancel={() => { resetMemory(); setMessage(undefined) }} onSave={() => { void run('memory', () => props.saveCapability('memory', pairOps(memoryDraft))) }} /></>}
+          <Field label={props.t('memoryEffort')} value={memoryDraft.reasoningEffort ?? ''} disabled={busy !== undefined || !memory.writable} choices={memoryEfforts} emptyLabel={props.t('effortAuto')} onChange={effort => { setMemoryDraft({ ...memoryDraft, reasoningEffort: effort }) }} />
+        </div><Actions t={props.t} busy={busy === 'memory'} disabled={busy !== undefined || !memory.writable} {...(message?.route === 'memory' ? { message: message.text } : {})} onCancel={() => { resetMemory(); setMessage(undefined) }} onSave={() => { const effort = (memoryDraft.reasoningEffort ?? '').trim(); void run('memory', () => props.saveMemory([...pairOps(memoryDraft), { field: 'reasoningEffort', value: effort === '' ? undefined : effort }])) }} /></>}
+      </RouteCard> : null}
+
+      {VISION_CAPABILITY_UI ? <RouteCard title={props.t('vision')} summary={visionDraft === undefined ? props.t('loading') : routePairConfigured(visionDraft) ? routeName(groups, visionDraft) : props.t('visionFollow')} hint={props.t('visionHelp')} note={groupNote(props.t, groupPins.vision)} icon="vision" open={open === 'vision'} onToggle={() => { toggle('vision') }}>
+        {visionDraft === undefined ? <p className={css.hint}>{props.t('loading')}</p> : <><p className={css.hint}>{props.t('visionRouteHelp')}</p>
+          {reviewStatus?.visionRouter === undefined ? null : <p className={css.hint}>{visionAdapterStatus()}</p>}
+          <div className={css.formGrid}>
+          <Field label={props.t('provider')} value={visionDraft.provider ?? ''} disabled={busy !== undefined || !vision.writable} choices={visionChoices.providers} onChange={provider => { const first = groups.find(group => group.id === provider)?.models[0]; setVisionDraft({ provider, ...(first === undefined ? {} : { model: first.id }) }) }} />
+          <Field label={props.t('model')} value={visionDraft.model ?? ''} disabled={busy !== undefined || !vision.writable} choices={visionChoices.models} onChange={model => { setVisionDraft({ ...visionDraft, model }) }} />
+        </div><Actions t={props.t} busy={busy === 'vision'} disabled={busy !== undefined || !vision.writable} {...(message?.route === 'vision' ? { message: message.text } : {})} onCancel={() => { resetVision(); setMessage(undefined) }} onSave={() => { void run('vision', () => props.saveCapability('vision', pairOps(visionDraft))) }} /></>}
       </RouteCard> : null}
     </section>
 
@@ -800,6 +875,21 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
           {groupMemory === undefined ? null : <div className={css.formGrid}>
             <Field label={props.t('provider')} value={groupMemory.provider} disabled={groupControlsDisabled} choices={groupMemoryChoices.providers} onChange={provider => { const first = groups.find(item => item.id === provider)?.models[0]; setGroupDraft(draft => draft === undefined ? draft : { ...draft, memoryProvider: provider, memoryModel: first?.id ?? '' }) }} />
             <Field label={props.t('model')} value={groupMemory.model} disabled={groupControlsDisabled} choices={groupMemoryChoices.models} onChange={model => { setGroupDraft(draft => draft === undefined ? draft : { ...draft, memoryModel: model }) }} />
+            <Field label={props.t('memoryEffort')} value={groupDraft.memoryReasoningEffort ?? ''} disabled={groupControlsDisabled} choices={groupMemoryEfforts} emptyLabel={props.t('effortAuto')} onChange={effort => { setGroupDraft(draft => draft === undefined ? draft : { ...draft, memoryReasoningEffort: effort }) }} />
+          </div>}
+          </> : null}
+
+          {VISION_CAPABILITY_UI ? <>
+          <div className={css.rowCard}>
+            <div className={css.rowCopy}>
+              <span className={css.rowTitle}>{props.t('vision')}</span>
+              <p className={css.hint}>{groupVision === undefined ? props.t('visionFollow') : routeName(groups, groupVision)}</p>
+            </div>
+            <InstantSwitch checked={groupVision !== undefined} disabled={groupControlsDisabled || (groupVision === undefined && catalogSeed === undefined)} label={props.t('vision')} onChange={value => { if (value) enableGroupCapability('vision'); else disableGroupCapability('vision') }} />
+          </div>
+          {groupVision === undefined ? null : <div className={css.formGrid}>
+            <Field label={props.t('provider')} value={groupVision.provider} disabled={groupControlsDisabled} choices={groupVisionChoices.providers} onChange={provider => { const first = groups.find(item => item.id === provider)?.models[0]; setGroupDraft(draft => draft === undefined ? draft : { ...draft, visionProvider: provider, visionModel: first?.id ?? '' }) }} />
+            <Field label={props.t('model')} value={groupVision.model} disabled={groupControlsDisabled} choices={groupVisionChoices.models} onChange={model => { setGroupDraft(draft => draft === undefined ? draft : { ...draft, visionModel: model }) }} />
           </div>}
           </> : null}
 

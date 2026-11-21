@@ -54,16 +54,27 @@ describe('memoryRouteOf', () => {
   const settings: RouteBearingSettings = {
     memoryProvider: 'deepseek-account',
     memoryModel: 'deepseek-flash',
-    providerGroups: { apigoto: { memoryProvider: 'apigoto', memoryModel: 'mimo-v2.6-flash' } },
+    memoryReasoningEffort: 'high',
+    providerGroups: { apigoto: { memoryProvider: 'apigoto', memoryModel: 'mimo-v2.6-flash', memoryReasoningEffort: 'low' } },
   }
 
-  it('uses the group of the deployment default provider', () => {
-    expect(memoryRouteOf(settings, 'apigoto')).toEqual({ provider: 'apigoto', model: 'mimo-v2.6-flash' })
+  it('uses the group of the deployment default provider, effort included', () => {
+    expect(memoryRouteOf(settings, 'apigoto')).toEqual({ provider: 'apigoto', model: 'mimo-v2.6-flash', reasoningEffort: 'low' })
   })
 
-  it('falls back to the flat memory pair', () => {
-    expect(memoryRouteOf(settings, 'ark')).toEqual({ provider: 'deepseek-account', model: 'deepseek-flash' })
-    expect(memoryRouteOf(settings, undefined)).toEqual({ provider: 'deepseek-account', model: 'deepseek-flash' })
+  it('falls back to the flat memory pair and its effort', () => {
+    expect(memoryRouteOf(settings, 'ark')).toEqual({ provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' })
+    expect(memoryRouteOf(settings, undefined)).toEqual({ provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' })
+  })
+
+  it('omits the effort when neither layer pins one', () => {
+    const plain: RouteBearingSettings = {
+      memoryProvider: 'deepseek-account',
+      memoryModel: 'deepseek-flash',
+      providerGroups: { apigoto: { memoryProvider: 'apigoto', memoryModel: 'mimo-v2.6-flash' } },
+    }
+    expect(memoryRouteOf(plain, 'apigoto')).toEqual({ provider: 'apigoto', model: 'mimo-v2.6-flash' })
+    expect(memoryRouteOf(plain, 'ark')).toEqual({ provider: 'deepseek-account', model: 'deepseek-flash' })
   })
 
   it('resolves nothing when neither layer is set', () => {
@@ -98,6 +109,23 @@ describe('pushMemoryRoute payload', () => {
   it('reports an absent endpoint instead of pretending to push', async () => {
     const outcome = await pushMemoryRoute({ get: () => ({}) } as never, { provider: 'a', model: 'b' })
     expect(outcome).toBe('absent')
+  })
+
+  it('carries the reasoning effort on the global field and every layer entry', async () => {
+    const bodies: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: { body?: string }) => {
+      bodies.push(String(init?.body ?? ''))
+      return { ok: true, status: 200 } as unknown as Response
+    }))
+    const outcome = await pushMemoryRoute({ get: () => ({ port: 4321 }) } as never, { provider: 'apigoto', model: 'probe-memory', reasoningEffort: 'high' })
+    expect(outcome).toBe('pushed')
+    const body = JSON.parse(bodies[0]!) as Record<string, unknown>
+    expect(body.reasoningEffort).toBe('high')
+    expect(body.distillLayerChains).toEqual({
+      l1: [{ provider: 'apigoto', model: 'probe-memory', reasoningEffort: 'high' }],
+      l2: [{ provider: 'apigoto', model: 'probe-memory', reasoningEffort: 'high' }],
+      l3: [{ provider: 'apigoto', model: 'probe-memory', reasoningEffort: 'high' }],
+    })
   })
 })
 
@@ -135,6 +163,22 @@ describe('memoryLiveMatchesRoute', () => {
   it('rejects non-object values', () => {
     expect(memoryLiveMatchesRoute(undefined, 'apigoto', 'mimo-v2.6-flash')).toBe(false)
     expect(memoryLiveMatchesRoute('nope', 'apigoto', 'mimo-v2.6-flash')).toBe(false)
+  })
+
+  it('compares the reasoning effort on the global field and layer entries', () => {
+    const layer = { provider: 'apigoto', model: 'mimo-v2.6-flash', reasoningEffort: 'high' }
+    const withEffort = {
+      distillProvider: 'apigoto',
+      distillModel: 'mimo-v2.6-flash',
+      reasoningEffort: 'high',
+      distillChain: [],
+      distillLayerChains: { l1: [layer], l2: [layer], l3: [layer] },
+    }
+    expect(memoryLiveMatchesRoute(withEffort, 'apigoto', 'mimo-v2.6-flash', 'high')).toBe(true)
+    // An unset wanted effort no longer matches a live section that pins one.
+    expect(memoryLiveMatchesRoute(withEffort, 'apigoto', 'mimo-v2.6-flash')).toBe(false)
+    // A wanted effort no longer matches a live section left on auto.
+    expect(memoryLiveMatchesRoute(live, 'apigoto', 'mimo-v2.6-flash', 'high')).toBe(false)
   })
 })
 

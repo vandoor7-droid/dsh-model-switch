@@ -12,6 +12,8 @@
  * All functions here are pure.
  */
 
+import { canonicalGroupProvider } from './provider-group.js'
+
 /** One entry of prime-memory's distillation route chain. */
 export interface DistillChainEntry {
   readonly provider: string
@@ -109,4 +111,40 @@ export function planDistillChain(
  */
 export function distillChainPatch(chain: readonly DistillChainEntry[]): { readonly live: { readonly distillChain: readonly DistillChainEntry[] } } {
   return { live: { distillChain: chain } }
+}
+
+/** The subset of a loader entry the deployment-default reader reads. */
+export interface DefaultModelRowLike {
+  readonly options?: { readonly id?: unknown; readonly config?: unknown }
+}
+
+/** A loader-like service whose entries can be scanned. */
+export interface LoaderEntriesLike { entries?(): Iterable<DefaultModelRowLike> }
+
+/** A non-blank string. */
+function nonBlank(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() !== ''
+}
+
+/**
+ * The deployment default provider, canonicalized for group keying.
+ *
+ * The `agent-default-model` row names the provider new sessions start on; a
+ * deployment whose default is a dsh-vision-router twin (`${provider}-vision`)
+ * keys its deployment-wide groups under the base provider, so the twin suffix
+ * is stripped here.
+ * @param loader - the loader service, when present.
+ * @returns The base provider id, or undefined when the row or its provider is absent.
+ */
+export function deploymentDefaultProviderOf(loader: LoaderEntriesLike | undefined): string | undefined {
+  if (typeof loader?.entries !== 'function') return undefined
+  for (const entry of loader.entries()) {
+    if (entry?.options?.id !== 'agent-default-model') continue
+    const config = entry.options.config
+    const provider = config !== null && typeof config === 'object' && !Array.isArray(config)
+      ? (config as Record<string, unknown>).provider
+      : undefined
+    if (nonBlank(provider)) return canonicalGroupProvider(provider)
+  }
+  return undefined
 }

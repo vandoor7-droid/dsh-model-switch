@@ -25,7 +25,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis';
 import type { Entry } from '@deepseek-ai/cordis-plugin-loader';
-import { type CapabilityRoute } from './session-route.js';
+import { type CapabilityRoute, type MemoryRoute } from './session-route.js';
 import { type DistillChainEntry } from './prime-memory-route.js';
 /** Row name and dependencies, mirroring the sibling adapter row. */
 export declare const name = "model-switch-prime-memory-compat";
@@ -115,14 +115,16 @@ interface Loader {
  * call, and a document change reloads the composition — so pushing an unchanged
  * route re-triggers this adapter forever (a ~6 s recompose loop, observed with
  * `dsh-prime-memory@0.26.10`). Comparing first is what makes the push idempotent
- * across reloads.
+ * across reloads. The reasoning effort compares on both the global field and
+ * every layer entry; the plugin's schema defaults both to `''` (auto).
  *
  * @param value - the memory row's live settings object, as the forms describe it.
  * @param provider - route provider to compare against.
  * @param model - route model to compare against.
+ * @param effort - route reasoning effort to compare against; undefined means auto.
  * @returns true when a push would change nothing.
  */
-export declare function memoryLiveMatchesRoute(value: unknown, provider: string, model: string): boolean;
+export declare function memoryLiveMatchesRoute(value: unknown, provider: string, model: string, effort?: string): boolean;
 /**
  * Hand the route to the memory plugin through the RPC it registers for its own
  * settings page.
@@ -136,6 +138,7 @@ export declare function memoryLiveMatchesRoute(value: unknown, provider: string,
 export declare function pushMemoryRoute(ctx: Context, route: {
     provider: string;
     model: string;
+    reasoningEffort?: string;
 }): Promise<'pushed' | 'absent' | 'rejected'>;
 /**
  * Read the memory plugin's live settings through the RPC its panel posts to.
@@ -161,7 +164,7 @@ export declare function readMemoryLive(ctx: Context): Promise<unknown>;
  * @param routeOf - resolves this plugin's distillation route for one settings snapshot.
  * @returns The disposer and a replay hook.
  */
-export declare function installPrimeMemoryCompat(ctx: Context, loader: Loader | undefined, routeOf: () => CapabilityRoute | undefined): {
+export declare function installPrimeMemoryCompat(ctx: Context, loader: Loader | undefined, routeOf: () => MemoryRoute | undefined): {
     dispose: () => void;
     replay: () => boolean;
 };

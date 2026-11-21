@@ -25,7 +25,7 @@ Known seam constraints from alpha.1 inspection:
 - Search routing owns only provider id `model-switch`; the deployment profile pins `web.searchProvider: model-switch` while preserving its existing `fetchProvider`. The official `web_search` and `web_fetch` tools are untouched.
 - `generate_image` is unique, so existing provider-specific image tools remain enabled and require no owner suppression.
 - Codex and Grok register Search and Image adapters. The DeepSeek bridge reuses the official public search implementation and existing settings/credential service. Optional Cordis injection preserves standalone provider behavior and disposal; only Host-projected search metadata reaches the UI.
-- Vision remains outside runtime delivery and must not register or shadow `read_image`.
+- Vision remains outside runtime delivery and must not register or shadow `read_image`. (Amended 2026-11-20: third-party dsh-vision-router backend-chain routing is in scope — see Milestone 6. No vision tool is registered and `read_image` stays unshadowed.)
 
 ## Milestone 3 — settings surface
 
@@ -38,3 +38,14 @@ Keep the launcher-pinned `agent-presets` row and official web tools. Add clean o
 ## Milestone 5 — pack/profile/lab acceptance
 
 Run the full composition matrix from packed artifacts under `DSH_HOME=~/.dsh-lab` on port 3082. Validate boot, HTTP, profile composition, and artifact hashes; leave browser-only visual checks to the human because the managed browser must not open DSH itself.
+
+## Milestone 6 — dsh-vision-router compat, twin group merge, memory effort, allowlist recalibration (2026-11)
+
+Four coordinated changes, user-requested 2026-11-20:
+
+1. **Vision Router compat** (scope amendment; PRODUCT.md Routes updated): a new `model-switch-vision-router-compat` row fills the third-party plugin's backend-chain head from the provider-group vision route through the released ConfigEditor seam. Managed-head semantics; idempotent compare-before-write; no-op without the plugin.
+2. **Twin group merge**: `<provider>-vision` twin routes (dsh-vision-router's per-provider image-capable routes) key their base provider's group. Read-side fold in `normalizeProviderGroups`, canonical lookups in session routing, and a deduped group picker. The `-vision` suffix is the plugin's reserved naming convention; a rename upstream breaks the merge (fail-visible: groups simply stop folding) and is tracked by the compatibility watch.
+3. **Memory distillation reasoning effort**: a flat `memoryReasoningEffort` plus per-group pin rides the existing memory route layering and is pushed with the route (per-layer entries and the global field; `''` = the plugin's auto resolution).
+4. **Pure-read allowlist recalibration** (84 → 126): new read tools from dsh-vision-router (local pixel tools), dsh-univer-office (inspection), and the mineru-mcp bridge; plus the 2026-11-20 explicit user release of the vision model-invoking tools, `document_parse`, `todo_write`/`update_goal`/`list_subagent_models`, and the prime-memory write set. `schedule_edit` was reviewed the same day and deliberately kept out (it can modify other sessions' tasks). Delegation spawns stay excluded as a technical invariant.
+
+**Completion:** `pnpm run check` green and the lab matrix (virtual, zero quota) recorded in the CHANGELOG entry for the release carrying it.

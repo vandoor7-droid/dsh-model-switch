@@ -73,3 +73,25 @@ export declare function distillChainPatch(chain: readonly DistillChainEntry[]): 
         readonly distillChain: readonly DistillChainEntry[];
     };
 };
+/** The subset of a loader entry the deployment-default reader reads. */
+export interface DefaultModelRowLike {
+    readonly options?: {
+        readonly id?: unknown;
+        readonly config?: unknown;
+    };
+}
+/** A loader-like service whose entries can be scanned. */
+export interface LoaderEntriesLike {
+    entries?(): Iterable<DefaultModelRowLike>;
+}
+/**
+ * The deployment default provider, canonicalized for group keying.
+ *
+ * The `agent-default-model` row names the provider new sessions start on; a
+ * deployment whose default is a dsh-vision-router twin (`${provider}-vision`)
+ * keys its deployment-wide groups under the base provider, so the twin suffix
+ * is stripped here.
+ * @param loader - the loader service, when present.
+ * @returns The base provider id, or undefined when the row or its provider is absent.
+ */
+export declare function deploymentDefaultProviderOf(loader: LoaderEntriesLike | undefined): string | undefined;

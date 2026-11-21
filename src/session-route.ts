@@ -24,10 +24,10 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/types'
-import { groupOf, type ProviderGroupConfig, type ProviderGroups } from './provider-group.js'
+import { groupOfCanonical, type ProviderGroupConfig, type ProviderGroups } from './provider-group.js'
 
 /** Capabilities whose route can be derived per session. */
-export type CapabilityId = 'compaction' | 'autoReview' | 'title' | 'subagent' | 'memory'
+export type CapabilityId = 'compaction' | 'autoReview' | 'title' | 'subagent' | 'memory' | 'vision'
 
 /** A complete pinned route; either half missing means "follow the default". */
 export interface CapabilityRoute {
@@ -53,6 +53,10 @@ export interface RouteBearingSettings {
   readonly titleModel?: string
   readonly memoryProvider?: string
   readonly memoryModel?: string
+  /** Distillation reasoning effort; blank keeps the memory plugin's auto resolution. */
+  readonly memoryReasoningEffort?: string
+  readonly visionProvider?: string
+  readonly visionModel?: string
   readonly providerGroups?: ProviderGroups
 }
 
@@ -63,6 +67,7 @@ const CAPABILITY_FIELDS: Readonly<Record<CapabilityId, { readonly provider: stri
   title: { provider: 'titleProvider', model: 'titleModel' },
   subagent: { provider: 'subagentProvider', model: 'subagentModel' },
   memory: { provider: 'memoryProvider', model: 'memoryModel' },
+  vision: { provider: 'visionProvider', model: 'visionModel' },
 })
 
 /** A non-blank string; blank values behave exactly like an absent field. */
@@ -90,6 +95,11 @@ export function deploymentRoute(settings: RouteBearingSettings | undefined, capa
   return pairOf(settings, CAPABILITY_FIELDS[capability])
 }
 
+/** The distillation route plus the reasoning effort a distillation call carries. */
+export interface MemoryRoute extends CapabilityRoute {
+  readonly reasoningEffort?: string
+}
+
 /**
  * The distillation route one deployment should use.
  *
@@ -97,13 +107,37 @@ export function deploymentRoute(settings: RouteBearingSettings | undefined, capa
  * key is the deployment default provider (the provider the profile starts
  * sessions on) rather than a session's provider. A provider without a group falls
  * back to the flat memory pair; an empty pair leaves the memory plugin at its own
- * default.
+ * default. The reasoning effort rides the same layering: the group's effort,
+ * else the flat effort, else the memory plugin's own auto resolution.
+ * @param settings - live Model Switch settings.
+ * @param provider - the deployment default provider, when one is observable.
+ * @returns The complete route, or undefined when nothing is pinned.
+ */
+export function memoryRouteOf(settings: RouteBearingSettings | undefined, provider: string | undefined): MemoryRoute | undefined {
+  const group = groupRoute(settings, provider, 'memory')
+  if (group !== undefined) {
+    const effort = groupOfCanonical(settings?.providerGroups, provider ?? '')?.memoryReasoningEffort
+    return present(effort) ? { ...group, reasoningEffort: effort } : group
+  }
+  const flat = deploymentRoute(settings, 'memory')
+  if (flat === undefined) return undefined
+  const flatEffort = settings?.memoryReasoningEffort
+  return present(flatEffort) ? { ...flat, reasoningEffort: flatEffort } : flat
+}
+
+/**
+ * The vision backend route one deployment should use.
+ *
+ * dsh-vision-router's backend chain is deployment-wide with no session of its
+ * own, so the group key is the deployment default provider — the same key the
+ * memory route uses. A provider without a group falls back to the flat vision
+ * pair; an empty pair leaves the vision plugin on its own chain.
  * @param settings - live Model Switch settings.
  * @param provider - the deployment default provider, when one is observable.
  * @returns The complete pair, or undefined when nothing is pinned.
  */
-export function memoryRouteOf(settings: RouteBearingSettings | undefined, provider: string | undefined): CapabilityRoute | undefined {
-  return groupRoute(settings, provider, 'memory') ?? deploymentRoute(settings, 'memory')
+export function visionRouteOf(settings: RouteBearingSettings | undefined, provider: string | undefined): CapabilityRoute | undefined {
+  return groupRoute(settings, provider, 'vision') ?? deploymentRoute(settings, 'vision')
 }
 
 /** One capability's route plus the reasoning effort a subagent spawn also carries. */
@@ -124,7 +158,7 @@ export interface SubagentRoute extends CapabilityRoute {
 export function subagentRouteOf(settings: RouteBearingSettings | undefined, provider: string | undefined): SubagentRoute | undefined {
   const group = groupRoute(settings, provider, 'subagent')
   if (group !== undefined) {
-    const effort = groupOf(settings?.providerGroups, provider ?? '')?.subagentReasoningEffort
+    const effort = groupOfCanonical(settings?.providerGroups, provider ?? '')?.subagentReasoningEffort
     return present(effort) ? { ...group, reasoningEffort: effort } : group
   }
   if (settings?.subagentMode !== 'fixed') return undefined
@@ -146,7 +180,7 @@ export function groupRoute(
   capability: CapabilityId,
 ): CapabilityRoute | undefined {
   if (!present(provider)) return undefined
-  const group: ProviderGroupConfig | undefined = groupOf(settings?.providerGroups, provider)
+  const group: ProviderGroupConfig | undefined = groupOfCanonical(settings?.providerGroups, provider)
   return pairOf(group, CAPABILITY_FIELDS[capability])
 }
 

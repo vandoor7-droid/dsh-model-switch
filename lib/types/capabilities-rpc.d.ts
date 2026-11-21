@@ -27,6 +27,13 @@ export interface ReviewStatus {
         readonly routeSkipped?: string | undefined;
         readonly replays?: number | undefined;
     } | undefined;
+    /** Vision-plugin adapter state: whether our backend-chain head reached dsh-vision-router. */
+    readonly visionRouter?: {
+        readonly installed: boolean;
+        readonly route?: string | undefined;
+        readonly routeSkipped?: string | undefined;
+        readonly replays?: number | undefined;
+    } | undefined;
     /** Review-timeout adapter state: the write and the runtime reload behind it. */
     readonly reviewTimeout?: {
         readonly configuredMs?: number | undefined;

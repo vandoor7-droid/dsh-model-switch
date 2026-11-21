@@ -1,7 +1,7 @@
 import { type ReactNode } from 'react';
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client';
 import type { InjectFace, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
-import { type CapabilityRouteView, type ModelSwitchSettingsView, type ReviewStatusView, type SubagentSettingsView, type ToolCatalogRow } from '../client-contract.js';
+import { type CapabilityRouteView, type MemoryRouteView, type ModelSwitchSettingsView, type ReviewStatusView, type SubagentSettingsView, type ToolCatalogRow } from '../client-contract.js';
 import { type ProviderGroupConfig } from '../provider-group.js';
 import type { RuntimeCapabilities } from '../runtime-capabilities.js';
 import { type CapabilitiesSnapshot } from './search-capabilities.js';
@@ -17,7 +17,8 @@ export interface ModelSwitchSettingsFace {
         autoReviewSettings: ConfigViewForm<CapabilityRouteView>;
         compactionSettings: ConfigViewForm<CapabilityRouteView>;
         titleSettings: ConfigViewForm<CapabilityRouteView>;
-        memorySettings: ConfigViewForm<CapabilityRouteView>;
+        memorySettings: ConfigViewForm<MemoryRouteView>;
+        visionSettings: ConfigViewForm<CapabilityRouteView>;
         switchSettings: Pick<ConfigForm<ModelSwitchSettingsView>, 'getSnapshot' | 'subscribe'>;
     };
     capabilities: RuntimeCapabilities;
@@ -26,7 +27,9 @@ export interface ModelSwitchSettingsFace {
      * write can never leave a half-written provider/model pair behind.
      */
     saveSubagent: (ops: readonly ConfigViewOp<SubagentSettingsView>[]) => Promise<void>;
-    saveCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction' | 'title' | 'memory', ops: readonly ConfigViewOp<CapabilityRouteView>[]) => Promise<void>;
+    saveCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction' | 'title' | 'memory' | 'vision', ops: readonly ConfigViewOp<CapabilityRouteView>[]) => Promise<void>;
+    /** The memory row save; its ops carry the reasoning-effort field alongside the pair. */
+    saveMemory: (ops: readonly ConfigViewOp<MemoryRouteView>[]) => Promise<void>;
     /** Persist the read-only skip switch and its allowlist as one atomic write. */
     saveReviewAllowlist: (value: {
         enabled: boolean;

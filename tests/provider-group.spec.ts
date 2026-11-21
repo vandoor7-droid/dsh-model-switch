@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  canonicalGroupProvider,
   entryOf,
   groupOf,
+  groupOfCanonical,
   normalizeProviderGroups,
   withProviderGroup,
 } from '../src/provider-group.js'
@@ -71,6 +73,9 @@ describe('entryOf', () => {
       titleModel: '',
       memoryProvider: '',
       memoryModel: '',
+      memoryReasoningEffort: '',
+      visionProvider: '',
+      visionModel: '',
     })
   })
   it('stores a pinned naming route alongside the other capabilities', () => {
@@ -87,6 +92,9 @@ describe('entryOf', () => {
       titleModel: 'deep-mini',
       memoryProvider: '',
       memoryModel: '',
+      memoryReasoningEffort: '',
+      visionProvider: '',
+      visionModel: '',
     })
   })
 })
@@ -128,5 +136,60 @@ describe('withProviderGroup', () => {
       entryOf('codex', { compactProvider: 'codex' }),
       entryOf('grok', { compactProvider: 'grok', compactModel: 'fast' }),
     ])
+  })
+})
+
+describe('canonicalGroupProvider', () => {
+  it('strips one trailing -vision when the base is non-empty', () => {
+    expect(canonicalGroupProvider('yijia925-vision')).toBe('yijia925')
+    expect(canonicalGroupProvider('a-b-vision')).toBe('a-b')
+  })
+
+  it('keeps ids without the twin suffix and a bare suffix', () => {
+    expect(canonicalGroupProvider('apigoto')).toBe('apigoto')
+    expect(canonicalGroupProvider('-vision')).toBe('-vision')
+  })
+})
+
+describe('twin group folding', () => {
+  it('folds a twin group into its base, base fields winning', () => {
+    const groups = normalizeProviderGroups([
+      { provider: 'yijia925', compactProvider: 'yijia925', compactModel: 'glm-5.3-flash' },
+      { provider: 'yijia925-vision', compactProvider: 'other', titleProvider: 'yijia925', titleModel: 'glm-5.3' },
+    ])
+    expect(groups).toEqual({
+      yijia925: { compactProvider: 'yijia925', compactModel: 'glm-5.3-flash', titleProvider: 'yijia925', titleModel: 'glm-5.3' },
+    })
+  })
+
+  it('rekeys a twin group whose base has no entry', () => {
+    expect(normalizeProviderGroups([{ provider: 'yijia925-vision', memoryProvider: 'yijia925', memoryModel: 'glm-5.3-flash' }])).toEqual({
+      yijia925: { memoryProvider: 'yijia925', memoryModel: 'glm-5.3-flash' },
+    })
+  })
+
+  it('leaves providers without the suffix untouched', () => {
+    expect(normalizeProviderGroups([{ provider: 'codex' }, { provider: 'grok' }])).toEqual({ codex: {}, grok: {} })
+  })
+})
+
+describe('groupOfCanonical', () => {
+  it('resolves a twin key to the base group first', () => {
+    const groups = normalizeProviderGroups([{ provider: 'yijia925', compactProvider: 'yijia925', compactModel: 'glm-5.3-flash' }])
+    expect(groupOfCanonical(groups, 'yijia925-vision')).toEqual({ compactProvider: 'yijia925', compactModel: 'glm-5.3-flash' })
+    expect(groupOfCanonical(groups, 'yijia925')).toEqual({ compactProvider: 'yijia925', compactModel: 'glm-5.3-flash' })
+  })
+
+  it('falls back to the raw key for a twin-only stored group', () => {
+    // Hand-written storage that normalization has not folded yet.
+    const groups = { 'yijia925-vision': { compactProvider: 'yijia925' } } as never
+    expect(groupOfCanonical(groups, 'yijia925-vision')).toEqual({ compactProvider: 'yijia925' })
+  })
+
+  it('returns undefined for blank or unknown providers', () => {
+    const groups = normalizeProviderGroups([{ provider: 'codex' }])
+    expect(groupOfCanonical(groups, '')).toBeUndefined()
+    expect(groupOfCanonical(groups, 'deepseek')).toBeUndefined()
+    expect(groupOfCanonical(undefined, 'codex')).toBeUndefined()
   })
 })

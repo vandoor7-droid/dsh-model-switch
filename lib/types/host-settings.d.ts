@@ -54,6 +54,12 @@ export interface ModelSwitchSettings {
     memoryProvider?: string;
     /** Distillation model for the memory plugin; set together with `memoryProvider`. */
     memoryModel?: string;
+    /** Distillation reasoning effort; unset/blank keeps the memory plugin's auto resolution. */
+    memoryReasoningEffort?: string;
+    /** Vision backend provider for dsh-vision-router; both fields unset = that plugin's own chain. */
+    visionProvider?: string;
+    /** Vision backend model for dsh-vision-router; set together with `visionProvider`. */
+    visionModel?: string;
     /** Per-provider compaction/subagent/review presets, keyed by provider id; absent when no group is saved. */
     providerGroups?: ProviderGroups;
 }
@@ -82,6 +88,11 @@ export interface Config {
     /** Distillation route handed to the memory plugin when it follows its default. */
     memoryProvider: Volatile<string | undefined>;
     memoryModel: Volatile<string | undefined>;
+    /** Distillation reasoning effort handed to the memory plugin; blank = its auto resolution. */
+    memoryReasoningEffort: Volatile<string | undefined>;
+    /** Vision backend route handed to dsh-vision-router when it follows its own chain. */
+    visionProvider: Volatile<string | undefined>;
+    visionModel: Volatile<string | undefined>;
     /** Saved per-provider capability groups as one entry per provider; entry route fields are '' when the capability stays at its default. */
     providerGroups: Volatile<readonly ProviderGroupEntry[]>;
 }

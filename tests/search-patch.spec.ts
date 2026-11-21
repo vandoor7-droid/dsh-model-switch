@@ -29,4 +29,7 @@ it('preserves existing global search and custom fetch pins through real patch co
   // Disabling keeps the original row in the tree, so the replacement's own row
   // id is what carries the configurable route.
   expect(composed.find(entry => entry.id === 'model-switch-session-title')?.name).toBe('dsh-model-switch/session-title')
+  // The third-party adapter rows ride along as plain inserts.
+  expect(composed.find(entry => entry.id === 'model-switch-prime-memory-compat')?.name).toBe('dsh-model-switch/prime-memory-compat')
+  expect(composed.find(entry => entry.id === 'model-switch-vision-router-compat')?.name).toBe('dsh-model-switch/vision-router-compat')
 })

@@ -49,6 +49,7 @@ function faceProps(loadCapabilities: unknown) {
     useSubagentSettings: (selector: (value: unknown) => unknown) => selector(subagentSettings),
     useTitleSettings: (selector: (value: unknown) => unknown) => selector(titleSettings),
     useMemorySettings: (selector: (value: unknown) => unknown) => selector(titleSettings),
+    useVisionSettings: (selector: (value: unknown) => unknown) => selector(titleSettings),
     setSubagent: vi.fn(),
     setCapability: vi.fn(),
     loadCapabilities,

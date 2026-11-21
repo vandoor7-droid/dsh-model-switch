@@ -81,6 +81,15 @@
     - id: model-switch-prime-memory-compat
       name: 'dsh-model-switch/prime-memory-compat'
 
+    # Fill the third-party dsh-vision-router row's backend-chain head from this
+    # plugin's provider-group route through the released ConfigEditor seam (the
+    # same boundary the plugin's own settings facade crosses). The write lands
+    # in that row's config and hot-reloads it; no-op when that plugin is not
+    # installed. The user's own chain rows stay below the managed head as
+    # fallbacks, and an empty route leaves the chain untouched.
+    - id: model-switch-vision-router-compat
+      name: 'dsh-model-switch/vision-router-compat'
+
     # 2026-11-19 冻结：审查超时适配行已移除，本插件不再写 reviewer provider 的
     # streamIdleTimeoutMs。源码保留一个版本（src/review-timeout.ts 标注
     # deprecated），下个大版本删除。

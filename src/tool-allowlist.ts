@@ -91,6 +91,18 @@ export const SOURCE_CATALOG: readonly SourceCatalogEntry[] = [
     repo: 'https://github.com/drscrewdriver/dsh-prime-memory',
   },
   {
+    id: 'dsh-vision-router',
+    kind: 'plugin',
+    label: '插件 · dsh-vision-router',
+    repo: 'https://github.com/ysr666/dsh-vision-router',
+  },
+  {
+    id: 'dsh-univer-office',
+    kind: 'plugin',
+    label: '插件 · dsh-univer-office',
+    repo: 'https://github.com/dream-num/dsh-univer-office',
+  },
+  {
     id: 'dsh-embedded-browser',
     kind: 'plugin',
     label: '插件 · dsh-embedded-browser',
@@ -101,6 +113,12 @@ export const SOURCE_CATALOG: readonly SourceCatalogEntry[] = [
     kind: 'mcp',
     label: 'MCP · wincu（dsh-computer-use-win）',
     repo: 'https://github.com/Yu-tao-Li/dsh-computer-use-win',
+  },
+  {
+    id: 'mcp:mineru-mcp',
+    kind: 'mcp',
+    label: 'MCP · mineru-mcp（@vandoor2/mineru-mcp）',
+    repo: 'https://gitee.com/vandoor2/mineru-mcp',
   },
   {
     id: 'qqbot-extension',
@@ -124,10 +142,10 @@ export const SOURCE_BY_ID: ReadonlyMap<string, SourceCatalogEntry> = new Map(
 const CORE_TOOLS: ReadonlySet<string> = new Set([
   'ask_user_question', 'conversation_search', 'create_goal', 'create_skill', 'create_worktree', 'edit',
   'exit_plan_mode', 'get_goal', 'glob', 'grep', 'interrupt_agent', 'job_kill',
-  'job_list', 'job_output', 'list_agents', 'list_mcp_resource_templates',
+  'job_list', 'job_output', 'list_agents', 'list_mcp_resource_templates', 'list_subagent_models',
   'list_mcp_resources', 'load_workspace_dependencies', 'present', 'pwsh', 'ralph',
-  'read', 'read_image', 'read_mcp_resource', 'schedule_create', 'schedule_delete',
-  'schedule_list', 'schedule_update', 'send_message', 'session_event_read',
+  'read', 'read_image', 'read_mcp_resource', 'run_code', 'schedule_create', 'schedule_delete', 'schedule_edit',
+  'schedule_list', 'schedule_update', 'schedule_view', 'send_message', 'session_event_read',
   'session_event_search', 'session_event_trace', 'session_search', 'session_trace',
   'sidebar_open', 'skill', 'spawn_teammate', 'subagent', 'subagent_fork',
   'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update',
@@ -138,7 +156,7 @@ const CORE_TOOLS: ReadonlySet<string> = new Set([
 ])
 
 /** MCP server name → catalog id, for the servers this allowlist knows. */
-const MCP_SERVERS: ReadonlyMap<string, string> = new Map([['wincu', 'mcp:wincu']])
+const MCP_SERVERS: ReadonlyMap<string, string> = new Map([['wincu', 'mcp:wincu'], ['mineru-mcp', 'mcp:mineru-mcp']])
 
 /** Plugin identity by tool-name prefix (checked before the core catalog). */
 const PLUGIN_PREFIXES: readonly (readonly [string, string])[] = [
@@ -146,6 +164,8 @@ const PLUGIN_PREFIXES: readonly (readonly [string, string])[] = [
   ['browser_window_', 'dsh-browser-cdp'],
   ['browser_embedded_', 'dsh-embedded-browser'],
   ['ops_', 'dsh-ops'],
+  ['vision_', 'dsh-vision-router'],
+  ['univer_', 'dsh-univer-office'],
 ]
 
 /**
@@ -212,6 +232,19 @@ const EXTENSION_TOOL = /^([A-Za-z0-9_-]+)__(.+)$/
  * child session seeds its preset from `permissionPresets.current(parent.session)`,
  * and this bypass answers `'custom'` for an allowlisted call in flight — releasing
  * them would hand the child no `auto` preset at all, i.e. no review.
+ * Beyond that rule sit the entries the user explicitly released (2026-10-24:
+ * goal/schedule/terminal creation; 2026-11-20: the vision model calls, the
+ * mineru document_parse task, todo/goal updates, and the prime-memory write
+ * tools). These do have side effects — vision calls spend the configured
+ * backend's quota and send image content to it, document_parse spawns a parse
+ * task, the memory tools mutate the memory store — but everything they enable
+ * stays inside the same session and auto preset. Releasing them only skips the
+ * reviewer; it grants no permission the preset did not already grant. The
+ * delegation spawns stay excluded regardless: a child session seeds its preset
+ * from the parent's in-flight bypass answer, so releasing them would strip the
+ * child of the auto preset entirely (see DELEGATION_SPAWNS in the tests).
+ * schedule_edit was reviewed on 2026-11-20 and deliberately kept OUT: it can
+ * modify or delete tasks other sessions created.
  */
 export const DEFAULT_READ_ONLY_TOOLS: readonly string[] = [
   // DSH core — filesystem and session reads.
@@ -280,6 +313,32 @@ export const DEFAULT_READ_ONLY_TOOLS: readonly string[] = [
   'mcp__wincu__windows_computer_use_tools',
   'mcp__wincu__windows_computer_use_wait',
   'mcp__wincu__windows_computer_use_wait_for',
+  // DSH core — read one scheduled task by id.
+  'schedule_view',
+  // dsh-vision-router — local pixel and presentation tools (no vision-model
+  // call; artifacts land in the session workspace, same class as bcdp_screenshot).
+  'vision_colors', 'vision_crop', 'vision_trace', 'vision_extract_foreground',
+  'vision_materialize', 'vision_pixel_diff', 'vision_html_screenshot',
+  'vision_present',
+  // dsh-univer-office — read-only inspection of Univer documents.
+  'univer_status', 'univer_inspect', 'univer_lint', 'univer_api',
+  // MCP mineru-mcp — parse-task progress, logs, and bounded waiting.
+  'mcp__mineru-mcp__get_task_progress', 'mcp__mineru-mcp__get_recent_logs',
+  'mcp__mineru-mcp__wait_for_task',
+  // Released by explicit user decision (2026-11-20): these spend quota or
+  // mutate plugin state, but everything they enable stays inside the same
+  // session and auto preset (see the module doc above).
+  'vision_describe', 'vision_bootstrap', 'vision_ground', 'vision_detect',
+  'vision_ocr', 'vision_long_screenshot_ocr',
+  'mcp__mineru-mcp__document_parse',
+  'todo_write', 'update_goal', 'list_subagent_models',
+  'memory_write', 'memory_resolve_conflict', 'memory_room_admin',
+  'memory_room_review', 'memory_ruminate', 'memory_skill_archive',
+  'memory_skill_pin', 'memory_slot_close', 'memory_slot_write',
+  // Legacy prime-memory tool names that predate the consolidated memory_write;
+  // matched by name, inert on deployments that no longer expose them.
+  'memory_add', 'memory_update', 'memory_delete', 'memory_import',
+  'memory_migrate_relation', 'memory_reproject', 'memory_ruminate_cancel',
   // QQ bot extension — the suffix is the bot's own name, hence the pattern.
   'sessions_list__*', 'bing_search__*',
 ]

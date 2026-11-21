@@ -26,8 +26,8 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Entry } from '@deepseek-ai/cordis-plugin-loader'
-import { memoryRouteOf, type CapabilityRoute } from './session-route.js'
-import { distillChainPatch, isPrimeMemoryRow, planDistillChain, type DistillChainEntry } from './prime-memory-route.js'
+import { memoryRouteOf, type CapabilityRoute, type MemoryRoute } from './session-route.js'
+import { deploymentDefaultProviderOf, distillChainPatch, isPrimeMemoryRow, planDistillChain, type DistillChainEntry } from './prime-memory-route.js'
 
 /** Row name and dependencies, mirroring the sibling adapter row. */
 export const name = 'model-switch-prime-memory-compat'
@@ -250,6 +250,12 @@ interface WebServerLike {
 /** The endpoint the memory plugin registers for its own runtime settings writes. */
 const MEMORY_RPC_PATH = '/dsh-memory/rpc/settings-set'
 
+/** One layer-chain entry of the push payload; the effort rides only when set. */
+function layerEntryOf(route: { provider: string; model: string; reasoningEffort?: string }): { provider: string; model: string; reasoningEffort?: string } {
+  const effort = route.reasoningEffort ?? ''
+  return effort === '' ? { provider: route.provider, model: route.model } : { provider: route.provider, model: route.model, reasoningEffort: effort }
+}
+
 /**
  * Whether the memory row's live section already carries exactly our route.
  *
@@ -257,14 +263,16 @@ const MEMORY_RPC_PATH = '/dsh-memory/rpc/settings-set'
  * call, and a document change reloads the composition — so pushing an unchanged
  * route re-triggers this adapter forever (a ~6 s recompose loop, observed with
  * `dsh-prime-memory@0.26.10`). Comparing first is what makes the push idempotent
- * across reloads.
+ * across reloads. The reasoning effort compares on both the global field and
+ * every layer entry; the plugin's schema defaults both to `''` (auto).
  *
  * @param value - the memory row's live settings object, as the forms describe it.
  * @param provider - route provider to compare against.
  * @param model - route model to compare against.
+ * @param effort - route reasoning effort to compare against; undefined means auto.
  * @returns true when a push would change nothing.
  */
-export function memoryLiveMatchesRoute(value: unknown, provider: string, model: string): boolean {
+export function memoryLiveMatchesRoute(value: unknown, provider: string, model: string, effort?: string): boolean {
   const outer = value === null || typeof value !== 'object' ? undefined : (value as Record<string, unknown>)
   if (outer === undefined) return false
   // The forms descriptor hands back either the live section itself or the whole
@@ -273,6 +281,9 @@ export function memoryLiveMatchesRoute(value: unknown, provider: string, model: 
   const inner = outer.live
   const live = (inner !== null && typeof inner === 'object' ? inner : outer) as Record<string, unknown>
   if (live.distillProvider !== provider || live.distillModel !== model) return false
+  const wanted = effort ?? ''
+  const liveEffort = typeof live.reasoningEffort === 'string' ? live.reasoningEffort : ''
+  if (liveEffort !== wanted) return false
   const chain = live.distillChain
   if (Array.isArray(chain) && chain.length !== 0) return false
   const layers = live.distillLayerChains
@@ -282,6 +293,8 @@ export function memoryLiveMatchesRoute(value: unknown, provider: string, model: 
     if (!Array.isArray(layer) || layer.length !== 1) return false
     const first = layer[0] as Record<string, unknown> | undefined
     if (first === undefined || first.provider !== provider || first.model !== model) return false
+    const firstEffort = typeof first.reasoningEffort === 'string' ? first.reasoningEffort : ''
+    if (firstEffort !== wanted) return false
   }
   return true
 }
@@ -298,7 +311,7 @@ export function memoryLiveMatchesRoute(value: unknown, provider: string, model: 
  */
 export async function pushMemoryRoute(
   ctx: Context,
-  route: { provider: string; model: string },
+  route: { provider: string; model: string; reasoningEffort?: string },
 ): Promise<'pushed' | 'absent' | 'rejected'> {
   const server = ctx.get('webServer', false) as WebServerLike | undefined
   const port = server?.port ?? server?.address?.port
@@ -317,15 +330,17 @@ export async function pushMemoryRoute(
         // So: no chain here, and the legacy pair carries the route.
         distillChain: [],
         // Layer chains survive a pinned-free profile too (`lc && !pinned`), and
-        // they are what the layered pipelines read first, so they stay.
+        // they are what the layered pipelines read first, so they stay. The
+        // reasoning effort rides every layer entry and the global field; the
+        // plugin resolves each call as `entry.reasoningEffort || globalEffort`.
         distillLayerChains: {
-          l1: [{ provider: route.provider, model: route.model }],
-          l2: [{ provider: route.provider, model: route.model }],
-          l3: [{ provider: route.provider, model: route.model }],
+          l1: [layerEntryOf(route)],
+          l2: [layerEntryOf(route)],
+          l3: [layerEntryOf(route)],
         },
         distillProvider: route.provider,
         distillModel: route.model,
-        reasoningEffort: '',
+        reasoningEffort: route.reasoningEffort ?? '',
       }),
     })
     if (response.status === 404 || response.status === 405 || response.status === 403) return 'absent'
@@ -367,19 +382,6 @@ export async function readMemoryLive(ctx: Context): Promise<unknown> {
   }
 }
 
-/** The `agent-default-model` row's provider: the deployment default. */
-function defaultProviderOf(loader: Loader | undefined): string | undefined {
-  if (typeof loader?.entries !== 'function') return undefined
-  for (const entry of loader.entries()) {
-    const id = (entry.options as { id?: unknown } | undefined)?.id
-    if (id !== 'agent-default-model') continue
-    const config = asRecord((entry.options as { config?: unknown } | undefined)?.config)
-    const provider = text(config?.provider)
-    if (provider !== '') return provider
-  }
-  return undefined
-}
-
 /** The `settings` service the memory plugin itself writes through. */
 function formsOf(ctx: Context): SettingsForms | undefined {
   try {
@@ -407,7 +409,7 @@ const PIN_AFTER_ATTEMPTS = 4
 export function installPrimeMemoryCompat(
   ctx: Context,
   loader: Loader | undefined,
-  routeOf: () => CapabilityRoute | undefined,
+  routeOf: () => MemoryRoute | undefined,
 ): { dispose: () => void; replay: () => boolean } {
   /** The route this adapter wrote last, so it may replace its own value only. */
   let adoptedRoute: string | undefined
@@ -507,6 +509,7 @@ export function installPrimeMemoryCompat(
     const route = routeOf()
     const provider = text(route?.provider)
     const model = text(route?.model)
+    const effort = text(route?.reasoningEffort)
     if (provider === '' || model === '') {
       primeMemoryCompatStatus.routeSkipped = 'no-route'
       return
@@ -526,7 +529,7 @@ export function installPrimeMemoryCompat(
       scheduleRetry()
       return
     }
-    if (memoryLiveMatchesRoute(live, provider, model)) {
+    if (memoryLiveMatchesRoute(live, provider, model, effort)) {
       adoptedRoute = wanted
       primeMemoryCompatStatus.installed = true
       primeMemoryCompatStatus.route = wanted
@@ -550,13 +553,13 @@ export function installPrimeMemoryCompat(
     // `apply`, so a document write alone stays invisible until the next start.
     // Its own settings RPC is the runtime write path — the one its panel posts to —
     // and it is the only seam that makes a provider switch take effect immediately.
-    const pushed = await pushMemoryRoute(ctx, { provider, model })
+    const pushed = await pushMemoryRoute(ctx, { provider, model, ...(effort === '' ? {} : { reasoningEffort: effort }) })
     if (pushed === 'pushed') {
       // A 200 is not proof of a write: a route guarded by the host session answers
       // 200 while silently dropping the payload, so the read-back is the only
       // acceptance signal this adapter is allowed to trust.
       const after = await readMemoryLive(ctx)
-      if (after !== undefined && memoryLiveMatchesRoute(after, provider, model)) {
+      if (after !== undefined && memoryLiveMatchesRoute(after, provider, model, effort)) {
         adoptedRoute = wanted
         attempt = 0
         primeMemoryCompatStatus.installed = true
@@ -582,7 +585,7 @@ export function installPrimeMemoryCompat(
     }
     // The user-set guard above already ran against the live section, so this pass
     // only has to merge our pair into whatever the document carries.
-    const chain = planDistillChain({ provider, model }, chainOf(section.value))
+    const chain = planDistillChain({ provider, model, ...(effort === '' ? {} : { reasoningEffort: effort }) }, chainOf(section.value))
     pending = forms.update(MEMORY_ENTRY_ID, distillChainPatch(chain), section.revision)
       .then(async () => {
         const applied = chainOf(sectionOf(forms)?.value)
@@ -657,7 +660,7 @@ export function apply(ctx: Context): void {
     withProvider.inject(['webServer'], (scope: Context) => scope.effect(() => {
       const runtime = scope.modelSwitch
       const loader = scope.get('loader', false) as Loader | undefined
-      const routeOf = (): CapabilityRoute | undefined => memoryRouteOf(runtime.currentSettings(), defaultProviderOf(loader))
+      const routeOf = (): MemoryRoute | undefined => memoryRouteOf(runtime.currentSettings(), deploymentDefaultProviderOf(loader))
       const adapter = installPrimeMemoryCompat(scope, loader, routeOf)
       const off = scope.on('model-switch/settings-update', () => {
         if (adapter.replay()) scope.logger.info('model-switch: re-applied the dsh-prime-memory distillation route after a settings change')

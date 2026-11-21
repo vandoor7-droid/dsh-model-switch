@@ -9,6 +9,7 @@ import { automodeCompatView } from './automode-compat.js'
 import { subagentDiscoveryHintStatus } from './subagent-runtime.js'
 import { reviewTimeoutStatus } from './review-timeout.js'
 import { primeMemoryCompatStatus } from './prime-memory-compat.js'
+import { visionRouterCompatStatus } from './vision-router-compat.js'
 
 /** Live reviewer counters surfaced next to the allowlist editor. */
 export interface ReviewStatus {
@@ -29,6 +30,13 @@ export interface ReviewStatus {
   } | undefined
   /** Memory-plugin adapter state: whether our distillation route reached the plugin. */
   readonly primeMemory?: {
+    readonly installed: boolean
+    readonly route?: string | undefined
+    readonly routeSkipped?: string | undefined
+    readonly replays?: number | undefined
+  } | undefined
+  /** Vision-plugin adapter state: whether our backend-chain head reached dsh-vision-router. */
+  readonly visionRouter?: {
     readonly installed: boolean
     readonly route?: string | undefined
     readonly routeSkipped?: string | undefined
@@ -155,6 +163,12 @@ export function installCapabilitiesRpc(ctx: Context, registry: ModelSwitchAdapte
           route: primeMemoryCompatStatus.route,
           routeSkipped: primeMemoryCompatStatus.routeSkipped,
           replays: primeMemoryCompatStatus.replays,
+        },
+        visionRouter: {
+          installed: visionRouterCompatStatus.installed,
+          route: visionRouterCompatStatus.route,
+          routeSkipped: visionRouterCompatStatus.routeSkipped,
+          replays: visionRouterCompatStatus.replays,
         },
         reviewTimeout: {
           configuredMs: reviewTimeoutStatus.configuredMs,

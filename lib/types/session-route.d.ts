@@ -23,7 +23,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { Session } from '@deepseek-ai/dsh-session';
 import { type ProviderGroups } from './provider-group.js';
 /** Capabilities whose route can be derived per session. */
-export type CapabilityId = 'compaction' | 'autoReview' | 'title' | 'subagent' | 'memory';
+export type CapabilityId = 'compaction' | 'autoReview' | 'title' | 'subagent' | 'memory' | 'vision';
 /** A complete pinned route; either half missing means "follow the default". */
 export interface CapabilityRoute {
     readonly provider: string;
@@ -47,6 +47,10 @@ export interface RouteBearingSettings {
     readonly titleModel?: string;
     readonly memoryProvider?: string;
     readonly memoryModel?: string;
+    /** Distillation reasoning effort; blank keeps the memory plugin's auto resolution. */
+    readonly memoryReasoningEffort?: string;
+    readonly visionProvider?: string;
+    readonly visionModel?: string;
     readonly providerGroups?: ProviderGroups;
 }
 /**
@@ -56,6 +60,10 @@ export interface RouteBearingSettings {
  * @returns The complete pair, or undefined when the capability stays at its official/derived default.
  */
 export declare function deploymentRoute(settings: RouteBearingSettings | undefined, capability: CapabilityId): CapabilityRoute | undefined;
+/** The distillation route plus the reasoning effort a distillation call carries. */
+export interface MemoryRoute extends CapabilityRoute {
+    readonly reasoningEffort?: string;
+}
 /**
  * The distillation route one deployment should use.
  *
@@ -63,12 +71,25 @@ export declare function deploymentRoute(settings: RouteBearingSettings | undefin
  * key is the deployment default provider (the provider the profile starts
  * sessions on) rather than a session's provider. A provider without a group falls
  * back to the flat memory pair; an empty pair leaves the memory plugin at its own
- * default.
+ * default. The reasoning effort rides the same layering: the group's effort,
+ * else the flat effort, else the memory plugin's own auto resolution.
+ * @param settings - live Model Switch settings.
+ * @param provider - the deployment default provider, when one is observable.
+ * @returns The complete route, or undefined when nothing is pinned.
+ */
+export declare function memoryRouteOf(settings: RouteBearingSettings | undefined, provider: string | undefined): MemoryRoute | undefined;
+/**
+ * The vision backend route one deployment should use.
+ *
+ * dsh-vision-router's backend chain is deployment-wide with no session of its
+ * own, so the group key is the deployment default provider — the same key the
+ * memory route uses. A provider without a group falls back to the flat vision
+ * pair; an empty pair leaves the vision plugin on its own chain.
  * @param settings - live Model Switch settings.
  * @param provider - the deployment default provider, when one is observable.
  * @returns The complete pair, or undefined when nothing is pinned.
  */
-export declare function memoryRouteOf(settings: RouteBearingSettings | undefined, provider: string | undefined): CapabilityRoute | undefined;
+export declare function visionRouteOf(settings: RouteBearingSettings | undefined, provider: string | undefined): CapabilityRoute | undefined;
 /** One capability's route plus the reasoning effort a subagent spawn also carries. */
 export interface SubagentRoute extends CapabilityRoute {
     readonly reasoningEffort?: string;

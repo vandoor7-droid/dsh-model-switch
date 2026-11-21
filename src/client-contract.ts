@@ -18,11 +18,17 @@ export interface ModelSwitchSettingsView {
   titleProvider?: string; titleModel?: string
   /** Distillation route for the memory plugin; both unset means it keeps its own default. */
   memoryProvider?: string; memoryModel?: string
+  /** Distillation reasoning effort; unset means the memory plugin's auto resolution. */
+  memoryReasoningEffort?: string
+  /** Vision backend route for dsh-vision-router; both unset means it keeps its own chain. */
+  visionProvider?: string; visionModel?: string
   /** Raw saved per-provider groups; edited whole through the provider-groups card. */
   providerGroups?: ProviderGroupsStorage
 }
 export interface SubagentSettingsView { mode: 'follow-main' | 'fixed'; provider?: string; model?: string; reasoningEffort?: string }
 export interface CapabilityRouteView { provider?: string; model?: string }
+/** The memory distillation route plus the reasoning effort a distillation call carries. */
+export interface MemoryRouteView { provider?: string; model?: string; reasoningEffort?: string }
 
 export const SUBAGENT_SETTINGS_FIELDS = Object.freeze({ mode: 'subagentMode', provider: 'subagentProvider', model: 'subagentModel', reasoningEffort: 'subagentReasoningEffort' } as const)
 
@@ -59,7 +65,9 @@ export const COMPACTION_SETTINGS_FIELDS = Object.freeze({ provider: 'compactProv
 /** Automatic session-title naming route; both unset means the official default (the session's own logged route). */
 export const TITLE_SETTINGS_FIELDS = Object.freeze({ provider: 'titleProvider', model: 'titleModel' } as const)
 /** Distillation route handed to the memory plugin when it follows its own default. */
-export const MEMORY_SETTINGS_FIELDS = Object.freeze({ provider: 'memoryProvider', model: 'memoryModel' } as const)
+export const MEMORY_SETTINGS_FIELDS = Object.freeze({ provider: 'memoryProvider', model: 'memoryModel', reasoningEffort: 'memoryReasoningEffort' } as const)
+/** Vision backend route handed to dsh-vision-router when it follows its own chain. */
+export const VISION_SETTINGS_FIELDS = Object.freeze({ provider: 'visionProvider', model: 'visionModel' } as const)
 
 export function deriveSubagentSettings(settings: ModelSwitchSettingsView): SubagentSettingsView {
   return { mode: settings.subagentMode, ...(settings.subagentProvider === undefined ? {} : { provider: settings.subagentProvider }), ...(settings.subagentModel === undefined ? {} : { model: settings.subagentModel }), ...(settings.subagentReasoningEffort === undefined ? {} : { reasoningEffort: settings.subagentReasoningEffort }) }
@@ -69,7 +77,8 @@ export function deriveImageSettings(settings: ModelSwitchSettingsView): Capabili
 export function deriveAutoReviewSettings(settings: ModelSwitchSettingsView): CapabilityRouteView { return { ...(settings.autoReviewProvider === undefined ? {} : { provider: settings.autoReviewProvider }), ...(settings.autoReviewModel === undefined ? {} : { model: settings.autoReviewModel }) } }
 export function deriveCompactionSettings(settings: ModelSwitchSettingsView): CapabilityRouteView { return { ...(settings.compactProvider === undefined ? {} : { provider: settings.compactProvider }), ...(settings.compactModel === undefined ? {} : { model: settings.compactModel }) } }
 export function deriveTitleSettings(settings: ModelSwitchSettingsView): CapabilityRouteView { return { ...(settings.titleProvider === undefined ? {} : { provider: settings.titleProvider }), ...(settings.titleModel === undefined ? {} : { model: settings.titleModel }) } }
-export function deriveMemorySettings(settings: ModelSwitchSettingsView): CapabilityRouteView { return { ...(settings.memoryProvider === undefined ? {} : { provider: settings.memoryProvider }), ...(settings.memoryModel === undefined ? {} : { model: settings.memoryModel }) } }
+export function deriveMemorySettings(settings: ModelSwitchSettingsView): MemoryRouteView { return { ...(settings.memoryProvider === undefined ? {} : { provider: settings.memoryProvider }), ...(settings.memoryModel === undefined ? {} : { model: settings.memoryModel }), ...(settings.memoryReasoningEffort === undefined ? {} : { reasoningEffort: settings.memoryReasoningEffort }) } }
+export function deriveVisionSettings(settings: ModelSwitchSettingsView): CapabilityRouteView { return { ...(settings.visionProvider === undefined ? {} : { provider: settings.visionProvider }), ...(settings.visionModel === undefined ? {} : { model: settings.visionModel }) } }
 /** Whether both fields of a model route form a complete pair; an incomplete pair stays off. */
 export function routePairConfigured(route: CapabilityRouteView | undefined): boolean {
   return route !== undefined && (route.provider ?? '').trim() !== '' && (route.model ?? '').trim() !== ''
@@ -87,6 +96,20 @@ export interface ReviewStatusView {
     readonly added: number
     readonly skipped: number
   } | undefined
+  /** Memory-plugin adapter state: whether our distillation route reached the plugin. */
+  readonly primeMemory?: {
+    readonly installed: boolean
+    readonly route?: string | undefined
+    readonly routeSkipped?: string | undefined
+    readonly replays?: number | undefined
+  } | undefined
+  /** Vision-plugin adapter state: whether our backend-chain head reached dsh-vision-router. */
+  readonly visionRouter?: {
+    readonly installed: boolean
+    readonly route?: string | undefined
+    readonly routeSkipped?: string | undefined
+    readonly replays?: number | undefined
+  } | undefined
 }
 
 /**
@@ -98,7 +121,7 @@ export function decodeReviewStatus(value: unknown): ReviewStatusView | undefined
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
   const raw = (value as { status?: unknown }).status
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined
-  const status = raw as { held?: unknown; allowedCalls?: unknown; skippedReadOnly?: unknown; automode?: unknown }
+  const status = raw as { held?: unknown; allowedCalls?: unknown; skippedReadOnly?: unknown; automode?: unknown; primeMemory?: unknown; visionRouter?: unknown }
   const count = (input: unknown): number => (typeof input === 'number' && Number.isFinite(input) && input >= 0 ? input : 0)
   const route = (input: unknown): string | undefined => (typeof input === 'string' && input.trim() !== '' ? input.trim() : undefined)
   const automode = status.automode !== null && typeof status.automode === 'object' && !Array.isArray(status.automode)
@@ -108,11 +131,19 @@ export function decodeReviewStatus(value: unknown): ReviewStatusView | undefined
         return { route: route(row.route), routeSkipped: route(row.routeSkipped), added: count(row.added), skipped: count(row.skipped) }
       })()
     : undefined
+  // Third-party adapter rows (prime-memory, vision-router) share one status shape.
+  const adapterRow = (input: unknown): { installed: boolean; route?: string | undefined; routeSkipped?: string | undefined; replays?: number | undefined } | undefined => {
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) return undefined
+    const row = input as { installed?: unknown; route?: unknown; routeSkipped?: unknown; replays?: unknown }
+    return { installed: row.installed === true, route: route(row.route), routeSkipped: route(row.routeSkipped), replays: count(row.replays) }
+  }
   return {
     held: status.held === true,
     allowedCalls: count(status.allowedCalls),
     skippedReadOnly: count(status.skippedReadOnly),
     automode,
+    primeMemory: adapterRow(status.primeMemory),
+    visionRouter: adapterRow(status.visionRouter),
   }
 }
 

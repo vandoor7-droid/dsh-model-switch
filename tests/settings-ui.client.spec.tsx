@@ -59,6 +59,8 @@ function face(options?: {
   autoReview?: { provider?: string; model?: string }
   compaction?: { provider?: string; model?: string }
   title?: { provider?: string; model?: string }
+  memory?: { provider?: string; model?: string; reasoningEffort?: string }
+  vision?: { provider?: string; model?: string }
   saveSubagent?: ReturnType<typeof vi.fn>
   saveCapability?: ReturnType<typeof vi.fn>
   saveProviderGroup?: ReturnType<typeof vi.fn>
@@ -80,6 +82,9 @@ function face(options?: {
   const compactionSettings = snapshot(options?.compaction ?? {})
   // Unset naming fields = the official default: naming follows the session model.
   const titleSettings = snapshot(options?.title ?? {})
+  // The memory and vision rows have their own settings; unset = follow that plugin.
+  const memorySettings = snapshot(options?.memory ?? {})
+  const visionSettings = snapshot(options?.vision ?? {})
   return {
     t: (key: string) => key,
     capabilities: {
@@ -92,11 +97,13 @@ function face(options?: {
     useAutoReviewSettings: () => autoReviewSettings,
     useCompactionSettings: () => compactionSettings,
     useTitleSettings: () => titleSettings,
-    useMemorySettings: () => titleSettings,
+    useMemorySettings: () => memorySettings,
+    useVisionSettings: () => visionSettings,
     useSwitchSettings: () => switchSettings,
     useSubagentSettings: () => subagentSnapshot,
     saveSubagent: options?.saveSubagent ?? vi.fn(async () => undefined),
     saveCapability: options?.saveCapability ?? vi.fn(),
+    saveMemory: vi.fn(async () => undefined),
     saveProviderGroup: options?.saveProviderGroup ?? vi.fn(async () => undefined),
   } as never
 }
@@ -154,7 +161,7 @@ describe('Model Switch settings menu', () => {
     expect(markup).not.toContain('>main<')
     expect(markup).toContain('>subagent<')
     expect(markup).toContain('>search<')
-    expect(markup).not.toContain('>vision<')
+    expect(markup).toContain('>vision<')
     expect(markup).toContain('>image<')
     expect(markup).not.toContain('sendProtection')
     expect(markup).not.toContain('compactOnSwitch')
@@ -177,6 +184,33 @@ describe('Model Switch settings menu', () => {
     expect(markup).not.toContain('<select')
     expect(zh.remoteSettingsUnavailable).toContain('非本机')
     expect(en.remoteSettingsUnavailable).toContain('non-loopback')
+  })
+
+  it('shows the vision card following the Vision Router default when unset', () => {
+    const markup = renderSettings()
+    expect(markup).toContain('>vision<')
+    expect(markup).toContain('>visionFollow<')
+    expect(markup).toContain('>visionHelp<')
+    expect(zh.visionHelp).toContain('dsh-vision-router')
+    expect(en.visionHelp).toContain('dsh-vision-router')
+  })
+
+  it('offers a reasoning-effort field on the memory card', () => {
+    const { renderer } = mountSettings({})
+    const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('memoryFollow'))
+    act(() => { header?.props.onClick() })
+    const json = JSON.stringify(renderer.toJSON())
+    expect(json).toContain('memoryEffort')
+    expect(json).toContain('effortAuto')
+  })
+
+  it('lists the vision row in the provider-group editor', () => {
+    const { renderer } = mountSettings({ providerGroups: [entryOf('codex', {})] })
+    const header = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('providerGroupsCard'))
+    act(() => { header?.props.onClick() })
+    const json = JSON.stringify(renderer.toJSON())
+    expect(json).toContain('visionFollow')
+    expect(json).toContain('subagentOff')
   })
 
 
