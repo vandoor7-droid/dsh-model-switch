@@ -801,6 +801,19 @@ function leafId(entry: Entry): string | undefined {
 }
 
 /**
+ * The one-shot guidance for the layer-order naming conflict.
+ *
+ * An id-disable in this plugin's bundle patch cannot reach a row the
+ * session-titles bundle inserts in a LATER layer, so the profile's bundle
+ * order decides whether the official naming row arrives disabled. The runtime
+ * takeover still displaces it, but that order leaves the composition one
+ * "did not activate" warning away from blocking unrelated profile-persisting
+ * writes (observed in the lab: prime-memory settings-set rolling back on the
+ * composition warning). Names the two durable profile-side fixes.
+ */
+export const NAMING_CONFLICT_GUIDANCE = 'an official naming row is enabled in the composed tree (the session-titles bundle composes after dsh-model-switch, so this plugin id-disable cannot reach it). The takeover displaces it at runtime; to also keep the composition clean, either move the session-titles bundle before dsh-model-switch in the profile bundles list, or add a profile-patch row with id optional-session-title-all-prompts and disabled: true'
+
+/**
  * Every official naming row the loader currently has instantiated and enabled.
  *
  * A row that is enabled here may be about to run its own `register()`, so this
@@ -1033,6 +1046,7 @@ export async function apply(ctx: Context): Promise<void> {
   // and fails the save the user was doing. The takeover below displaces every
   // live row and claims the slot once their fibers are gone.
   const pendingOfficial = enabledOfficialRows(ctx).length > 0
+  if (pendingOfficial) ctx.logger.warn('model-switch: ' + NAMING_CONFLICT_GUIDANCE)
   if (!pendingOfficial && !seam.claim()) {
     // One provider per context: another row already owns the seam. Handing the
     // slot over is the right outcome when that row is an official naming row —

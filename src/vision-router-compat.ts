@@ -114,8 +114,11 @@ export function installVisionRouterCompat(
   const timers: ReturnType<typeof setTimeout>[] = []
 
   const scheduleRetry = (): void => {
-    if (attempt >= 8) return
-    const delay = Math.min(4_000, 200 * 2 ** attempt)
+    // Same slow-boot budget as the memory adapter: the vision row may be
+    // composed minutes after this one on a heavy profile, and each attempt is
+    // one cheap scan on an unref'd timer.
+    if (attempt >= 16) return
+    const delay = Math.min(10_000, 200 * 2 ** attempt)
     attempt += 1
     const timer = setTimeout(() => { void run() }, delay)
     timer.unref?.()

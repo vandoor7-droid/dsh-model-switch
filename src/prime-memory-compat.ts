@@ -36,8 +36,13 @@ export const inject = ['loader', 'settings']
 /** The loader row id prime-memory is composed under (fixed by its bundle patch). */
 const MEMORY_ENTRY_ID = 'dsh-memory'
 
-/** Why the adapter stayed out of the way. */
-export type PrimeMemoryRouteSkip = 'user-set' | 'no-route' | 'no-row' | 'no-service' | 'no-seam' | 'live-rejected'
+/**
+ * Why the adapter stayed out of the way.
+ *
+ * `no-route` means the route itself is unset; `live-unavailable` means the
+ * memory plugin's live seam was unreachable (slow boot, retries exhausted).
+ */
+export type PrimeMemoryRouteSkip = 'user-set' | 'no-route' | 'live-unavailable' | 'no-row' | 'no-service' | 'no-seam' | 'live-rejected'
 
 /** Live adapter state, surfaced next to the settings card. */
 export interface PrimeMemoryCompatStatus {
@@ -391,8 +396,13 @@ function formsOf(ctx: Context): SettingsForms | undefined {
   }
 }
 
-/** Live attempts to spend before falling back to the static pin. */
-const PIN_AFTER_ATTEMPTS = 4
+/**
+ * Live attempts to spend before falling back to the static pin.
+ *
+ * Kept at half the retry budget: the pin suppresses every live form, so it must
+ * not fire while the extended live window still has a realistic chance.
+ */
+const PIN_AFTER_ATTEMPTS = 8
 
 /**
  * Install the adapter for the whole profile.
@@ -433,8 +443,13 @@ export function installPrimeMemoryCompat(
   }
 
   const scheduleRetry = (): void => {
-    if (attempt >= 8) return
-    const delay = Math.min(4_000, 200 * 2 ** attempt)
+    // The budget covers slow boots: a heavy composition (plugins with network
+    // probes, worker startup) can register the memory plugin's RPC minutes
+    // after this row activates. Each attempt is one cheap failed request on an
+    // unref'd timer, and the compare-before-write invariant keeps retries from
+    // amplifying writes.
+    if (attempt >= 16) return
+    const delay = Math.min(10_000, 200 * 2 ** attempt)
     attempt += 1
     const timer = setTimeout(() => { void run() }, delay)
     timer.unref?.()
@@ -525,7 +540,7 @@ export function installPrimeMemoryCompat(
     // and re-enters this adapter (an observed ~6 s recompose loop).
     const live = await readMemoryLive(ctx)
     if (live === undefined) {
-      primeMemoryCompatStatus.routeSkipped = 'no-route'
+      primeMemoryCompatStatus.routeSkipped = 'live-unavailable'
       scheduleRetry()
       return
     }
@@ -574,7 +589,7 @@ export function installPrimeMemoryCompat(
     // back to the settings forms write, and from there to the static pin that
     // survives a restart.
     if (forms === undefined || forms.update === undefined || forms.describe === undefined) {
-      primeMemoryCompatStatus.routeSkipped = 'no-route'
+      primeMemoryCompatStatus.routeSkipped = 'live-unavailable'
       scheduleRetry()
       return
     }
@@ -601,7 +616,7 @@ export function installPrimeMemoryCompat(
         delete primeMemoryCompatStatus.routeSkipped
       })
       .catch(async (cause: unknown) => {
-        primeMemoryCompatStatus.routeSkipped = 'no-route'
+        primeMemoryCompatStatus.routeSkipped = 'live-rejected'
         ctx.logger.warn(`model-switch: could not write the dsh-prime-memory distillation route (${String(cause)})`)
         await pinAsFallback(forms, provider, model, wanted)
       })

@@ -30,8 +30,13 @@ import { type DistillChainEntry } from './prime-memory-route.js';
 /** Row name and dependencies, mirroring the sibling adapter row. */
 export declare const name = "model-switch-prime-memory-compat";
 export declare const inject: string[];
-/** Why the adapter stayed out of the way. */
-export type PrimeMemoryRouteSkip = 'user-set' | 'no-route' | 'no-row' | 'no-service' | 'no-seam' | 'live-rejected';
+/**
+ * Why the adapter stayed out of the way.
+ *
+ * `no-route` means the route itself is unset; `live-unavailable` means the
+ * memory plugin's live seam was unreachable (slow boot, retries exhausted).
+ */
+export type PrimeMemoryRouteSkip = 'user-set' | 'no-route' | 'live-unavailable' | 'no-row' | 'no-service' | 'no-seam' | 'live-rejected';
 /** Live adapter state, surfaced next to the settings card. */
 export interface PrimeMemoryCompatStatus {
     /** Whether at least one write reached the memory plugin's settings. */

@@ -258,6 +258,21 @@ describe('adapter push order', () => {
     expect(primeMemoryCompatStatus.route).toBe('xiaomi-token-plan-cn/mimo-v2-pro')
   })
 
+  it('reports live-unavailable when the plugin RPC never answers', async () => {
+    const ctx = {
+      get: (): undefined => undefined,
+      logger: { info: vi.fn(), warn: vi.fn() },
+      on: (): (() => void) => () => {},
+    }
+    const loader = { entries: (): unknown[] => [{ options: { id: 'dsh-memory' } }] }
+    installPrimeMemoryCompat(ctx as never, loader as never, () => ({ provider: 'apigoto', model: 'mimo-v2.6-flash' }))
+    await new Promise(resolve => setTimeout(resolve, 60))
+    // The route is configured; only the live seam is unreachable — a state the
+    // settings page must be able to distinguish from an unset route.
+    expect(primeMemoryCompatStatus.routeSkipped).toBe('live-unavailable')
+    expect(primeMemoryCompatStatus.installed).toBe(false)
+  })
+
   it('does not rewrite a live section that already carries the route', async () => {
     const pair = { provider: 'apigoto', model: 'mimo-v2.6-flash' }
     const shared = host({

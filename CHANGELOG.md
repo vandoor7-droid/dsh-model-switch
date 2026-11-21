@@ -1,3 +1,18 @@
+## v0.4.70
+
+0.4.69 lab 实测两条遗留观察的插件侧改进（维护版）：
+
+- **适配行慢启动韧性**：记忆/识图适配行的重试预算从 8 次/约 18 秒扩到 **16 次/约 2.5–3 分钟**（`attempt >= 16`、间隔上限 10s）。慢启动宿主上目标 RPC/行可能在本行激活数分钟后才就绪——0.4.69 lab 实测 DVR 的网络探测把组合拖到分钟级，旧预算耗尽后适配行静默到下一次设置变更。静态 pin 门槛 `PIN_AFTER_ATTEMPTS` 4 → 8（保持预算一半，pin 不再过早压制 live 形态）。
+- **skip 语义细分**：记忆适配行新增 `live-unavailable`（live 接口不可达/重试耗尽），`no-route` 仅表示路由未配置；表单写失败归入 `live-rejected`。
+- **记忆卡状态行**：设置页记忆卡显示适配状态（已接管/未配置/让位/未装/live-unavailable/被拒），慢启动场景在页面直接可见，不再需要翻日志（镜像识图卡 0.4.69 的状态行模式）。
+- **命名槽位冲突检测与指引**：session-titles bundle 排在 dsh-model-switch 之后时，本插件对 `optional-session-title-all-prompts` 的禁用无法命中后置层插入的行（Include 语义限制），官方命名行与接管行撞单注册位，并连带 prime-memory settings-set 把组合告警当内部错误回滚。0.4.70 起接管行检测到组合树中存在已启用的官方命名行时输出 `NAMING_CONFLICT_GUIDANCE`（两个修法：调整 bundles 顺序 / profile 补丁显式禁用）；README（zh/en）新增同款故障排查小节；`docs/seam-gap.md` 归档两条上游观察（跨层 disable 缺失；settings-set 对无关组合告警的严格回滚）。
+- **打包卫生**：`package.json` 增加 `prepack: pnpm run build`——`pnpm pack` 此前不触发任何构建，直接打包现存 lib/（0.4.69 lab 首轮因此装到修复前的旧构建，浪费一整轮排查）。
+- **测试**：新增 `live-unavailable` 用例、`NAMING_CONFLICT_GUIDANCE` 内容用例、记忆状态行交互用例。
+- **验证（virtual / 零真实额度）**：DSH `0.2.1-rc.5` lab（`D:\dsh-lab`，3082/4731，本地 0.4.70 构建 + `dsh-vision-router@3.4.0` + `dsh-prime-memory@0.26.24`）：
+  - **慢启动零触碰收敛（本轮核心主张）**：lab 预置与 0.4.69 相同的实验配置（apigoto 组 memory/vision pin + effort、孪生默认供应商、DVR 种子链），并预先禁用 `optional-session-title-all-prompts` 保持组合干净。启动后**不做任何设置变更**等待慢启动完成：`status.primeMemory = {installed:true, route apigoto/mimo-v2.6-flash, replays:0}`、`status.visionRouter = {installed:true, replays:0}`——0.4.69 同场景记忆适配行需要手动触发一次设置变更（replays 1-2）才收敛，扩展预算（16 次/约 2.5–3 分钟）覆盖了 DVR 网络探测拖慢的组合窗口。记忆 live 读回 effort=high（全局 + l1 逐层）；DVR 行 providers 首行写入 `apigoto/mimo-v2.6-flash`、种子链保留（0.4.70 回归无退化）。
+  - **组合冲突与告警**：热重载移除 optional 行禁用后，组合回到冲突态（settings-set 再次以 "1 entry did not activate" 回滚——复证 0.4.69 的观察）。该宿主的插件 warn 不落 stdout/文件日志（仅 DVR 自带文件日志可见），告警的发出改由单元测试直接断言：`tests/session-title.spec.ts` 新增聚焦用例（启用官方行的 bench 装置 → apply 后 warns 含 "official naming row is enabled" 与 "optional-session-title-all-prompts"），既有两例精确断言同步滤除这条一次性启动诊断。50/50 通过。
+  - 证据：`D:\dsh-artifacts\lab-0470-final-patch.yml`（终态补丁快照，含 DVR 首行写入与 effort 推送持久化）、`lab-0470-host.log`、`probe-0470.jsonl`（零模型调用，全部为配置面验证）。宿主与探针已停止，3082/4731 已释放，lab 恢复为 npm 0.4.62（DVR 卸载、补丁还原）。
+
 ## v0.4.69
 
 四项用户请求的能力一次落地（2026-11-20）：**识图路由适配 dsh-vision-router**、**孪生供应商配置组合并**、**记忆蒸馏思考强度**、**纯读免审查白名单校准**。

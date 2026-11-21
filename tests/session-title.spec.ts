@@ -1,8 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
+
+describe('NAMING_CONFLICT_GUIDANCE', () => {
+  it('names both profile-side fixes for the layer-order conflict', () => {
+    expect(NAMING_CONFLICT_GUIDANCE).toContain('move the session-titles bundle before dsh-model-switch')
+    expect(NAMING_CONFLICT_GUIDANCE).toContain('optional-session-title-all-prompts')
+    expect(NAMING_CONFLICT_GUIDANCE).toContain('disabled: true')
+  })
+})
 import type { Entry, Loader } from '@deepseek-ai/cordis-plugin-loader'
 import type { SessionTitleProviderRequest } from '@deepseek-ai/dsh-session-title'
 import {
+  NAMING_CONFLICT_GUIDANCE,
   TITLE_CADENCES,
   apply,
   composeTitleRoute,
@@ -598,6 +607,17 @@ describe('naming route fallback', () => {
     },
   }
 
+  it('warns with the layer-order guidance when an official row stays enabled', async () => {
+    // The bench's default fixture keeps the official row enabled — the state a
+    // profile reaches when the session-titles bundle composes after this
+    // plugin's bundle layer, so the id-disable cannot reach the inserted row.
+    const { ctx, warns } = bench()
+    await apply(ctx)
+    await settle()
+    expect(warns.some(line => line.includes('official naming row is enabled'))).toBe(true)
+    expect(warns.some(line => line.includes('optional-session-title-all-prompts'))).toBe(true)
+  })
+
   it('falls through to the deployment pair when the group pair fails', async () => {
     const { ctx, registrations } = bench(grouped)
     await apply(ctx)
@@ -642,8 +662,11 @@ describe('naming route fallback', () => {
     await expect(registrations[0]!.generate(titleRequest(sessionOf('ark'), [message(1, 'only')])))
       .rejects.toThrow('boom')
     expect(warns.some(line => line.includes('failed on every candidate'))).toBe(true)
-    expect(warns[0]).toContain('ark/ark-code')
-    expect(warns[0]).toContain('apigoto/mimo')
+    // The bench's default fixture keeps the official row enabled, so the
+    // one-shot layer-order guidance lands first; assert on the failure line.
+    const failure = warns.find(line => line.includes('failed on every candidate'))
+    expect(failure).toContain('ark/ark-code')
+    expect(failure).toContain('apigoto/mimo')
   })
 
   it('keeps a cancelled request silent instead of falling through', async () => {
@@ -659,7 +682,9 @@ describe('naming route fallback', () => {
       messages: [message(1, 'only')],
       signal: controller.signal,
     } as unknown as SessionTitleProviderRequest)).rejects.toThrow('aborted')
-    expect(warns).toEqual([])
+    // The request path stays silent; the one-shot layer-order guidance from the
+    // enabled official row in this fixture is a boot diagnostic, not a request warn.
+    expect(warns.filter(line => !line.includes('official naming row'))).toEqual([])
     expect(llm.calls).toHaveLength(1)
   })
 })

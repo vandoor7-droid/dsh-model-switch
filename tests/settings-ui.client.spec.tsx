@@ -65,6 +65,7 @@ function face(options?: {
   saveCapability?: ReturnType<typeof vi.fn>
   saveProviderGroup?: ReturnType<typeof vi.fn>
   providerGroups?: ProviderGroupsStorage
+  scanTools?: () => Promise<{ rows: readonly { name: string; description: string; sourceLabel: string; recommended: boolean }[]; status?: Record<string, unknown> }>
 }) {
   const subagent = options?.subagent ?? { mode: 'fixed', provider: 'codex', model: 'gpt-subagent' }
   // Render-stable hook snapshot: a fresh object per render would reset drafts forever.
@@ -105,6 +106,7 @@ function face(options?: {
     saveCapability: options?.saveCapability ?? vi.fn(),
     saveMemory: vi.fn(async () => undefined),
     saveProviderGroup: options?.saveProviderGroup ?? vi.fn(async () => undefined),
+    ...(options?.scanTools === undefined ? {} : { scanTools: options.scanTools }),
   } as never
 }
 
@@ -193,6 +195,22 @@ describe('Model Switch settings menu', () => {
     expect(markup).toContain('>visionHelp<')
     expect(zh.visionHelp).toContain('dsh-vision-router')
     expect(en.visionHelp).toContain('dsh-vision-router')
+  })
+
+  it('shows the memory adapter status line after a tool scan', async () => {
+    const { renderer } = mountSettings({ scanTools: async () => ({ rows: [], status: { held: false, allowedCalls: 0, skippedReadOnly: 0, primeMemory: { installed: false, routeSkipped: 'live-unavailable' } } }) })
+    const allowlistHeader = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('reviewAllowlist'))
+    act(() => { allowlistHeader?.props.onClick() })
+    const scan = renderer.root.findAllByType('button').find(button => instanceText(button) === 'reviewAllowlistScan')
+    await act(async () => {
+      scan?.props.onClick()
+      await new Promise(resolve => setTimeout(resolve, 0))
+    })
+    // The scan result survives the card switch; the memory card names the state.
+    const memoryHeader = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('memoryFollow'))
+    act(() => { memoryHeader?.props.onClick() })
+    const json = JSON.stringify(renderer.toJSON())
+    expect(json).toContain('memoryLinkedUnavailable')
   })
 
   it('offers a reasoning-effort field on the memory card', () => {

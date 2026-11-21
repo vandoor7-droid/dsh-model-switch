@@ -51,6 +51,12 @@ export declare const zh: {
     readonly memoryRouteHelp: "按部署默认供应商的配置组解析；该供应商没有组时使用这里填写的平面默认。优先写该行的 live 设置（立即生效），不可用时写静态路由（llm.provider/llm.model），启动时生效。";
     readonly memoryEffort: "思考强度";
     readonly effortAuto: "自动（跟随模型）";
+    readonly memoryLinked: "已接管蒸馏路由：{route}。";
+    readonly memoryLinkedUnavailable: "记忆插件 live 接口尚未就绪（慢启动；重试预算已加长，改动任意设置可立即触发推送）。";
+    readonly memoryLinkedRejected: "蒸馏路由写入被拒绝，详见宿主日志。";
+    readonly memoryLinkedUserSet: "检测到记忆插件内自行配置的蒸馏路由，本插件让位。";
+    readonly memoryLinkedMissing: "未检测到 dsh-prime-memory 插件。";
+    readonly memoryLinkedUnset: "蒸馏路由未配置，记忆插件使用自身默认。";
     readonly vision: "识图模型";
     readonly visionFollow: "跟随 Vision Router 默认";
     readonly visionHelp: "为 dsh-vision-router 的识图后端链指定首选路由；两个字段都留空时该插件使用自己的后端链。配置后作为链首行写入（其余行保留为降级后备），经官方 ConfigEditor 热生效、无需重启。应选择支持图片输入的模型。";

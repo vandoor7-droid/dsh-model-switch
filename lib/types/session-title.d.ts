@@ -288,6 +288,18 @@ export declare const TAKEOVER_MAX_ATTEMPTS = 20;
  */
 export declare function isOfficialTitleRow(entry: Entry | undefined): boolean;
 /**
+ * The one-shot guidance for the layer-order naming conflict.
+ *
+ * An id-disable in this plugin's bundle patch cannot reach a row the
+ * session-titles bundle inserts in a LATER layer, so the profile's bundle
+ * order decides whether the official naming row arrives disabled. The runtime
+ * takeover still displaces it, but that order leaves the composition one
+ * "did not activate" warning away from blocking unrelated profile-persisting
+ * writes (observed in the lab: prime-memory settings-set rolling back on the
+ * composition warning). Names the two durable profile-side fixes.
+ */
+export declare const NAMING_CONFLICT_GUIDANCE = "an official naming row is enabled in the composed tree (the session-titles bundle composes after dsh-model-switch, so this plugin id-disable cannot reach it). The takeover displaces it at runtime; to also keep the composition clean, either move the session-titles bundle before dsh-model-switch in the profile bundles list, or add a profile-patch row with id optional-session-title-all-prompts and disabled: true";
+/**
  * Mount the Model Switch session-naming row for this profile.
  *
  * A profile with no official naming row, an unrecognized row package, a missing

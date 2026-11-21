@@ -699,6 +699,20 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     void run('providerGroups', () => props.saveProviderGroup(groupProvider, undefined))
   }
   /**
+   * The memory adapter status line, from the same scan as the vision one: the
+   * slow-boot case (live seam unreachable) is now visible without log diving.
+   */
+  const memoryStatusRow = reviewStatus?.primeMemory
+  const memoryAdapterStatus = (): string => {
+    if (memoryStatusRow === undefined) return ''
+    if (memoryStatusRow.installed && memoryStatusRow.route !== undefined) return props.t('memoryLinked').replace('{route}', memoryStatusRow.route)
+    if (memoryStatusRow.routeSkipped === 'live-unavailable') return props.t('memoryLinkedUnavailable')
+    if (memoryStatusRow.routeSkipped === 'live-rejected' || memoryStatusRow.routeSkipped === 'no-seam' || memoryStatusRow.routeSkipped === 'no-service') return props.t('memoryLinkedRejected')
+    if (memoryStatusRow.routeSkipped === 'user-set') return props.t('memoryLinkedUserSet')
+    if (memoryStatusRow.routeSkipped === 'no-row') return props.t('memoryLinkedMissing')
+    return props.t('memoryLinkedUnset')
+  }
+  /**
    * The vision adapter status line: what the host-side compat row last did.
    * Rendered only when a tool scan has delivered the live adapter state.
    */
@@ -768,7 +782,9 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
       </RouteCard>
 
       {MEMORY_CAPABILITY_UI ? <RouteCard title={props.t('memory')} summary={memoryDraft === undefined ? props.t('loading') : routePairConfigured(memoryDraft) ? routeName(groups, memoryDraft) : props.t('memoryFollow')} hint={props.t('memoryHelp')} note={groupNote(props.t, groupPins.memory)} icon="memory" open={open === 'memory'} onToggle={() => { toggle('memory') }}>
-        {memoryDraft === undefined ? <p className={css.hint}>{props.t('loading')}</p> : <><p className={css.hint}>{props.t('memoryRouteHelp')}</p><div className={css.formGrid}>
+        {memoryDraft === undefined ? <p className={css.hint}>{props.t('loading')}</p> : <><p className={css.hint}>{props.t('memoryRouteHelp')}</p>
+          {reviewStatus?.primeMemory === undefined ? null : <p className={css.hint}>{memoryAdapterStatus()}</p>}
+          <div className={css.formGrid}>
           <Field label={props.t('provider')} value={memoryDraft.provider ?? ''} disabled={busy !== undefined || !memory.writable} choices={memoryChoices.providers} onChange={provider => { const first = groups.find(group => group.id === provider)?.models[0]; setMemoryDraft({ provider, ...(first === undefined ? {} : { model: first.id }) }) }} />
           <Field label={props.t('model')} value={memoryDraft.model ?? ''} disabled={busy !== undefined || !memory.writable} choices={memoryChoices.models} onChange={model => { setMemoryDraft({ ...memoryDraft, model }) }} />
           <Field label={props.t('memoryEffort')} value={memoryDraft.reasoningEffort ?? ''} disabled={busy !== undefined || !memory.writable} choices={memoryEfforts} emptyLabel={props.t('effortAuto')} onChange={effort => { setMemoryDraft({ ...memoryDraft, reasoningEffort: effort }) }} />

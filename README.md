@@ -126,6 +126,13 @@ DSH 会自动为新会话起名；命名的触发节奏由 profile 的官方命�
 0.4.30 起 Auto 审查行还能在许可服务降级时保住工具调用：DSH 的 Auto gate 在每次工具调用前读取 `permissionPresets.current(session)`，一旦该服务失活，这次读取会在 gate 自己的审查错误包装之外抛出 `cannot get required service "sessionProjections" in inactive context`，导致每个工具调用都在执行前失败。本行在审查作用域内遮蔽该服务：探测失败即按「不在 Auto」处理，工具调用照常执行，并只记一行日志说明审查被跳过。0.4.31 起该遮蔽**常开**且按调用惰性解析服务（服务尚未激活时也受保护），并把失败的解析链（每级 fiber 的 `uid/state/name/inject`）记进唯一那行降级日志——因为上游成因是 loader 生命周期窗口：`internal/get` 会沿调用方 fiber 链整链查找，而有 24 个已发布行在 `inject` 里声明了 `sessionProjections`，其中任何一行处于重载中都可能打断无防护的探测（连同上游建议一并记录在 `docs/seam-gap.md`）。Auto 注册本身改为**托管**：位移时同步交出、事后收回而不卸载 gate（卸载会把在用 `auto` 的会话翻成 `danger-full-access`）；配置重载后重新挂载的 gate 会先卸载上一个注册，因此 `auto` 预设不会再从许可选择器里消失。
 
 
+**故障排查：命名行「did not activate」。** 当 profile 的 bundles 里 session-titles bundle 排在 dsh-model-switch **之后**时，本插件补丁对 `optional-session-title-all-prompts` 的禁用无法命中后置层新插入的行（Include 语义限制），官方命名行会与本插件的接管行争夺唯一的命名槽位——日志出现「already registered / 1 entry did not activate」，并可能连带阻断 prime-memory 等插件的 settings-set 持久化写入。0.4.70 起启动日志会给出同样指引。两种修法：把 session-titles bundle 移到 dsh-model-switch 之前；或在 profile 的 cordis.patch.yml 显式加一行禁用：
+
+```yaml
+- id: optional-session-title-all-prompts
+  disabled: true
+```
+
 ## 记忆蒸馏与识图模型（Memory distillation & Vision Router）
 
 「记忆蒸馏模型」卡片为第三方 `dsh-prime-memory` 指定蒸馏路由，并可附带**思考强度**（留空 = 该插件按模型能力自动解析）。保存后立即写入该插件自己的 live 设置（逐层链与全局字段同时携带强度），无需重启；仅当反复写不进去时才回落静态路由（下次启动生效）。路由按部署默认供应商的配置组解析，无组时用平铺对。

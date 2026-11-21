@@ -1,6 +1,6 @@
 {
   "name": "dsh-model-switch",
-  "version": "0.4.69",
+  "version": "0.4.70",
   "description": "Explicit model routing plus composer/Plan picker for DeepSeek Harness",
   "repository": {
     "type": "git",
@@ -91,6 +91,7 @@
     "bundle": "tsdown",
     "build": "tsc -p tsconfig.json && tsdown",
     "prepublishOnly": "pnpm run build",
+    "prepack": "pnpm run build",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pack:check": "node scripts/check-rc1-pack.mjs",
