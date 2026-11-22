@@ -72,7 +72,8 @@ export declare const SOURCE_BY_ID: ReadonlyMap<string, SourceCatalogEntry>;
  * Beyond that rule sit the entries the user explicitly released (2026-10-24:
  * goal/schedule/terminal creation; 2026-11-20: the vision model calls, the
  * mineru document_parse task, todo/goal updates, and the prime-memory write
- * tools). These do have side effects — vision calls spend the configured
+ * tools; 2026-11-22: the media-lens file reads and the video storyboard
+ * search/decode tools). These do have side effects — vision calls spend the configured
  * backend's quota and send image content to it, document_parse spawns a parse
  * task, the memory tools mutate the memory store — but everything they enable
  * stays inside the same session and auto preset. Releasing them only skips the
@@ -81,7 +82,11 @@ export declare const SOURCE_BY_ID: ReadonlyMap<string, SourceCatalogEntry>;
  * from the parent's in-flight bypass answer, so releasing them would strip the
  * child of the auto preset entirely (see DELEGATION_SPAWNS in the tests).
  * schedule_edit was reviewed on 2026-11-20 and deliberately kept OUT: it can
- * modify or delete tasks other sessions created.
+ * modify or delete tasks other sessions created. bilibili_login (writes the
+ * stored sign-in session), bilibili_transcribe (its first run builds a private
+ * virtualenv, downloads a whisper model and the audio) and meme_add (writes
+ * the meme library) were reviewed on 2026-11-22 and stay OUT for the same
+ * reason.
  */
 export declare const DEFAULT_READ_ONLY_TOOLS: readonly string[];
 /** Why one allowlist entry was refused. */

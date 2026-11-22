@@ -1,3 +1,16 @@
+## v0.4.72
+
+纯读免审查默认白名单第三次校准（126 → 147 条，按 2026-11-22 桌面 live 工具带 + 用户当日确认放行）。
+
+- **背景**：0.4.69 校准后桌面又激活了六个新工具来源（dsh-bilibili-summary 0.1.3、dsh-media-lens 0.3.5、dsh-video-storyboard 0.7.6、dsh-video-studio、dsh-meme-radar、dsh-windows-mcp 0.2.11），live 会话工具带实测出现 21 个未覆盖新工具；另有两个新核心读工具（`user_terminal_list` / `user_terminal_read`）未入 `CORE_TOOLS` 标注。
+- **纯读/呈现新增 13**：core `user_terminal_list`、`user_terminal_read`（列出/读取用户侧栏终端，不运行任何命令）；dsh-windows-mcp `windows_mcp_doctor`（安装勘察 + UIA 只读探针）；dsh-meme-radar `meme_query`、`hotlist_scan`（梗库查询与热榜抓取）；dsh-bilibili-summary `bilibili_video_info`、`bilibili_series`、`bilibili_subtitles`（元数据/合集枚举/字幕轨拉取）；dsh-video-storyboard `video_help`、`video_probe`、`video_storyboard_settings`（手册/容器元数据/设置页 URL，零图像 token）；dsh-video-studio `studio_status`、`studio_open`（工单状态与看板 URL，present 类）。
+- **用户放行新增 8（2026-11-22 确认，沿 2026-11-20 vision 先例）**：dsh-media-lens `media_read_image/audio/pdf/video`（本地文件送配置的识图/omni 模型，额度 + 内容出网）；dsh-video-storyboard `video_locate`、`video_storyboard`、`video_subtitles`、`video_zoom`（视频帧/字幕条送视觉模型 + ASR）。放行仅免审、不扩权。
+- **明确排除（测试断言锁定）**：`bilibili_login`（写存储登录态）、`bilibili_transcribe`（首次运行建私有 venv、下载 whisper 模型与音频）、`meme_add`（写梗库）；`schedule_edit` 与委派三件套维持排除不变。
+- **来源目录**：`SOURCE_CATALOG` 新增 6 源——dsh-bilibili-summary（github.com/Adamaik/dsh-zcode-plugins，monorepo 的 packages/bilibili-summary）、dsh-media-lens（github.com/drscrewdriver/dsh-media-lens）、dsh-video-storyboard（github.com/SAOS-3624/dsh-video-storyboard）、dsh-video-studio（github.com/vandoor7-droid/dsh-video-studio）、dsh-meme-radar（github.com/vandoor7-droid/dsh-meme-radar）、dsh-windows-mcp（github.com/helloHub1212/dsh-windows-mcp）；前缀规则新增 `bilibili_` / `media_read_` / `video_` / `studio_` / `meme_`（与 `memory_` 无前缀冲突），单名表新增 `hotlist_scan` / `windows_mcp_doctor`；`CORE_TOOLS` 补 `user_terminal_list` / `user_terminal_read`。不删除任何既有条目（bcdp_*/univer_*/mineru 等在本部署未激活但其他配置可达，保留无害）。
+- **桌面存量提醒**：profile `cordis.patch.yml` 里 2026-11-01 写入的 84 条已保存 `autoReviewAllowlist` 会遮蔽默认值（0.4.69 的 126 条因此未在桌面生效过）；升级本版后需把保存表同步为 147 条才实际生效（skipReadOnly 每次调用现读设置，patch 变更热生效）。
+- **测试**：`tests/tool-allowlist.spec.ts` 数量断言 126 → 147；MUTATING 列表 +3（bilibili_login / bilibili_transcribe / meme_add）；新增 2026-11-22 放行 8 条与纯读 13 条的覆盖断言、6 个新来源的 repo 解析断言、user_terminal_* 的 core 解析断言。
+- **验证**：`pnpm run check` 全绿；`skippedReadOnly` 计数仅 auto preset 会话增长（验证会话非 auto），沿 2026-11-01 先例以配置级 + 单测为验收口径。
+
 ## v0.4.71
 
 修复设置页供应商下拉中 DVR 孪生路由仍与基座成对出现的问题（桌面 0.4.70 实测截图报告）。

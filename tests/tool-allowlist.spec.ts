@@ -15,7 +15,10 @@ import { decodeReviewStatus, decodeToolCatalog } from '../src/client-contract.ts
  * The prime-memory write tools and todo/update_goal were released by explicit
  * user decision (2026-11-20) and are asserted as covered below instead.
  * schedule_edit was reviewed the same day and deliberately kept out: it can
- * modify or delete tasks other sessions created.
+ * modify or delete tasks other sessions created. bilibili_login (writes the
+ * stored sign-in), bilibili_transcribe (its first run installs a venv, a
+ * whisper model and the audio) and meme_add (writes the meme library) were
+ * reviewed on 2026-11-22 and stay out for the same reason.
  */
 const MUTATING = [
   'write', 'edit', 'pwsh', 'run_code', 'ops_bash', 'create_skill',
@@ -30,6 +33,7 @@ const MUTATING = [
   'univer_new', 'univer_unit', 'univer_execute', 'univer_import', 'univer_export',
   'univer_print_pdf', 'univer_screenshot', 'univer_compile_svg', 'univer_worktree', 'univer_resources',
   'vision_screenshot',
+  'bilibili_login', 'bilibili_transcribe', 'meme_add',
   'qq_send__YiXuan', 'session_send__YiXuan',
 ]
 
@@ -47,8 +51,8 @@ const DELEGATION_SPAWNS = ['subagent', 'subagent_fork', 'spawn_teammate']
 
 describe('DEFAULT_READ_ONLY_TOOLS', () => {
   it('ships the calibrated catalog', () => {
-    expect(DEFAULT_READ_ONLY_TOOLS).toHaveLength(126)
-    expect(new Set(DEFAULT_READ_ONLY_TOOLS).size).toBe(126)
+    expect(DEFAULT_READ_ONLY_TOOLS).toHaveLength(147)
+    expect(new Set(DEFAULT_READ_ONLY_TOOLS).size).toBe(147)
   })
 
   it('never covers a mutating tool', () => {
@@ -78,6 +82,10 @@ describe('DEFAULT_READ_ONLY_TOOLS', () => {
       'memory_skill_pin', 'memory_slot_close', 'memory_slot_write',
       'memory_add', 'memory_update', 'memory_delete', 'memory_import',
       'memory_migrate_relation', 'memory_reproject', 'memory_ruminate_cancel',
+      // Released 2026-11-22: the media-lens model reads and the video
+      // storyboard search/decode tools.
+      'media_read_image', 'media_read_audio', 'media_read_pdf', 'media_read_video',
+      'video_locate', 'video_storyboard', 'video_subtitles', 'video_zoom',
     ]) {
       expect(isAllowedByList(tool, DEFAULT_READ_ONLY_TOOLS), tool).toBe(true)
     }
@@ -95,6 +103,12 @@ describe('DEFAULT_READ_ONLY_TOOLS', () => {
       'vision_html_screenshot', 'vision_present', 'univer_status', 'univer_inspect',
       'univer_lint', 'univer_api', 'mcp__mineru-mcp__get_task_progress',
       'mcp__mineru-mcp__get_recent_logs', 'mcp__mineru-mcp__wait_for_task',
+      // Added 2026-11-22 for the plugins installed after the 0.4.69
+      // recalibration, plus the two new core terminal reads.
+      'user_terminal_list', 'user_terminal_read', 'windows_mcp_doctor',
+      'meme_query', 'hotlist_scan', 'bilibili_video_info', 'bilibili_series',
+      'bilibili_subtitles', 'video_help', 'video_probe',
+      'video_storyboard_settings', 'studio_status', 'studio_open',
     ]) {
       expect(isAllowedByList(tool, DEFAULT_READ_ONLY_TOOLS), tool).toBe(true)
     }
@@ -174,6 +188,15 @@ describe('resolveToolSource', () => {
     expect(resolveToolSource('univer_status').repo).toBe('https://github.com/dream-num/dsh-univer-office')
     expect(resolveToolSource('mcp__mineru-mcp__get_task_progress').repo).toBe('https://gitee.com/vandoor2/mineru-mcp')
     expect(resolveToolSource('mcp__mineru-mcp__get_task_progress').owner).toBe('mineru-mcp')
+    // Added 2026-11-22: bilibili-summary lives in a monorepo; the studio and
+    // meme plugins are this deployment's own repositories.
+    expect(resolveToolSource('bilibili_video_info').repo).toBe('https://github.com/Adamaik/dsh-zcode-plugins')
+    expect(resolveToolSource('media_read_image').repo).toBe('https://github.com/drscrewdriver/dsh-media-lens')
+    expect(resolveToolSource('video_help').repo).toBe('https://github.com/SAOS-3624/dsh-video-storyboard')
+    expect(resolveToolSource('studio_open').repo).toBe('https://github.com/vandoor7-droid/dsh-video-studio')
+    expect(resolveToolSource('meme_query').repo).toBe('https://github.com/vandoor7-droid/dsh-meme-radar')
+    expect(resolveToolSource('hotlist_scan').repo).toBe('https://github.com/vandoor7-droid/dsh-meme-radar')
+    expect(resolveToolSource('windows_mcp_doctor').repo).toBe('https://github.com/helloHub1212/dsh-windows-mcp')
   })
 
   it('splits the memory_ prefix between the two memory plugins', () => {
@@ -182,6 +205,8 @@ describe('resolveToolSource', () => {
     expect(resolveToolSource('memory_write').repo).toBe('https://github.com/AskTheWay/dsh-auto-memory')
     expect(resolveToolSource('browser_embedded_snapshot').repo).toBe('https://github.com/imroc/dsh-embedded-browser')
     expect(resolveToolSource('conversation_search').kind).toBe('core')
+    expect(resolveToolSource('user_terminal_list').kind).toBe('core')
+    expect(resolveToolSource('user_terminal_read').kind).toBe('core')
   })
 
   it('falls back to the Host catalog, then to unknown', () => {

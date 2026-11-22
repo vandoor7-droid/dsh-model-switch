@@ -109,6 +109,42 @@ export const SOURCE_CATALOG: readonly SourceCatalogEntry[] = [
     repo: 'https://github.com/imroc/dsh-embedded-browser',
   },
   {
+    id: 'dsh-bilibili-summary',
+    kind: 'plugin',
+    label: '插件 · dsh-bilibili-summary',
+    repo: 'https://github.com/Adamaik/dsh-zcode-plugins',
+  },
+  {
+    id: 'dsh-media-lens',
+    kind: 'plugin',
+    label: '插件 · dsh-media-lens',
+    repo: 'https://github.com/drscrewdriver/dsh-media-lens',
+  },
+  {
+    id: 'dsh-video-storyboard',
+    kind: 'plugin',
+    label: '插件 · dsh-video-storyboard',
+    repo: 'https://github.com/SAOS-3624/dsh-video-storyboard',
+  },
+  {
+    id: 'dsh-video-studio',
+    kind: 'plugin',
+    label: '插件 · dsh-video-studio',
+    repo: 'https://github.com/vandoor7-droid/dsh-video-studio',
+  },
+  {
+    id: 'dsh-meme-radar',
+    kind: 'plugin',
+    label: '插件 · dsh-meme-radar',
+    repo: 'https://github.com/vandoor7-droid/dsh-meme-radar',
+  },
+  {
+    id: 'dsh-windows-mcp',
+    kind: 'plugin',
+    label: '插件 · dsh-windows-mcp',
+    repo: 'https://github.com/helloHub1212/dsh-windows-mcp',
+  },
+  {
     id: 'mcp:wincu',
     kind: 'mcp',
     label: 'MCP · wincu（dsh-computer-use-win）',
@@ -150,7 +186,8 @@ const CORE_TOOLS: ReadonlySet<string> = new Set([
   'sidebar_open', 'skill', 'spawn_teammate', 'subagent', 'subagent_fork',
   'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update',
   'terminal_close', 'terminal_list', 'terminal_open', 'terminal_read',
-  'terminal_send', 'terminal_signal', 'todo_write', 'update_goal', 'wait_agent',
+  'terminal_send', 'terminal_signal', 'todo_write', 'update_goal',
+  'user_terminal_list', 'user_terminal_read', 'wait_agent',
   'web_fetch', 'web_search', 'web_search_pro', 'workflow', 'working_directory',
   'write',
 ])
@@ -166,6 +203,11 @@ const PLUGIN_PREFIXES: readonly (readonly [string, string])[] = [
   ['ops_', 'dsh-ops'],
   ['vision_', 'dsh-vision-router'],
   ['univer_', 'dsh-univer-office'],
+  ['bilibili_', 'dsh-bilibili-summary'],
+  ['media_read_', 'dsh-media-lens'],
+  ['video_', 'dsh-video-storyboard'],
+  ['studio_', 'dsh-video-studio'],
+  ['meme_', 'dsh-meme-radar'],
 ]
 
 /**
@@ -210,6 +252,10 @@ const PLUGIN_TOOLS: ReadonlyMap<string, string> = new Map([
   ['memory_prune', 'dsh-auto-memory'],
   ['memory_read', 'dsh-auto-memory'],
   ['memory_write', 'dsh-auto-memory'],
+  // dsh-meme-radar: the hotlist scan is the one tool without the meme_ prefix.
+  ['hotlist_scan', 'dsh-meme-radar'],
+  // dsh-windows-mcp: the doctor probe is the plugin's only model tool.
+  ['windows_mcp_doctor', 'dsh-windows-mcp'],
 ])
 
 /** `<base>__<owner>` — the extension-tool naming the QQ bot framework uses. */
@@ -235,7 +281,8 @@ const EXTENSION_TOOL = /^([A-Za-z0-9_-]+)__(.+)$/
  * Beyond that rule sit the entries the user explicitly released (2026-10-24:
  * goal/schedule/terminal creation; 2026-11-20: the vision model calls, the
  * mineru document_parse task, todo/goal updates, and the prime-memory write
- * tools). These do have side effects — vision calls spend the configured
+ * tools; 2026-11-22: the media-lens file reads and the video storyboard
+ * search/decode tools). These do have side effects — vision calls spend the configured
  * backend's quota and send image content to it, document_parse spawns a parse
  * task, the memory tools mutate the memory store — but everything they enable
  * stays inside the same session and auto preset. Releasing them only skips the
@@ -244,7 +291,11 @@ const EXTENSION_TOOL = /^([A-Za-z0-9_-]+)__(.+)$/
  * from the parent's in-flight bypass answer, so releasing them would strip the
  * child of the auto preset entirely (see DELEGATION_SPAWNS in the tests).
  * schedule_edit was reviewed on 2026-11-20 and deliberately kept OUT: it can
- * modify or delete tasks other sessions created.
+ * modify or delete tasks other sessions created. bilibili_login (writes the
+ * stored sign-in session), bilibili_transcribe (its first run builds a private
+ * virtualenv, downloads a whisper model and the audio) and meme_add (writes
+ * the meme library) were reviewed on 2026-11-22 and stay OUT for the same
+ * reason.
  */
 export const DEFAULT_READ_ONLY_TOOLS: readonly string[] = [
   // DSH core — filesystem and session reads.
@@ -325,6 +376,25 @@ export const DEFAULT_READ_ONLY_TOOLS: readonly string[] = [
   // MCP mineru-mcp — parse-task progress, logs, and bounded waiting.
   'mcp__mineru-mcp__get_task_progress', 'mcp__mineru-mcp__get_recent_logs',
   'mcp__mineru-mcp__wait_for_task',
+  // DSH core — reading the terminals the human controls in the side panel;
+  // listing them and reading their screens runs nothing.
+  'user_terminal_list', 'user_terminal_read',
+  // dsh-windows-mcp — the doctor probe inspects the bridge install and takes
+  // a live UIA snapshot; it changes nothing.
+  'windows_mcp_doctor',
+  // dsh-meme-radar — library queries and hotlist fetches (meme_add stays
+  // reviewed: it writes the meme library).
+  'meme_query', 'hotlist_scan',
+  // dsh-bilibili-summary — video metadata, series listings and subtitle
+  // tracks (bilibili_login writes the stored sign-in and bilibili_transcribe
+  // builds a venv, downloads a whisper model and the audio, so both stay
+  // reviewed).
+  'bilibili_video_info', 'bilibili_series', 'bilibili_subtitles',
+  // dsh-video-storyboard — the free manual, container metadata and the
+  // settings-page URL; none of them decodes a frame or spends image tokens.
+  'video_help', 'video_probe', 'video_storyboard_settings',
+  // dsh-video-studio — order status and the dashboard URL (present class).
+  'studio_status', 'studio_open',
   // Released by explicit user decision (2026-11-20): these spend quota or
   // mutate plugin state, but everything they enable stays inside the same
   // session and auto preset (see the module doc above).
@@ -339,6 +409,14 @@ export const DEFAULT_READ_ONLY_TOOLS: readonly string[] = [
   // matched by name, inert on deployments that no longer expose them.
   'memory_add', 'memory_update', 'memory_delete', 'memory_import',
   'memory_migrate_relation', 'memory_reproject', 'memory_ruminate_cancel',
+  // Released by explicit user decision (2026-11-22): the media-lens reads
+  // send a local file to the configured omni/vision model, and the storyboard
+  // search/decode tools spend image tokens and ASR on the configured backends
+  // — the same class as the vision calls released on 2026-11-20. Releasing
+  // them only skips the reviewer; it grants no permission the preset did not
+  // already grant.
+  'media_read_image', 'media_read_audio', 'media_read_pdf', 'media_read_video',
+  'video_locate', 'video_storyboard', 'video_subtitles', 'video_zoom',
   // QQ bot extension — the suffix is the bot's own name, hence the pattern.
   'sessions_list__*', 'bing_search__*',
 ]
