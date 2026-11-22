@@ -1,3 +1,12 @@
+## v0.4.71
+
+修复设置页供应商下拉中 DVR 孪生路由仍与基座成对出现的问题（桌面 0.4.70 实测截图报告）。
+
+- **根因**：0.4.69 的孪生去重只加在分组编辑器**顶层**的供应商下拉（`groupProviderChoices`），而设置页其余全部供应商下拉——识图/记忆/压缩/命名/审查各能力卡的提供商下拉，以及**分组编辑器内每一行**（压缩/审查/命名/记忆/识图/子代理）的提供商下拉——都直接走共享构建器 `deriveRouteChoices`，原样列出目录中的 DVR 孪生（显示名「某某 + 自动识图」，id `<base>-vision`）。
+- **修复（`src/client/main-row-controller.ts`）**：去重下沉到 `deriveRouteChoices`——构建列表后隐藏「id 以 `-vision` 结尾、基座 id 也在列表中、且不是当前选中值」的条目，一次覆盖所有下拉。三条保护：孤儿孪生（基座不在列表）仍显示，存量配置可达；当前选中值永不隐藏，已存孪生 id 的路由保持可见可改；models 列表与 unavailable 回退不变。`groupProviderChoices` 的列表级过滤随之移除（已继承），保留「存储孪生键且基座也已配置则跳过」的兜底。
+- **测试**：`tests/client-controller.spec.ts` 新增 `deriveRouteChoices` 孪生去重组（基座在列表时隐藏 / 孤儿与当前选中保留 / 存量孪生路由的 models 不丢）；既有 `groupProviderChoices` 三例回归不变。注：`settings-ui` 规格对 `main-row-controller` 有 vi.mock，下拉内容以 client-controller 单测为准。
+- **验证**：`pnpm run check` 全绿。本改动为客户端纯函数投影，不触运行面；0.4.70 的 lab 矩阵（适配行行为）不受影响。桌面升级 0.4.71 后，设置页全部供应商下拉不再出现「+ 自动识图」孪生条目。
+
 ## v0.4.70
 
 0.4.69 lab 实测两条遗留观察的插件侧改进（维护版）：

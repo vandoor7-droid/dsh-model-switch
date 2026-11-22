@@ -19,6 +19,30 @@ describe('groupProviderChoices vision-twin dedupe', () => {
   })
 })
 
+describe('deriveRouteChoices vision-twin dedupe', () => {
+  const withTwins = [
+    { id: 'yijia925', name: 'yijia925', models: [{ id: 'glm-5.3-flash', name: 'glm-5.3-flash' }] },
+    { id: 'yijia925-vision', name: 'yijia925 + auto vision', models: [] },
+    { id: 'apigoto', name: 'apigoto', models: [] },
+  ]
+  it('hides a twin whose base provider is listed', () => {
+    expect(deriveRouteChoices(withTwins, undefined).providers.map(choice => choice.id)).toEqual(['yijia925', 'apigoto'])
+  })
+  it('keeps an orphan twin and the currently selected twin', () => {
+    const orphan = [{ id: 'orphan-vision', name: 'Orphan', models: [] }]
+    expect(deriveRouteChoices(orphan, undefined).providers.map(choice => choice.id)).toEqual(['orphan-vision'])
+    // A route stored with a twin id stays visible at its catalog position
+    // instead of rendering blank.
+    const ids = deriveRouteChoices(withTwins, { provider: 'yijia925-vision', model: 'glm-5.3-flash' }).providers.map(choice => choice.id)
+    expect(ids).toContain('yijia925-vision')
+    expect(ids).toContain('yijia925')
+  })
+  it('still lists the twin models for a stored twin route and drops no models', () => {
+    const choices = deriveRouteChoices(withTwins, { provider: 'yijia925-vision', model: 'glm-5.3-flash' })
+    expect(choices.models.map(model => model.id)).toEqual(['glm-5.3-flash'])
+  })
+})
+
 describe('Model Switch Settings route helpers', () => {
   const groups = [{ id: 'codex', name: 'Codex', models: [
     { id: 'gpt-a', name: 'GPT A', reasoning: { efforts: [{ id: 'low', name: 'Low' }], defaultEffort: 'low' } },

@@ -14,8 +14,20 @@ export function selectRouteModel(groups: readonly ModelProviderGroup[], provider
 }
 export function deriveRouteChoices(groups: readonly ModelProviderGroup[], route: CapabilityRouteView | undefined, allowedProviders?: readonly string[]): { providers: Choice[]; models: Choice[] } {
   const allowed = allowedProviders === undefined ? undefined : new Set(allowedProviders)
-  const providers: Choice[] = groups.filter(group => allowed === undefined || allowed.has(group.id)).map(group => ({ id: group.id, name: group.name }))
-  if (route?.provider !== undefined && !providers.some(option => option.id === route.provider)) providers.push({ id: route.provider, name: route.provider, unavailable: true })
+  const listed: Choice[] = groups.filter(group => allowed === undefined || allowed.has(group.id)).map(group => ({ id: group.id, name: group.name }))
+  if (route?.provider !== undefined && !listed.some(option => option.id === route.provider)) listed.push({ id: route.provider, name: route.provider, unavailable: true })
+  // dsh-vision-router twins: an id ending in -vision is the same provider with
+  // vision on (shown as "name + 自动识图"). Hide a twin whose base is also
+  // listed — one provider, one choice — on every dropdown this builder feeds
+  // (capability cards and every provider-group row). An orphan twin stays
+  // listed, and the currently selected value is never filtered, so a route
+  // stored with a twin id remains visible and editable instead of blank.
+  const ids = new Set(listed.map(choice => choice.id))
+  const providers = listed.filter(choice => {
+    if (choice.id === route?.provider) return true
+    const base = canonicalGroupProvider(choice.id)
+    return base === choice.id || !ids.has(base)
+  })
   const group = groups.find(item => item.id === route?.provider)
   const models: Choice[] = (group?.models ?? []).map(model => ({ id: model.id, name: model.name }))
   if (route?.model !== undefined && !models.some(option => option.id === route.model)) models.push({ id: route.model, name: route.model, unavailable: true })
@@ -38,17 +50,9 @@ export function deriveRouteChoices(groups: readonly ModelProviderGroup[], route:
  */
 export function groupProviderChoices(groups: readonly ModelProviderGroup[], configured: readonly string[], current: string | undefined): Choice[] {
   const route = current === undefined || current.trim() === '' ? undefined : { provider: current }
-  const listed = deriveRouteChoices(groups, route).providers
-  // dsh-vision-router twins: an id ending in -vision is the same provider
-  // with vision on, so one group per provider, listed under its base id. A
-  // twin whose base is absent stays listed so a stored group never becomes
-  // unreachable, and the current selection is never filtered away.
-  const ids = new Set(listed.map(choice => choice.id))
-  const choices = listed.filter(choice => {
-    if (choice.id === current) return true
-    const base = canonicalGroupProvider(choice.id)
-    return base === choice.id || !ids.has(base)
-  })
+  // deriveRouteChoices already hides -vision twins whose base is listed, so the
+  // group editor inherits the one-provider-one-choice rule everywhere.
+  const choices = deriveRouteChoices(groups, route).providers
   const seen = new Set(choices.map(choice => choice.id))
   for (const provider of configured) {
     if (provider.trim() === '' || seen.has(provider)) continue
