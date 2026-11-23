@@ -197,6 +197,16 @@ describe('Model Switch settings menu', () => {
     expect(en.visionHelp).toContain('dsh-vision-router')
   })
 
+  it('renders the own-gate switch permanently even without scanTools (always visible)', () => {
+    // No scanTools prop at all — the switch must still render with a "status unknown" hint.
+    const { renderer } = mountSettings({})
+    const allowlistHeader = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('reviewAllowlist'))
+    act(() => { allowlistHeader?.props.onClick() })
+    const json = JSON.stringify(renderer.toJSON())
+    expect(json).toContain('reviewOwnGate')
+    expect(json).toContain('reviewOwnGateHelp')
+  })
+
   it('auto-loads the review status and renders the own-gate switch without a manual scan', async () => {
     const { renderer } = mountSettings({ scanTools: async () => ({ rows: [], status: { held: true, allowedCalls: 0, skippedReadOnly: 7, ownGate: true, purgeInstalled: true, officialGateNeutered: true } }) })
     // Let the auto-load useEffect settle.
