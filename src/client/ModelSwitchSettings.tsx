@@ -473,6 +473,17 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
     })
       .then(accepted => { setCatalogState(accepted ? 'ready' : 'failed') })
   }
+  // Auto-load the review status once on mount so the own-gate switch (and the
+  // reviewer counters beside it) render without requiring a manual tool scan.
+  useEffect(() => {
+    const scan = props.scanTools
+    if (scan === undefined) return
+    let cancelled = false
+    void scan().then(scanned => {
+      if (!cancelled) setReviewStatus(scanned.status)
+    }, () => undefined).catch(() => undefined)
+    return () => { cancelled = true }
+  }, [props.scanTools])
   const allowlistQueryText = allowlistQuery.trim().toLowerCase()
   const allowlistIncluded = allowlistTools
     .map(entry => ({ entry, source: resolveToolSource(entry) }))

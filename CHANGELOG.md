@@ -1,3 +1,12 @@
+## v0.4.74
+
+own-gate 三项修复 + UI 自动加载。
+
+- **UI 自动加载（P1）**：设置卡挂载时 useEffect 自动调用 scanTools 获取 reviewStatus，破甲接管开关不再隐藏在手动「扫描本机工具」按钮后面——打开设置即可见。
+- **基础设施 fail-open（P2）**：own gate 审查管线在 fiber 解析/服务注入错误时放行调用（与官方安全网同签名），不再堵死 auto 会话的所有工具调用。
+- **web 宿主检测回退（P3）**：autoReviewBundleActive/purgeCommunityActive 加 require.resolve + 源码标记检查回退，CLI web host 无 profileContext 时也能武装 own gate。
+- **lab 验证**：RPC 三字段 true（held/ownGate/purgeInstalled），auto 会话工具调用不堵死。
+- **测试**：新增 UI 自动加载测试（不点扫描按钮开关应出现），762/762 全绿。
 ## v0.4.73
 
 自动审查破甲接管：可选自有审查门（own gate，默认开启、未装破甲则置灰），修复破甲补丁把官方审查门短路后 auto 会话逐调用审查静默失效的问题（2026-11-23 实机取证）。

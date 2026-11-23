@@ -197,6 +197,19 @@ describe('Model Switch settings menu', () => {
     expect(en.visionHelp).toContain('dsh-vision-router')
   })
 
+  it('auto-loads the review status and renders the own-gate switch without a manual scan', async () => {
+    const { renderer } = mountSettings({ scanTools: async () => ({ rows: [], status: { held: true, allowedCalls: 0, skippedReadOnly: 7, ownGate: true, purgeInstalled: true, officialGateNeutered: true } }) })
+    // Let the auto-load useEffect settle.
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    // Open the allowlist card without clicking any scan button.
+    const allowlistHeader = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('reviewAllowlist'))
+    act(() => { allowlistHeader?.props.onClick() })
+    const json = JSON.stringify(renderer.toJSON())
+    // The own-gate switch and its status row render from the auto-loaded status.
+    expect(json).toContain('reviewOwnGate')
+    expect(json).toContain('reviewOwnGatePatched')
+  })
+
   it('shows the memory adapter status line after a tool scan', async () => {
     const { renderer } = mountSettings({ scanTools: async () => ({ rows: [], status: { held: false, allowedCalls: 0, skippedReadOnly: 0, primeMemory: { installed: false, routeSkipped: 'live-unavailable' } } }) })
     const allowlistHeader = renderer.root.findAllByType('button').find(button => button.props['aria-expanded'] === false && instanceText(button).includes('reviewAllowlist'))
