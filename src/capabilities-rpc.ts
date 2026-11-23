@@ -4,7 +4,7 @@ import type { ModelSwitchAdapterRegistry } from './adapter-registry.js'
 import type { RuntimeCapabilities } from './runtime-capabilities.js'
 import { readToolCatalog, type ToolCatalogSnapshot } from './tool-catalog.js'
 import { DEFAULT_READ_ONLY_TOOLS } from './tool-allowlist.js'
-import { autoReviewStatus } from './auto-review.js'
+import { autoReviewStatus, ownGateEngaged } from './auto-review.js'
 import { automodeCompatView } from './automode-compat.js'
 import { subagentDiscoveryHintStatus } from './subagent-runtime.js'
 import { reviewTimeoutStatus } from './review-timeout.js'
@@ -16,6 +16,12 @@ export interface ReviewStatus {
   readonly held: boolean
   readonly allowedCalls: number
   readonly skippedReadOnly: number
+  /** Whether this plugin's own review gate engages (purge bundle + setting). */
+  readonly ownGate: boolean
+  /** Whether the profile started the dsh-purge-community bundle. */
+  readonly purgeInstalled: boolean
+  /** Whether the official gate's host code carries a third-party patch marker; undefined when unreadable. */
+  readonly officialGateNeutered?: boolean | undefined
   /** Third-party `@log.li/dsh-automode` row, when this Host mounts one. */
   readonly automode?: {
     readonly installed: boolean
@@ -110,7 +116,7 @@ export function capabilitiesRpc(
   lifetime: AbortSignal,
   catalog: () => ToolCatalogSnapshot = () => ({ tools: [], recommended: [...DEFAULT_READ_ONLY_TOOLS] }),
   /** Live Auto-reviewer counters (see `autoReviewStatus`), shown next to the allowlist. */
-  status: () => ReviewStatus = () => ({ held: false, allowedCalls: 0, skippedReadOnly: 0 }),
+  status: () => ReviewStatus = () => ({ held: false, allowedCalls: 0, skippedReadOnly: 0, ownGate: false, purgeInstalled: false }),
 ): ConnectionRpcHandler {
   let revision = 0
   let previous: string | undefined
@@ -157,6 +163,9 @@ export function installCapabilitiesRpc(ctx: Context, registry: ModelSwitchAdapte
         held: autoReviewStatus.held,
         allowedCalls: autoReviewStatus.allowedCalls,
         skippedReadOnly: autoReviewStatus.skippedReadOnly,
+        ownGate: ownGateEngaged(),
+        purgeInstalled: autoReviewStatus.purgeInstalled,
+        ...(autoReviewStatus.officialGateNeutered === undefined ? {} : { officialGateNeutered: autoReviewStatus.officialGateNeutered }),
         automode: automodeCompatView(),
         primeMemory: {
           installed: primeMemoryCompatStatus.installed,

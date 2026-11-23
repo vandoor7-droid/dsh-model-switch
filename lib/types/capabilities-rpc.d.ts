@@ -8,6 +8,12 @@ export interface ReviewStatus {
     readonly held: boolean;
     readonly allowedCalls: number;
     readonly skippedReadOnly: number;
+    /** Whether this plugin's own review gate engages (purge bundle + setting). */
+    readonly ownGate: boolean;
+    /** Whether the profile started the dsh-purge-community bundle. */
+    readonly purgeInstalled: boolean;
+    /** Whether the official gate's host code carries a third-party patch marker; undefined when unreadable. */
+    readonly officialGateNeutered?: boolean | undefined;
     /** Third-party `@log.li/dsh-automode` row, when this Host mounts one. */
     readonly automode?: {
         readonly installed: boolean;

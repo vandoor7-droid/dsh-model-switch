@@ -42,6 +42,8 @@ same log are provider-side aborts, not routing failures). The 0.26.61/0.26.63 pr
 found the seam stable across the 0.26.x line; the 0.26.73 adapter-surface diff is pending
 for the next watch round that acts on it. dsh-vision-router `latest` unchanged at 3.4.0.
 
+0.4.73 adds `src/auto-review-gate.ts` — a line-for-line fork of `@deepseek-ai/dsh-experimental-auto-review`'s review pipeline (calibrated at 0.2.2-rc.5). The fork's snapshot assembly and REVIEW_POLICY must track that package's listener per line, so `autoReviewGate` now sits in the watch state alongside dsh-prime-memory and dsh-vision-router.
+
 The daily check is now an actual scheduled task (created 2026-11-23, 09:00 Asia/Shanghai,
 `new_once` target in this workspace) instead of the previous manual per-release cadence.
 

@@ -25,6 +25,15 @@ export interface ModelSwitchSettings {
    */
   autoReviewSkipReadOnly?: boolean
   /**
+   * Whether this plugin's own review gate takes over the Auto review on a
+   * dsh-purge-patched host (default true). The official gate's host code can be
+   * short-circuited by that patch; the own gate runs the same review pipeline
+   * from this plugin's source. Only meaningful when the dsh-purge-community
+   * bundle started — on a clean host the switch is ignored (the official gate
+   * serves) and the settings card grays it out.
+   */
+  autoReviewOwnGate?: boolean
+  /**
    * Tool names that skip the reviewer when {@link autoReviewSkipReadOnly} is on.
    *
    * Exact names, plus a trailing `*` pattern for tools whose name carries a
@@ -81,6 +90,8 @@ export interface Config {
   autoReviewModel: Volatile<string | undefined>
   /** Opt-in: skip the Auto reviewer for allowlisted pure-read tools (default off). */
   autoReviewSkipReadOnly: Volatile<boolean>
+  /** Purge takeover: run the own review gate on a dsh-purge host (default on). */
+  autoReviewOwnGate: Volatile<boolean>
   /** Tool names (exact, or a trailing `*` pattern) that skip the Auto reviewer. */
   autoReviewAllowlist: Volatile<readonly string[]>
   /** Reviewer stream idle timeout in ms; 0 = cancel (upstream ceiling); absent = provider default. */
@@ -118,6 +129,7 @@ export const Config: z<any, Config, 'plain'> = z.object({
   autoReviewProvider: z.string().volatile(),
   autoReviewModel: z.string().volatile(),
   autoReviewSkipReadOnly: z.boolean().default(false).volatile(),
+  autoReviewOwnGate: z.boolean().default(true).volatile(),
   autoReviewAllowlist: z.array(z.string()).default([...DEFAULT_READ_ONLY_TOOLS]).volatile(),
   /** Reviewer stream idle timeout in ms; 0 = cancel (upstream ceiling); absent = provider default. */
   autoReviewTimeoutMs: z.number().step(1).min(0).max(2147483647).volatile(),
@@ -160,6 +172,7 @@ export function readConfig(config: Config): ModelSwitchSettings {
   const autoReviewProvider = config.autoReviewProvider.get()
   const autoReviewModel = config.autoReviewModel.get()
   const autoReviewSkipReadOnly = config.autoReviewSkipReadOnly.get()
+  const autoReviewOwnGate = config.autoReviewOwnGate.get()
   const autoReviewAllowlist = config.autoReviewAllowlist.get()
   const autoReviewTimeoutMs = config.autoReviewTimeoutMs.get()
   const compactProvider = config.compactProvider.get()
@@ -184,6 +197,7 @@ export function readConfig(config: Config): ModelSwitchSettings {
     ...(autoReviewProvider === undefined || autoReviewProvider === '' ? {} : { autoReviewProvider }),
     ...(autoReviewModel === undefined || autoReviewModel === '' ? {} : { autoReviewModel }),
     ...(autoReviewSkipReadOnly ? { autoReviewSkipReadOnly } : {}),
+    ...(autoReviewOwnGate === undefined ? {} : { autoReviewOwnGate }),
     ...(Array.isArray(autoReviewAllowlist) ? { autoReviewAllowlist: [...autoReviewAllowlist] } : {}),
     ...(autoReviewTimeoutMs === undefined ? {} : { autoReviewTimeoutMs }),
     ...(compactProvider === undefined || compactProvider === '' ? {} : { compactProvider }),

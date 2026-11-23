@@ -14,6 +14,8 @@ export interface ModelSwitchSettingsView {
     autoReviewModel?: string;
     /** Opt-in read-only skip for the Auto reviewer; absent/false keeps every call reviewed. */
     autoReviewSkipReadOnly?: boolean;
+    /** Purge takeover: run the own review gate on a dsh-purge host (default on; grayed out without that bundle). */
+    autoReviewOwnGate?: boolean;
     /** Exact tool names, or trailing-`*` patterns, that skip the reviewer when enabled. */
     autoReviewAllowlist?: readonly string[];
     compactProvider?: string;
@@ -123,6 +125,12 @@ export interface ReviewStatusView {
     readonly held: boolean;
     readonly allowedCalls: number;
     readonly skippedReadOnly: number;
+    /** Whether this plugin's own review gate engages (purge bundle started and the setting not off). */
+    readonly ownGate: boolean;
+    /** Whether the profile started the dsh-purge-community bundle. */
+    readonly purgeInstalled: boolean;
+    /** Whether the official gate's host code carries a third-party patch marker; undefined when unreadable. */
+    readonly officialGateNeutered?: boolean | undefined;
     /** Third-party `@log.li/dsh-automode` row this Host adapted, when present. */
     readonly automode?: {
         readonly route?: string | undefined;

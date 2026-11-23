@@ -1,3 +1,15 @@
+## v0.4.73
+
+自动审查破甲接管：可选自有审查门（own gate，默认开启、未装破甲则置灰），修复破甲补丁把官方审查门短路后 auto 会话逐调用审查静默失效的问题（2026-11-23 实机取证）。
+
+- **根因（实测）**：本行通过 import 官方包并挂载其 apply（auto-review.ts），仅在 reviewScope 替换审查路由与预设读取；破甲（dsh-purge-community 1.7.20）对该包 tools/pre-execute 监听器第一行插入 return next()——被挂的门对所有调用直接放行，与预设无关。会话仍在 auto（投影 permissions.preset=auto；held=true、allowedCalls=0、skippedReadOnly=0、白名单 read 不计数互证），但审查从未发生。
+- **自有门（src/auto-review-gate.ts，按官方 0.2.2-rc.5 逐行校准分叉）**：REVIEW_POLICY 逐字、快照组装全套 helper、reviewMessages、parseDecision/readDecision（BlockAssembler 公开导入）、classifyRisk（reviewScope 内走 llm 代理路由）、denied/askUser/failed 与 9 语言文案；deepFreeze 本地实现避免新依赖。
+- **双门去重（顺序无关）**：AutoCallContext 加 handled/officialEngaged；shadow current() 对已处理调用答 custom、对放行的非豁免调用置 officialEngaged；自有监听器见任一标志即让位；两 listener 顺序翻转由标志双向去重；skippedReadOnly 只在豁免决定点计数。
+- **生效条件**：dsh-purge-community 在 startedBundles 且 autoReviewOwnGate 非 false（按调用热读）；未装破甲不接管（行为与 0.4.72 一致），设置卡置灰。
+- **设置/状态面**：新键 autoReviewOwnGate（默认 true）+「审查豁免」卡开关行（置灰+官方门补丁状态诊断）+ zh/en 文案；capabilities RPC status 新增 ownGate/purgeInstalled/officialGateNeutered（诊断 best-effort 读官方包源码查 [dsh-purge] 标记）。
+- **测试**：新 tests/auto-review-gate.spec.ts 24 条 + 既有断言补字段，**761/761 全绿**（72 文件）+ pack 闸门。
+- **验证（分级如实）**：单元+集成覆盖协议/快照/去重/生效矩阵；快照逻辑为官方已验证实现的逐字分叉。桌面实机验证（真实破甲 + auto 会话 + RPC 计数器）随安装执行并回填；开关可热关作即时回退。
+- **边界**：破甲的审批恒放行补丁在宿主层不可由本插件修复——auto 会话里自有门为仅存关卡，非 auto 会话仍无守门；compat-watch 将 dsh-experimental-auto-review 加入每线 diff 清单；漂移 fail-closed 可见。
 ## v0.4.72
 
 纯读免审查默认白名单第三次校准（126 → 147 条，按 2026-11-22 桌面 live 工具带 + 用户当日确认放行）。

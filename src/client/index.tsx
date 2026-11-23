@@ -79,6 +79,12 @@ export function apply(ctx: ClientContext): void {
         ])
         if (!accepted) throw new Error('settings-rejected')
       },
+      saveReviewOwnGate: async (ownGate: boolean) => {
+        const accepted = await owned.mutate([
+          { op: 'set', path: ['autoReviewOwnGate'], value: ownGate },
+        ])
+        if (!accepted) throw new Error('settings-rejected')
+      },
       ...(connectionRpc === undefined ? {} : { scanTools: async () => {
         const rpc = connectionRpc
         const response = await callPluginRpc(rpc, 'plugin-rpc/model-switch', 'tools', {})

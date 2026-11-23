@@ -12,6 +12,8 @@ export interface ModelSwitchSettingsView {
   autoReviewProvider?: string; autoReviewModel?: string
   /** Opt-in read-only skip for the Auto reviewer; absent/false keeps every call reviewed. */
   autoReviewSkipReadOnly?: boolean
+  /** Purge takeover: run the own review gate on a dsh-purge host (default on; grayed out without that bundle). */
+  autoReviewOwnGate?: boolean
   /** Exact tool names, or trailing-`*` patterns, that skip the reviewer when enabled. */
   autoReviewAllowlist?: readonly string[]
   compactProvider?: string; compactModel?: string
@@ -89,6 +91,12 @@ export interface ReviewStatusView {
   readonly held: boolean
   readonly allowedCalls: number
   readonly skippedReadOnly: number
+  /** Whether this plugin's own review gate engages (purge bundle started and the setting not off). */
+  readonly ownGate: boolean
+  /** Whether the profile started the dsh-purge-community bundle. */
+  readonly purgeInstalled: boolean
+  /** Whether the official gate's host code carries a third-party patch marker; undefined when unreadable. */
+  readonly officialGateNeutered?: boolean | undefined
   /** Third-party `@log.li/dsh-automode` row this Host adapted, when present. */
   readonly automode?: {
     readonly route?: string | undefined
@@ -121,7 +129,7 @@ export function decodeReviewStatus(value: unknown): ReviewStatusView | undefined
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
   const raw = (value as { status?: unknown }).status
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined
-  const status = raw as { held?: unknown; allowedCalls?: unknown; skippedReadOnly?: unknown; automode?: unknown; primeMemory?: unknown; visionRouter?: unknown }
+  const status = raw as { held?: unknown; allowedCalls?: unknown; skippedReadOnly?: unknown; automode?: unknown; primeMemory?: unknown; visionRouter?: unknown; ownGate?: unknown; purgeInstalled?: unknown; officialGateNeutered?: unknown }
   const count = (input: unknown): number => (typeof input === 'number' && Number.isFinite(input) && input >= 0 ? input : 0)
   const route = (input: unknown): string | undefined => (typeof input === 'string' && input.trim() !== '' ? input.trim() : undefined)
   const automode = status.automode !== null && typeof status.automode === 'object' && !Array.isArray(status.automode)
@@ -141,6 +149,9 @@ export function decodeReviewStatus(value: unknown): ReviewStatusView | undefined
     held: status.held === true,
     allowedCalls: count(status.allowedCalls),
     skippedReadOnly: count(status.skippedReadOnly),
+    ownGate: status.ownGate === true,
+    purgeInstalled: status.purgeInstalled === true,
+    ...(typeof status.officialGateNeutered === 'boolean' ? { officialGateNeutered: status.officialGateNeutered } : {}),
     automode,
     primeMemory: adapterRow(status.primeMemory),
     visionRouter: adapterRow(status.visionRouter),

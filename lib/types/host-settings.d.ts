@@ -22,6 +22,15 @@ export interface ModelSwitchSettings {
      */
     autoReviewSkipReadOnly?: boolean;
     /**
+     * Whether this plugin's own review gate takes over the Auto review on a
+     * dsh-purge-patched host (default true). The official gate's host code can be
+     * short-circuited by that patch; the own gate runs the same review pipeline
+     * from this plugin's source. Only meaningful when the dsh-purge-community
+     * bundle started — on a clean host the switch is ignored (the official gate
+     * serves) and the settings card grays it out.
+     */
+    autoReviewOwnGate?: boolean;
+    /**
      * Tool names that skip the reviewer when {@link autoReviewSkipReadOnly} is on.
      *
      * Exact names, plus a trailing `*` pattern for tools whose name carries a
@@ -77,6 +86,8 @@ export interface Config {
     autoReviewModel: Volatile<string | undefined>;
     /** Opt-in: skip the Auto reviewer for allowlisted pure-read tools (default off). */
     autoReviewSkipReadOnly: Volatile<boolean>;
+    /** Purge takeover: run the own review gate on a dsh-purge host (default on). */
+    autoReviewOwnGate: Volatile<boolean>;
     /** Tool names (exact, or a trailing `*` pattern) that skip the Auto reviewer. */
     autoReviewAllowlist: Volatile<readonly string[]>;
     /** Reviewer stream idle timeout in ms; 0 = cancel (upstream ceiling); absent = provider default. */

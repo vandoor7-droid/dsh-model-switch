@@ -10,7 +10,7 @@ describe('Host runtime surface', () => {
   })
   it('defaults Subagent to follow-main and retains unavailable choices in volatile config', () => {
     // The review bypass ships OFF, with the calibrated allowlist ready to use.
-    expect(readConfig(Config({}))).toEqual({ subagentMode: 'follow-main', autoReviewAllowlist: [...DEFAULT_READ_ONLY_TOOLS] })
+    expect(readConfig(Config({}))).toEqual({ subagentMode: 'follow-main', autoReviewOwnGate: true, autoReviewAllowlist: [...DEFAULT_READ_ONLY_TOOLS] })
     expect(readConfig(Config({})).autoReviewSkipReadOnly).toBeUndefined()
     expect(readConfig(Config({ autoReviewSkipReadOnly: true })).autoReviewSkipReadOnly).toBe(true)
     expect(readConfig(Config({ subagentMode: 'fixed', subagentProvider: 'not-installed', subagentModel: 'remember-me' }))).toMatchObject({

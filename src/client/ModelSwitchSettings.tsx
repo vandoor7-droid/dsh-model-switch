@@ -28,6 +28,8 @@ export interface ModelSwitchSettingsFace {
   saveMemory: (ops: readonly ConfigViewOp<MemoryRouteView>[]) => Promise<void>
   /** Persist the read-only skip switch and its allowlist as one atomic write. */
   saveReviewAllowlist: (value: { enabled: boolean; tools: readonly string[] }) => Promise<void>
+  /** Persist the purge-takeover switch (the own review gate). */
+  saveReviewOwnGate: (ownGate: boolean) => Promise<void>
   /** The Host's live tool catalog; absent on a Host without the `tools` RPC endpoint. */
   scanTools?: () => Promise<{ rows: readonly ToolCatalogRow[]; status?: ReviewStatusView }>
   /** Replace or remove (undefined) one provider's saved capability group. */
@@ -442,6 +444,8 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const allowlistView = switchSettings.value === undefined ? undefined : deriveAutoReviewAllowlist(switchSettings.value)
   const allowlistTools = allowlistView?.tools ?? DEFAULT_READ_ONLY_TOOLS
   const allowlistEnabled = allowlistView?.enabled === true
+  /** The own-gate switch value: default on; only meaningful on a purge-patched host. */
+  const ownGateSettingOn = switchSettings.value === undefined ? true : switchSettings.value.autoReviewOwnGate !== false
   const allowlistWritable = switchSettings.status === 'ready' && switchSettings.writable
   const persistAllowlist = (next: { enabled: boolean; tools: readonly string[] }): void => {
     if (busy !== undefined || !allowlistWritable) return
@@ -811,6 +815,25 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
         </div>
         {message?.route === 'allowlist' ? <p className={cx(css.hint, css.message)}>{message.text}</p> : null}
         {reviewStatus === undefined || reviewStatus.skippedReadOnly === 0 ? null : <p className={css.hint}>{props.t('reviewAllowlistSkipped').replace('{count}', String(reviewStatus.skippedReadOnly))}</p>}
+        {reviewStatus === undefined ? null : (
+          <div className={css.rowCard}>
+            <div className={css.rowCopy}>
+              <span className={css.rowTitle}>{props.t('reviewOwnGate')}</span>
+              <p className={css.hint}>{props.t('reviewOwnGateHelp')}</p>
+              <p className={css.hint}>{reviewStatus.purgeInstalled === true
+                ? props.t('reviewOwnGatePatched').replace('{neutered}', reviewStatus.officialGateNeutered === undefined
+                  ? props.t('reviewOwnGateUnknown')
+                  : reviewStatus.officialGateNeutered ? props.t('reviewOwnGateNeuteredYes') : props.t('reviewOwnGateNeuteredNo'))
+                : props.t('reviewOwnGateUnavailable')}</p>
+            </div>
+            <InstantSwitch
+              checked={ownGateSettingOn}
+              disabled={busy !== undefined || !allowlistWritable || reviewStatus.purgeInstalled !== true}
+              label={props.t('reviewOwnGate')}
+              onChange={next => { void run('allowlist', () => props.saveReviewOwnGate(next)) }}
+            />
+          </div>
+        )}
         {reviewStatus?.automode === undefined ? null : <p className={css.hint}>{props.t('reviewAutomodeLinked')
           .replace('{route}', reviewStatus.automode.route ?? (reviewStatus.automode.routeSkipped === 'user-set' ? props.t('reviewAutomodeRouteOwn') : props.t('reviewAutomodeRouteUnset')))
           .replace('{added}', String(reviewStatus.automode.added))

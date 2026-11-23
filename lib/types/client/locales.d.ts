@@ -94,6 +94,13 @@ export declare const zh: {
     readonly reviewAllowlistAvailable: "本机存在但未放行的工具：";
     readonly reviewAllowlistRepo: "仓库";
     readonly reviewAllowlistSkipped: "本 Host 进程已为纯读调用跳过 {count} 次审查。";
+    readonly reviewOwnGate: "破甲接管：自有审查门";
+    readonly reviewOwnGateHelp: "安装破甲（dsh-purge）后，官方审查门的宿主代码会被其补丁短路；开启后由本插件的自有审查门接管 auto 会话的逐调用审查，路由仍用上方配置的审查模型。";
+    readonly reviewOwnGateUnavailable: "未检测到破甲插件：官方审查门正常服务，此开关不适用。";
+    readonly reviewOwnGatePatched: "官方门补丁状态：{neutered}。";
+    readonly reviewOwnGateNeuteredYes: "已被宿主补丁短路";
+    readonly reviewOwnGateNeuteredNo: "未见补丁标记";
+    readonly reviewOwnGateUnknown: "未知";
     readonly reviewAutomodeLinked: "Auto mode 已接入：审查路由 {route}，直通 +{added} 个纯读工具（{skipped} 条通配未同步）。";
     readonly reviewAutomodeRouteOwn: "沿用其自身配置";
     readonly reviewAutomodeRouteUnset: "未配置（沿用会话模型）";

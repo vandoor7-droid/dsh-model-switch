@@ -66,7 +66,24 @@ export declare const autoReviewStatus: {
     held: boolean;
     allowedCalls: number;
     skippedReadOnly: number;
+    /** Whether the profile started the dsh-purge-community bundle (mount-time read). */
+    purgeInstalled: boolean;
+    /**
+     * Whether the official gate's host code carries a third-party patch marker.
+     *
+     * Best-effort diagnostic only: the own gate does not depend on it. `undefined`
+     * means the official package could not be read.
+     */
+    officialGateNeutered: boolean | undefined;
 };
+/**
+ * Whether the own review gate engages for the current call.
+ *
+ * The purge bundle must have started (mount-time) and the setting must not be
+ * explicitly off (per-call read); on a purge-free host the own gate never
+ * engages and the official gate stays the only reviewer.
+ */
+export declare function ownGateEngaged(): boolean;
 /**
  * What one `tools/pre-execute` call carries into the reviewer's async context.
  *
@@ -79,6 +96,16 @@ export interface AutoCallContext {
     readonly session: Session | undefined;
     /** `exec.name` — the tool under review. */
     readonly tool: string;
+    /**
+     * Marks a call whose review decision another listener already made.
+     *
+     * Set by the own gate when it reviews (or read-only-skips) a call, and by the
+     * preset shadow when it takes the official gate's probe off the reviewer —
+     * whichever listener engages first wins, so a call is never reviewed twice.
+     */
+    handled?: boolean;
+    /** Marks a call the official gate's listener is engaging with. */
+    officialEngaged?: boolean;
 }
 /** The read-only skip: which tools, and whether the switch is on. */
 export interface ReadOnlyBypass {
@@ -264,14 +291,16 @@ export interface MountedAutoReviewGate {
  * `inject`. Mounting it instead lets cordis resolve the official list, which is
  * what keeps a released Host's new dependency (0.2.1's `workingDirectory`) from
  * breaking every tool call. The hooks let the caller observe whether the gate
- * actually ran before it binds the session-correlation listener.
+ * actually ran before it binds the session-correlation listener; `onApplied`
+ * receives the gate's own context so per-mount listeners (the own gate) can
+ * register on it and share its lifetime.
  *
  * @param gate - the official module (or an equivalent structural gate).
  * @param hooks - applied/failure observers; the failure is rethrown.
  * @returns A cordis plugin mounting the official gate unchanged.
  */
 export declare function autoReviewGate(gate: OfficialAutoReviewGate, hooks?: {
-    readonly onApplied?: () => void;
+    readonly onApplied?: (gateCtx: Context) => void;
     readonly onFailure?: (error: unknown) => void;
 }): MountedAutoReviewGate;
 /**

@@ -242,7 +242,10 @@ describe('decodeToolCatalog', () => {
 describe('decodeReviewStatus', () => {
   it('reads the live counters from the tools payload', () => {
     expect(decodeReviewStatus({ status: { held: true, allowedCalls: 2, skippedReadOnly: 7 } })).toEqual({
-      held: true, allowedCalls: 2, skippedReadOnly: 7,
+      held: true, allowedCalls: 2, skippedReadOnly: 7, ownGate: false, purgeInstalled: false,
+    })
+    expect(decodeReviewStatus({ status: { held: true, allowedCalls: 2, skippedReadOnly: 7, ownGate: true, purgeInstalled: true, officialGateNeutered: true } })).toEqual({
+      held: true, allowedCalls: 2, skippedReadOnly: 7, ownGate: true, purgeInstalled: true, officialGateNeutered: true,
     })
   })
 
@@ -251,7 +254,7 @@ describe('decodeReviewStatus', () => {
     expect(decodeReviewStatus(undefined)).toBeUndefined()
     // A malformed counter degrades to zero instead of a NaN in the UI.
     expect(decodeReviewStatus({ status: { held: false, allowedCalls: -1, skippedReadOnly: 'x' } })).toEqual({
-      held: false, allowedCalls: 0, skippedReadOnly: 0,
+      held: false, allowedCalls: 0, skippedReadOnly: 0, ownGate: false, purgeInstalled: false,
     })
   })
 })

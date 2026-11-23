@@ -54,17 +54,11 @@
       "include:dsh-memory active; no incompatible-with-dsh / did-not-activate line on boot"
     ]
   },
-  "visionRouter": {
-    "package": "dsh-vision-router",
+  "autoReviewGate": {
+    "package": "@deepseek-ai/dsh-experimental-auto-review",
     "distTagWatched": "latest",
-    "latest": "3.4.0",
-    "adapter": "src/vision-router-compat.ts (ConfigEditor.edit on the vision-router row; managed head, compare-before-write)",
-    "seams": [
-      "row id vision-router / name dsh-vision-router, config.providers[{provider,model,fallbacks}] declared in its Config schema",
-      "twin route naming: ${provider}-vision (index.js makeTwinAdapter) — the group-merge suffix rule depends on it",
-      "MAX_RUNTIME_PROVIDER_ROWS=32, MAX_RUNTIME_MODEL_ID_CHARS=512 mirrored in src/vision-router-route.ts"
-    ],
-    "lastVerifiedWith": "pending first lab run (0.4.69)",
+    "note": "src/auto-review-gate.ts forks this package's review pipeline (0.2.2-rc.5 calibration); diff its tools/pre-execute listener + snapshot assembly per line",
+    "forkedIn": "0.4.73",
     "checkedAt": "2026-11-23"
   }
 }

@@ -35,6 +35,8 @@ export interface ModelSwitchSettingsFace {
         enabled: boolean;
         tools: readonly string[];
     }) => Promise<void>;
+    /** Persist the purge-takeover switch (the own review gate). */
+    saveReviewOwnGate: (ownGate: boolean) => Promise<void>;
     /** The Host's live tool catalog; absent on a Host without the `tools` RPC endpoint. */
     scanTools?: () => Promise<{
         rows: readonly ToolCatalogRow[];

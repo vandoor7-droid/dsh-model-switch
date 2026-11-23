@@ -34,6 +34,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { createRequire } from 'node:module'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -55,6 +56,7 @@ import {
   type AutoReviewSeam,
 } from './auto-review-takeover.js'
 import { isAllowedByList } from './tool-allowlist.js'
+import { installOwnReviewGate } from './auto-review-gate.js'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'model-switch-auto-review'
@@ -89,7 +91,44 @@ const AUTO_PRESET = 'auto'
  * `skippedReadOnly` counts the calls the allowlist took off the reviewer, which
  * is the number the settings card shows next to the switch.
  */
-export const autoReviewStatus = { held: false, allowedCalls: 0, skippedReadOnly: 0 }
+export const autoReviewStatus = {
+  held: false,
+  allowedCalls: 0,
+  skippedReadOnly: 0,
+  /** Whether the profile started the dsh-purge-community bundle (mount-time read). */
+  purgeInstalled: false,
+  /**
+   * Whether the official gate's host code carries a third-party patch marker.
+   *
+   * Best-effort diagnostic only: the own gate does not depend on it. `undefined`
+   * means the official package could not be read.
+   */
+  officialGateNeutered: undefined as boolean | undefined,
+}
+
+/**
+ * Reads the live `autoReviewOwnGate` setting; true unless explicitly off.
+ *
+ * Set by the mounting row; a broken settings read keeps the gate armed (the
+ * fail-closed direction for a reviewer).
+ */
+let ownGateSettingReader: (() => boolean) | undefined
+
+/**
+ * Whether the own review gate engages for the current call.
+ *
+ * The purge bundle must have started (mount-time) and the setting must not be
+ * explicitly off (per-call read); on a purge-free host the own gate never
+ * engages and the official gate stays the only reviewer.
+ */
+export function ownGateEngaged(): boolean {
+  if (!autoReviewStatus.purgeInstalled) return false
+  try {
+    return ownGateSettingReader?.() !== false
+  } catch {
+    return true
+  }
+}
 
 /**
  * What one `tools/pre-execute` call carries into the reviewer's async context.
@@ -103,6 +142,16 @@ export interface AutoCallContext {
   readonly session: Session | undefined
   /** `exec.name` — the tool under review. */
   readonly tool: string
+  /**
+   * Marks a call whose review decision another listener already made.
+   *
+   * Set by the own gate when it reviews (or read-only-skips) a call, and by the
+   * preset shadow when it takes the official gate's probe off the reviewer —
+   * whichever listener engages first wins, so a call is never reviewed twice.
+   */
+  handled?: boolean
+  /** Marks a call the official gate's listener is engaging with. */
+  officialEngaged?: boolean
 }
 
 /** The read-only skip: which tools, and whether the switch is on. */
@@ -205,7 +254,10 @@ export function bindAutoReviewSessionCorrelation(
   scope.effect(function* () {
     yield scope.on(
       'tools/pre-execute',
-      (exec, next) => activeSession.run({ session: exec.agent?.session, tool: exec.name }, next),
+      (exec, next) => activeSession.run(
+        { session: exec.agent?.session, tool: exec.name, handled: false, officialEngaged: false },
+        next,
+      ),
       { prepend: true },
     )
   }, 'model-switch: auto-review session correlation')
@@ -420,8 +472,16 @@ export function defensivePermissionPresets(
       }
       if (preset !== AUTO_PRESET || bypass === undefined) return preset
       const ambient = bypass.ambient()
-      if (ambient === undefined || !bypass.allows(ambient.tool)) return preset
+      if (ambient === undefined) return preset
+      // The own gate already reviewed (or read-only-skipped) this call: take the
+      // official gate's probe off the reviewer without counting again.
+      if (ambient.handled) return CUSTOM_PRESET
+      if (!bypass.allows(ambient.tool)) {
+        ambient.officialEngaged = true
+        return preset
+      }
       autoReviewStatus.skippedReadOnly += 1
+      ambient.handled = true
       return CUSTOM_PRESET
     },
     set(session, preset) {
@@ -496,6 +556,45 @@ function autoReviewBundleActive(ctx: Context): boolean {
   return Array.isArray(bundles) && bundles.includes(AUTO_REVIEW_BUNDLE)
 }
 
+/** The bundle id dsh-purge-community registers under. */
+const PURGE_BUNDLE = 'dsh-purge-community'
+
+/** Structural read of the launcher-provided started bundles (best-effort). */
+function startedBundlesOf(ctx: Context): readonly string[] | undefined {
+  let profile: unknown
+  try {
+    profile = (ctx as unknown as { get(name: string, strict: boolean): unknown }).get('profileContext', false)
+  } catch {
+    return undefined
+  }
+  if (profile === null || typeof profile !== 'object') return undefined
+  const bundles = (profile as { readonly startedBundles?: unknown }).startedBundles
+  return Array.isArray(bundles) ? bundles.filter((entry): entry is string => typeof entry === 'string') : undefined
+}
+
+/** Whether the profile started the dsh-purge-community bundle. */
+function purgeCommunityActive(ctx: Context): boolean {
+  return startedBundlesOf(ctx)?.includes(PURGE_BUNDLE) ?? false
+}
+
+/**
+ * Whether the official gate's host code carries a third-party patch marker.
+ *
+ * Pure diagnostics: the own gate arms on the bundle check, never on this. Any
+ * `[dsh-purge]` marker in the official package's entry means a host patch
+ * touched the review path the official gate mounts.
+ */
+function detectOfficialGateNeutered(): boolean | undefined {
+  try {
+    const require = createRequire(import.meta.url)
+    const entry = require.resolve('@deepseek-ai/dsh-experimental-auto-review')
+    const source = readFileSync(entry, 'utf8')
+    return source.includes('[dsh-purge]')
+  } catch {
+    return undefined
+  }
+}
+
 /** Structural read of the loader service the takeover drives. */
 function loaderOf(ctx: Context): Parameters<typeof officialAutoReviewEntry>[0] {
   try {
@@ -534,7 +633,9 @@ export interface MountedAutoReviewGate {
  * `inject`. Mounting it instead lets cordis resolve the official list, which is
  * what keeps a released Host's new dependency (0.2.1's `workingDirectory`) from
  * breaking every tool call. The hooks let the caller observe whether the gate
- * actually ran before it binds the session-correlation listener.
+ * actually ran before it binds the session-correlation listener; `onApplied`
+ * receives the gate's own context so per-mount listeners (the own gate) can
+ * register on it and share its lifetime.
  *
  * @param gate - the official module (or an equivalent structural gate).
  * @param hooks - applied/failure observers; the failure is rethrown.
@@ -542,7 +643,7 @@ export interface MountedAutoReviewGate {
  */
 export function autoReviewGate(
   gate: OfficialAutoReviewGate,
-  hooks: { readonly onApplied?: () => void; readonly onFailure?: (error: unknown) => void } = {},
+  hooks: { readonly onApplied?: (gateCtx: Context) => void; readonly onFailure?: (error: unknown) => void } = {},
 ): MountedAutoReviewGate {
   return {
     name: gate.name ?? 'experimental-auto-review',
@@ -554,7 +655,7 @@ export function autoReviewGate(
         hooks.onFailure?.(error)
         throw error
       }
-      hooks.onApplied?.()
+      hooks.onApplied?.(gateCtx)
     },
   }
 }
@@ -652,6 +753,31 @@ async function mountReviewer(ctx: Context): Promise<void> {
     { ambient: () => activeSession.getStore(), allows: skipReadOnly },
   )
   const scope = reviewScope(ctx, activeSession, presets)
+  // The own gate arms only on a purge-patched deployment; the official gate
+  // serves everywhere else and stays the only reviewer on a clean host.
+  const purgeInstalled = purgeCommunityActive(ctx)
+  const officialNeutered = detectOfficialGateNeutered()
+  autoReviewStatus.purgeInstalled = purgeInstalled
+  autoReviewStatus.officialGateNeutered = officialNeutered
+  ownGateSettingReader = () => {
+    try {
+      return ctx.get('modelSwitch', false)?.currentSettings().autoReviewOwnGate !== false
+    } catch {
+      return true
+    }
+  }
+  if (purgeInstalled && officialNeutered !== false) {
+    ctx.logger.warn('model-switch: the official auto-review package carries a host patch marker; the review rides the own gate while autoReviewOwnGate stays on')
+  }
+  const ownGateActive = (): boolean => purgeInstalled && ownGateEngaged()
+  /** The raw preset read: the real service, never the defensive shadow. */
+  const rawCurrentPreset = (session: Session): string => {
+    try {
+      return permissionPresetsOf(ctx)?.current(session) ?? CUSTOM_PRESET
+    } catch {
+      return CUSTOM_PRESET
+    }
+  }
   // Live from the first tool call, before the takeover runs: a lost
   // `registerAuto` leaves the official (unshielded) gate serving, and its probe
   // must not be able to fail the tool body.
@@ -904,11 +1030,28 @@ async function mountReviewer(ctx: Context): Promise<void> {
         let failure: unknown
         let applied = false
         const fiber = scope.plugin(autoReviewGate(official, {
-          onApplied: () => {
+          onApplied: gateCtx => {
             applied = true
+            // The own gate registers on the gate's own context: its listener
+            // unshifts ahead of the official one and dies with this mount. It is
+            // mounted whenever the purge bundle started; the per-call isActive
+            // read keeps the settings toggle hot without a remount.
+            if (purgeInstalled) {
+              try {
+                installOwnReviewGate(gateCtx, {
+                  activeSession,
+                  isActive: ownGateActive,
+                  currentPreset: rawCurrentPreset,
+                  skipReadOnly,
+                  countReadOnlySkip: () => { autoReviewStatus.skippedReadOnly += 1 },
+                })
+              } catch (cause) {
+                ctx.logger.warn(`model-switch: the own auto-review gate did not mount (${String(cause)}); the official gate stays the only reviewer`)
+              }
+            }
             // Bound from inside the gate's own apply, which has just registered
             // the review probe: the prepend order keeps this correlation ahead
-            // of it even when the gate activates late.
+            // of it (and ahead of the own gate) even when the gate activates late.
             bindAutoReviewSessionCorrelation(scope, activeSession)
           },
           onFailure: error => { failure = error },
