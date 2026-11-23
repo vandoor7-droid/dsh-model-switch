@@ -1,11 +1,12 @@
 {
   "$schema-note": "Baseline for the scheduled compatibility watch (see docs/dsh-compat-watch.md). `latest` is the npm dist-tag an ordinary install gets.",
   "schema": "dsh-model-switch/compat-watch-state/v1",
-  "checkedAt": "2026-11-18T15:25:40.005Z",
+  "checkedAt": "2026-11-23T12:26:14Z",
   "dsh": {
     "distTagWatched": "latest",
-    "latest": "0.2.2-rc.1",
+    "latest": "0.2.2-rc.5",
     "next": "0.2.2-rc.5",
+    "alpha": "0.2.3-alpha.2",
     "verifiedDeclared": [
       "0.1.7-alpha.2",
       "0.1.7-rc.1",
@@ -39,11 +40,11 @@
       "dshTag": "latest (engines range >=0.1.0-rc.2 <0.3.0-0)"
     },
     "adapter": "src/prime-memory-compat.ts (0.4.57: scoped inject of modelSwitch + webServer, read-back verified push, live-rejected fallback)",
-    "observedLatest": "0.26.63",
+    "observedLatest": "0.26.73",
     "observedDshTags": {
       "note": "all dsh-* tags sit at 0.26.41 as of 2026-11-17 (dsh-0.2.1-rc.5 included); no dsh-0.2.2-* tags"
     },
-    "pendingVerification": "none for 0.26.63 with plugin 0.4.65 (rc.5 lab, 2026-11-18); desktop plane already runs 0.26.63 + 0.4.65 on rc.5",
+    "pendingVerification": "0.26.73 (npm observed 2026-11-23) not adapter-diffed yet; desktop plane runs 0.26.66 with plugin 0.4.72 on dsh 0.2.2-rc.5 — distill LLM calls still fire on the configured group route (memory.log 2026-11-23, runtime evidence; the aborted calls there are provider-side, not routing failures)",
     "verifiedAt": "2026-11-18",
     "verifiedPlane": "rc.2 lab (virtual) + desktop (user-attested 2026-11-09); previous lab matrix stands for 0.26.24 on DSH 0.2.1-rc.5 with plugin 0.4.60",
     "verifiedRuns": [
@@ -64,6 +65,6 @@
       "MAX_RUNTIME_PROVIDER_ROWS=32, MAX_RUNTIME_MODEL_ID_CHARS=512 mirrored in src/vision-router-route.ts"
     ],
     "lastVerifiedWith": "pending first lab run (0.4.69)",
-    "checkedAt": "2026-11-20"
+    "checkedAt": "2026-11-23"
   }
 }

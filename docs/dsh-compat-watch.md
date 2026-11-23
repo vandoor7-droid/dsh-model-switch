@@ -22,6 +22,29 @@ request while it still sat on `next`. It followed the same evidence bar as a
 `latest` move (contract diff + real-host lab run + rc.2 regression), so the line
 is listed as verified even though `latest` still points at `0.2.1-rc.2`.
 
+## 2026-11-23 watch — `latest` moved to `0.2.2-rc.5`, no code change
+
+`latest` moved `0.2.2-rc.1` → `0.2.2-rc.5` (npm `time.modified` 2026-11-22). The line was
+already verified on 2026-11-18 at the same evidence bar (the rc.5 section below), so the
+move needs no plugin change: `dshReleases` already declares `0.2.2-rc.5: compatible`, and
+the desktop plane now runs plugin 0.4.72 on the 0.2.2-rc.5 runtime (installed through the
+plugin manager, 2026-11-22).
+
+Early signal: `alpha` = `0.2.3-alpha.2` (the 0.2.3 line started moving, published
+2026-11-22). Per the watch rule, `next`/`alpha` are recorded only — no plugin update
+until the same change reaches `latest` or the user names the line.
+
+dsh-prime-memory `latest` moved `0.26.63` → `0.26.73` (observed 2026-11-23, not yet
+adapter-diffed). The desktop plane already runs **0.26.66** with plugin 0.4.72, and the
+distillation calls still fire on the configured group route (`yijia925/glm-5.3-flash`
+in `memory.log`, 2026-11-23 — runtime evidence, adapter intact; the aborted calls in the
+same log are provider-side aborts, not routing failures). The 0.26.61/0.26.63 precedents
+found the seam stable across the 0.26.x line; the 0.26.73 adapter-surface diff is pending
+for the next watch round that acts on it. dsh-vision-router `latest` unchanged at 3.4.0.
+
+The daily check is now an actual scheduled task (created 2026-11-23, 09:00 Asia/Shanghai,
+`new_once` target in this workspace) instead of the previous manual per-release cadence.
+
 ## rc.5 (`0.2.2-rc.5`) verification (2026-11-18)
 
 `latest` stayed at `0.2.2-rc.1`; `0.2.2-rc.5` sat on `next` (rc.4 was never published
