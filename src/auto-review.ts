@@ -543,17 +543,33 @@ export function reviewScope(
   } as never)
 }
 
-/** Structural read of launcher-provided profile facts (the app-boot seam). */
+/**
+ * Whether the official auto-review bundle is active in this profile.
+ *
+ * Two detection paths, either suffices: the desktop's `profileContext` service
+ * lists started bundles, while the CLI web host has no such service — there,
+ * resolving the official package proves the bundle is composed.
+ */
 function autoReviewBundleActive(ctx: Context): boolean {
   let profile: unknown
   try {
     profile = (ctx as unknown as { get(name: string, strict: boolean): unknown }).get('profileContext', false)
   } catch {
+    profile = undefined
+  }
+  if (profile !== null && typeof profile === 'object') {
+    const bundles = (profile as { readonly startedBundles?: unknown }).startedBundles
+    if (Array.isArray(bundles) && bundles.includes(AUTO_REVIEW_BUNDLE)) return true
+  }
+  // CLI web host: no profileContext. The official package resolving means the
+  // bundle is composed — the import below already tried it during mounting.
+  try {
+    const require = createRequire(import.meta.url)
+    require.resolve('@deepsearch-ai/dsh-experimental-auto-review')
+    return true
+  } catch {
     return false
   }
-  if (profile === null || typeof profile !== 'object') return false
-  const bundles = (profile as { readonly startedBundles?: unknown }).startedBundles
-  return Array.isArray(bundles) && bundles.includes(AUTO_REVIEW_BUNDLE)
 }
 
 /** The bundle id dsh-purge-community registers under. */
@@ -572,9 +588,19 @@ function startedBundlesOf(ctx: Context): readonly string[] | undefined {
   return Array.isArray(bundles) ? bundles.filter((entry): entry is string => typeof entry === 'string') : undefined
 }
 
-/** Whether the profile started the dsh-purge-community bundle. */
+/**
+ * Whether the dsh-purge-community bundle is active in this profile.
+ *
+ * Two detection paths, either suffices: the desktop's `profileContext` service
+ * lists started bundles, while the CLI web host has no such service — there,
+ * the official gate's patched source proves the purge applied.
+ */
 function purgeCommunityActive(ctx: Context): boolean {
-  return startedBundlesOf(ctx)?.includes(PURGE_BUNDLE) ?? false
+  const bundles = startedBundlesOf(ctx)
+  if (bundles !== undefined && bundles.includes(PURGE_BUNDLE)) return true
+  // CLI web host: no profileContext. The official gate being patched by a
+  // third-party host patch is the observable effect of the purge bundle.
+  return detectOfficialGateNeutered() === true
 }
 
 /**
