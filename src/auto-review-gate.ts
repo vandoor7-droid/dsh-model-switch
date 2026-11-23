@@ -651,6 +651,30 @@ export function failed(exec: OwnGateExecution, error: unknown): GateDecision {
   }
 }
 
+/**
+ * Signatures of a broken reviewer seam, never of a real denial.
+ *
+ * Mirrors the safety net in auto-review.ts: infrastructure errors (fiber
+ * resolution, service injection) let the call through instead of blocking it.
+ */
+const INFRASTRUCTURE_FAILURE_SIGNATURES = [
+  'inactive context',
+  'cannot get required service',
+  'cannot get property',
+  'without inject',
+  'Cannot read properties of undefined',
+  'Cannot read properties of null',
+] as const
+
+/**
+ * Whether a review-path throw is a broken seam rather than a real decision.
+ * @param cause - whatever the review pipeline threw.
+ * @returns true when the reviewer infrastructure itself could not run.
+ */
+function isInfrastructureFailure(cause: unknown): boolean {
+  const text = cause instanceof Error ? cause.name + ': ' + cause.message : String(cause)
+  return INFRASTRUCTURE_FAILURE_SIGNATURES.some(signature => text.includes(signature))
+}
 // ─── the own-gate listener ───────────────────────────────────────────────────
 
 /** The ambient call context shape the own gate coordinates through. */
@@ -732,7 +756,13 @@ export function installOwnReviewGate(gateCtx: Context, options: OwnGateOptions):
           (error: unknown) => ({ ok: false as const, error }),
         )
         if (lifecycle.signal.aborted) return { kind: 'cancel' }
-        if (!review.ok) return failed(exec, review.error)
+        if (!review.ok) {
+          // Infrastructure failures (fiber resolution, service injection, startup
+          // races) let the call through — matching the safety net the official
+          // gate has. Only real reviewer errors deny.
+          if (isInfrastructureFailure(review.error)) return next()
+          return failed(exec, review.error)
+        }
         const { decision } = review
         ambient.handled = true
         if (decision.decision === 'deny' && approval.overrideOf(agent.session) === 'never') return denied(exec, decision.reason)
