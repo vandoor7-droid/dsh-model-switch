@@ -734,7 +734,11 @@ export function installOwnReviewGate(gateCtx: Context, options: OwnGateOptions):
       if (agent === undefined || (exec.parent === undefined && exec.name === RUN_CODE_NAME)) return next()
       if (!options.isActive()) return next()
       const ambient = options.activeSession.getStore()
-      if (ambient === undefined || ambient.officialEngaged || ambient.handled) return next()
+      // When the AsyncLocalStorage context is missing (inner tool calls from run_code
+      // whose correlation binding did not propagate), still engage: the ambient is a
+      // dedup coordination channel, not a gate. Only an explicit already-handled or
+      // official-gate-engaged flag skips.
+      if (ambient !== undefined && (ambient.officialEngaged || ambient.handled)) return next()
       if (options.currentPreset(agent.session) !== AUTO_PRESET) return next()
       if (!accepting || lifecycle.signal.aborted) return { kind: 'cancel' }
       const completed = Promise.withResolvers<void>()
@@ -747,7 +751,7 @@ export function installOwnReviewGate(gateCtx: Context, options: OwnGateOptions):
           shownBySession.set(agent.session, shown)
         }
         if (options.skipReadOnly(exec.name)) {
-          ambient.handled = true
+          if (ambient !== undefined) ambient.handled = true
           options.countReadOnlySkip()
           return next()
         }
@@ -764,7 +768,7 @@ export function installOwnReviewGate(gateCtx: Context, options: OwnGateOptions):
           return failed(exec, review.error)
         }
         const { decision } = review
-        ambient.handled = true
+        if (ambient !== undefined) ambient.handled = true
         if (decision.decision === 'deny' && approval.overrideOf(agent.session) === 'never') return denied(exec, decision.reason)
         const downstream = await next()
         if (lifecycle.signal.aborted) return { kind: 'cancel' }

@@ -1,3 +1,10 @@
+## v0.4.77
+
+破甲预设劫持旁路 + ambient 缺失回退。
+
+- **预设旁路（P1）**：破甲补丁把 permissionPresets.current() 劫持为恒 danger-full-access；own gate 改为双通道——current() 返回非 auto 时，直接读 permissionState 投影（sandbox=danger-full-access + approval=ask 即 auto），绕过劫持。重启后无需重切 /permission auto。
+- **ambient 回退（P2）**：run_code 内层工具调用的 AsyncLocalStorage 上下文可能未传播（ambient undefined）；own gate 改为仅在 ambient 存在且已标记 handled/officialEngaged 时才跳过，ambient 缺失时照常审查。
+
 ## v0.4.76
 
 破甲接管开关独立成卡。

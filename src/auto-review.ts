@@ -796,10 +796,45 @@ async function mountReviewer(ctx: Context): Promise<void> {
     ctx.logger.warn('model-switch: the official auto-review package carries a host patch marker; the review rides the own gate while autoReviewOwnGate stays on')
   }
   const ownGateActive = (): boolean => purgeInstalled && ownGateEngaged()
-  /** The raw preset read: the real service, never the defensive shadow. */
-  const rawCurrentPreset = (session: Session): string => {
+  /**
+   * Read a session's stored permission knob state from the presets service.
+   * The purge patch hijacks `current()` but leaves `permissionState()` intact.
+   */
+  const readPermissionState = (
+    presets: NonNullable<ReturnType<typeof permissionPresetsOf>>,
+    session: Session,
+  ): { readonly sandbox?: string; readonly approval?: string } | undefined => {
     try {
-      return permissionPresetsOf(ctx)?.current(session) ?? CUSTOM_PRESET
+      const face = presets as unknown as { permissionState?(session: Session): { readonly sandbox?: string; readonly approval?: string } | undefined }
+      return face.permissionState?.(session)
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * The raw preset read: the real service, never the defensive shadow.
+   *
+   * Two channels: the service's `current()` (correct on clean hosts), and a
+   * direct `permissionState` read that catches the dsh-purge patch which
+   * forces `current()` to "danger-full-access" whenever the shell sandbox
+   * is full access. The bypass only overrides toward "auto" — the one
+   * preset whose spec is sandbox "danger-full-access" + approval "ask" —
+   * so it cannot widen review to sessions the user set to plain full access.
+   */
+  const rawCurrentPreset = (session: Session): string => {
+    const presets = permissionPresetsOf(ctx)
+    if (presets === undefined) return CUSTOM_PRESET
+    try {
+      const name = presets.current(session) ?? CUSTOM_PRESET
+      if (name === AUTO_PRESET) return AUTO_PRESET
+      // The service said non-auto; check the session's stored state directly.
+      // This bypasses the purge's default-preset hijack without widening scope.
+      const state = readPermissionState(presets, session)
+      if (state !== undefined && state.sandbox === 'danger-full-access' && state.approval === 'ask') {
+        return AUTO_PRESET
+      }
+      return name
     } catch {
       return CUSTOM_PRESET
     }
