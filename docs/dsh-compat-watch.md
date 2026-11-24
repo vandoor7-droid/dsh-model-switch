@@ -316,20 +316,63 @@ keeps a branch for each released shape it has been verified against (for example
 `startActivation` **and** `start()`/`startContinuable()`), selected at install
 time from the resolved row, never by hard-coding one line.
 
+## Model-seat slot-protocol watch (from 2026-11-24)
+
+The composer model seat this plugin takes over at priority -10 must keep
+rendering the official `conversation.input.model` child slots, or rows the
+official seat contributes (the agent-team toggle et al. under
+`conversation.input.model.options`) silently vanish — the bug fixed in 0.4.81.
+Two upstream drifts cannot be pre-adapted and are therefore watched:
+
+- **Scenario A**: the official registration declares a NEW child slot key
+  (or the official ModelSelect root pane renders a key outside our
+  declaration) → add the key to the children declaration in
+  `src/client/picker/install.tsx` and a matching render site in
+  `ComposerPicker.tsx` (see the 0.4.81 fix for the pattern).
+- **Scenario B**: the official options owner contract gains/removes fields
+  (`locked` / `dismiss` / `reportFailure` today) → sync
+  `SeatOptionsOwner` and the owner assembly in `seat-options.ts` /
+  `ComposerPicker.tsx`.
+
+**Command** (run on every watch round, mandatory when `latest` moves):
+
+```
+node scripts/watch-model-seat.mjs [--host <official install root>]
+node scripts/watch-model-seat.mjs --self-test   # drill the drift detectors
+```
+
+Exit 0 = in sync (known exemptions only); exit 1 = drift, follow the
+scenarios above, then re-run until green and record the round here. Known
+exemptions live in the script's `KNOWN_EXEMPTIONS`:
+
+- `conversation.input.model.label` — official single/inline label slot;
+  ComposerPicker paints its own trigger label, so the label contribution has
+  no place in the takeover pane (deliberate, not a drift).
+
+Baseline 2026-11-24 (dsh 0.2.2-rc.5): official children
+`[label, options]`, ours `[options]` (label exempt); owner
+`[locked, dismiss, reportFailure]` on both sides; official rendered
+`[label, options]` — **IN SYNC**, self-test 6/6 green.
+
+
+
 ## Procedure when `latest` moves (do all of it)
 
 1. `npm view @deepseek-ai/dsh dist-tags --json` — confirm the new `latest`.
 2. Read the new line's public API changes against what this plugin calls (see
    `dsh-dev-reference` skill; official packages in the lab profile are readable,
    or pull the matching tag to `%TEMP%`).
-3. Update only this repo. Never patch DSH. Keep peer/dev ranges as unbounded
+3. Run `node scripts/watch-model-seat.mjs` (self-test first). Exit 1 = the
+   official model-seat slot protocol drifted — follow the "Model-seat
+   slot-protocol watch" section above before touching anything else.
+4. Update only this repo. Never patch DSH. Keep peer/dev ranges as unbounded
    lower bounds (`>=<lowest verified>`), never an upper bound or an exact pin.
-4. Add the new line's adapters **beside** the existing ones (old lines stay
+5. Add the new line's adapters **beside** the existing ones (old lines stay
    green); run `pnpm run check`.
-5. Install the built artifact into the lab profile
+6. Install the built artifact into the lab profile
    (`DSH_HOME=D:\dsh-lab`, port 3082), boot it, and drive one real tool call
    (CDP: Edge with `--remote-debugging-port`, submit via the「发送消息」button).
-6. Record the verified line here, add a `CHANGELOG.md` entry, and follow
+7. Record the verified line here, add a `CHANGELOG.md` entry, and follow
    `AGENTS.md`: functional change → tag `vX.Y.Z` and publish; docs-only → push
    only.
 

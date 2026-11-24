@@ -289,6 +289,9 @@ export function installComposerPicker(ctx: ClientContext): void {
       locale: NS,
       priority: MODEL_PRIORITY,
       // Declare the official options child so the slot runtime authorizes this
+      // (drift patrolled by scripts/watch-model-seat.mjs: new official child keys
+      // or owner fields must be added here and in ComposerPicker; see the
+      // compat-watch doc's Model-seat section).
       // entry to render the rows the official seat contributed under it
       // (agent-team switch et al.). Spread as an opaque object: the pinned
       // devDependency's types predate the key, while every DSH release this

@@ -17,6 +17,10 @@
  * every DSH that declares the slot, and the registration's children
  * declaration authorizes this entry to render it.
  *
+ * Contract drift — a new official child slot key, or owner fields beyond
+ * locked/dismiss/reportFailure — is patrolled by scripts/watch-model-seat.mjs;
+ * see docs/dsh-compat-watch.md, section "Model-seat slot-protocol watch".
+ *
  * @module dsh-model-switch/client/picker/seat-options
  */
 

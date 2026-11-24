@@ -66,5 +66,21 @@
     ],
     "lastVerifiedWith": "pending first lab run (0.4.69)",
     "checkedAt": "2026-11-23"
+  },
+  "modelSeat": {
+    "script": "scripts/watch-model-seat.mjs",
+    "watched": "dsh-client-ui-model-selection seat children declaration + options owner contract + ModelSelect root-pane renderSlot keys",
+    "lastCheck": "2026-11-24T11:40:00Z",
+    "lastHost": "dsh 0.2.2-rc.5 (desktop install)",
+    "result": "in sync",
+    "knownExemptions": [
+      "conversation.input.model.label (deliberate: ComposerPicker paints its own trigger label)"
+    ],
+    "ownerContract": [
+      "locked",
+      "dismiss",
+      "reportFailure"
+    ],
+    "selfTest": "6/6 green"
   }
 }
