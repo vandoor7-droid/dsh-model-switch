@@ -18,15 +18,46 @@ import { createRequire } from 'node:module'
 const NEUTER_LINE = 'return next(); // [dsh-purge] official auto-review soft intercept disabled'
 const LISTENER_OPENER = 'yield ctx.on("tools/pre-execute", async (exec, next) => {'
 
-/** Find the dsh-experimental-auto-review/lib/index.js file on this host. */
+/**
+ * Find the dsh-experimental-auto-review/lib/index.js file on this host.
+ *
+ * Multi-strategy: the @deepsearch-ai packages live near the DSH host entry point,
+ * not the plugin's own node_modules. We try (a) require.resolve from this module,
+ * (b) the running host's binary path (process.argv[1]), and (c) common DSH layout
+ * paths. First hit wins.
+ */
 function findAutoReviewFile(): string | undefined {
-  const require = createRequire(import.meta.url)
+  const relative = path.join('@deepseek-ai', 'dsh-experimental-auto-review', 'lib', 'index.js')
+  const candidates: string[] = []
+  // (a) resolve from this module (works on the desktop where the profile tree sees the host packages)
   try {
-    // The plugin runs inside the DSH host; resolving the sibling package works.
-    return require.resolve('@deepsearch-ai/dsh-experimental-auto-review/lib/index.js')
-  } catch {
-    return undefined
+    const require = createRequire(import.meta.url)
+    const entry = require.resolve('@deepsearch-ai/dsh-experimental-auto-review')
+    candidates.push(entry, path.join(path.dirname(entry), 'lib', 'index.js'))
+  } catch { /* not resolvable from the plugin tree */ }
+  // (b) the running host binary: the @deepseek-ai tree is a sibling of the bin entry
+  const hostBin = process.argv[1]
+  if (hostBin !== undefined) {
+    const binDir = path.dirname(path.resolve(hostBin))
+    candidates.push(
+      path.join(binDir, relative),
+      path.join(binDir, 'node_modules', relative),
+      path.join(binDir, '..', 'node_modules', relative),
+      path.join(binDir, '..', '..', 'node_modules', relative),
+    )
   }
+  // (c) common DSH layout paths
+  const home = process.env.DSH_HOME ?? path.join(os.homedir(), '.dsh')
+  candidates.push(
+    path.join(home, 'node_modules', relative),
+    path.join(home, 'cli', 'node_modules', relative),
+  )
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) return path.resolve(candidate)
+    } catch { /* keep looking */ }
+  }
+  return undefined
 }
 
 /** The purge's tuning file path (dsh-purge/tuning.json under DSH home). */

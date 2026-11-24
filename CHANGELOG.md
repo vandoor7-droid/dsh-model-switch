@@ -1,3 +1,10 @@
+## v0.4.79
+
+purge-patch 文件查找修复（lab 验证通过）。
+
+- **findAutoReviewFile 多策略**：require.resolve + process.argv[1] 推导 + DSH_HOME 常见路径，三路查找确保 lab/desktop 都能定位 auto-review 文件。
+- **lab 验证**：RPC enable/disable 双向测试通过——移除短路行 + tuning.json 写入 + 恢复短路行 + tuning.json 恢复。
+
 ## v0.4.78
 
 开关改为直接控制破甲补丁（方案 A）。
