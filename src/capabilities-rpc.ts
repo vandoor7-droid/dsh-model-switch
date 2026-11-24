@@ -5,6 +5,7 @@ import type { RuntimeCapabilities } from './runtime-capabilities.js'
 import { readToolCatalog, type ToolCatalogSnapshot } from './tool-catalog.js'
 import { DEFAULT_READ_ONLY_TOOLS } from './tool-allowlist.js'
 import { autoReviewStatus, ownGateEngaged } from './auto-review.js'
+import { enableOfficialReview, disableOfficialReview, isNeutered } from './purge-patch-control.js'
 import { automodeCompatView } from './automode-compat.js'
 import { subagentDiscoveryHintStatus } from './subagent-runtime.js'
 import { reviewTimeoutStatus } from './review-timeout.js'
@@ -133,6 +134,19 @@ export function capabilitiesRpc(
         return { ok: false, error: { details: {}, code: 'invalid-request', message: 'Expected an empty payload' } }
       }
       return { ok: true, value: { ...catalog(), status: status() } }
+    }
+    if (endpoint === 'purge-patch') {
+      if (payload === null || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).some(key => key !== 'enable')) {
+        return { ok: false, error: { details: {}, code: 'invalid-request', message: 'Expected { enable: boolean }' } }
+      }
+      const enable = (payload as { enable?: unknown }).enable
+      if (typeof enable !== 'boolean') {
+        return { ok: false, error: { details: {}, code: 'invalid-request', message: 'Expected { enable: boolean }' } }
+      }
+      const result = enable ? enableOfficialReview() : disableOfficialReview()
+      return result.ok
+        ? { ok: true as const, value: { ...result, neutered: isNeutered() } }
+        : { ok: false as const, error: { details: {}, code: 'purge-patch-failed', message: result.message } }
     }
     if (endpoint !== 'capabilities') return { ok: false, error: { details: {}, code: 'unknown-endpoint', message: 'Unknown Model Switch endpoint' } }
     if (payload === null || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).some(key => key !== 'revision')) return { ok: false, error: { details: {}, code: 'invalid-request', message: 'Expected optional revision' } }

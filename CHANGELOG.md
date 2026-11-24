@@ -1,3 +1,12 @@
+## v0.4.78
+
+开关改为直接控制破甲补丁（方案 A）。
+
+- **开关语义变更**：破甲接管开关不再控制自有门，而是直接修改破甲的 auto-review 补丁（移除/恢复 return next() 短路行）+ 写 tuning.json 的 permissionPatches 设置。开启 = 移除补丁恢复官方审查；关闭 = 重新打补丁。
+- **自有门冻结**：ownGateActive 恒返回 false，~700 行分叉代码保留但不激活。
+- **RPC 新端点**：purge-patch { enable: boolean } → 移除/恢复 auto-review 补丁。
+- **AGENTS.md 固化**：发版前 lab 验证规则。
+
 ## v0.4.77
 
 破甲预设劫持旁路 + ambient 缺失回退。

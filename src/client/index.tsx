@@ -52,6 +52,14 @@ export function apply(ctx: ClientContext): void {
       return undefined
     }
   })()
+  const callPurgePatchImpl = async (enable: boolean): Promise<{ ok: boolean; message: string }> => {
+    const rpc = connectionRpc
+    if (rpc === undefined) return { ok: false, message: 'connection RPC unavailable' }
+    const response = await callPluginRpc(rpc, 'plugin-rpc/model-switch', 'purge-patch', { enable })
+    if (!response.ok || response.value === undefined) return { ok: false, message: 'purge-patch RPC failed' }
+    const value = response.value as { ok?: boolean; message?: string }
+    return { ok: value.ok === true, message: value.message ?? '' }
+  }
   const orderStore = providerOrderStore(ctx.configForms.get<ProviderOrderSettings>(PROVIDERS_CONFIG_ID))
   let directory: ProviderDirectoryFace | undefined
   ctx.inject(['providerDirectory'], scope => {
@@ -79,12 +87,9 @@ export function apply(ctx: ClientContext): void {
         ])
         if (!accepted) throw new Error('settings-rejected')
       },
-      saveReviewOwnGate: async (ownGate: boolean) => {
-        const accepted = await owned.mutate([
-          { op: 'set', path: ['autoReviewOwnGate'], value: ownGate },
-        ])
-        if (!accepted) throw new Error('settings-rejected')
-      },
+      callPurgePatch: connectionRpc === undefined
+        ? async (): Promise<{ ok: boolean; message: string }> => ({ ok: false, message: 'connection RPC unavailable' })
+        : callPurgePatchImpl,
       ...(connectionRpc === undefined ? {} : { scanTools: async () => {
         const rpc = connectionRpc
         const response = await callPluginRpc(rpc, 'plugin-rpc/model-switch', 'tools', {})
@@ -95,6 +100,13 @@ export function apply(ctx: ClientContext): void {
         // is simply missing the "skipped so far" line.
         const status = decodeReviewStatus(response.value)
         return status === undefined ? { rows } : { rows, status }
+      } }),
+      ...(connectionRpc === undefined ? {} : { callPurgePatch: async (enable: boolean): Promise<{ ok: boolean; message: string }> => {
+        const rpc = connectionRpc
+        const response = await callPluginRpc(rpc, 'plugin-rpc/model-switch', 'purge-patch', { enable })
+        if (!response.ok || response.value === undefined) return { ok: false, message: 'purge-patch RPC failed' }
+        const value = response.value as { ok?: boolean; message?: string }
+        return { ok: value.ok === true, message: value.message ?? '' }
       } }),
       saveProviderGroup: async (provider: string, group: ProviderGroupConfig | undefined) => {
         // Revision-fenced and retried: see saveProviderGroupFenced for why one

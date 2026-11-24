@@ -795,7 +795,8 @@ async function mountReviewer(ctx: Context): Promise<void> {
   if (purgeInstalled && officialNeutered !== false) {
     ctx.logger.warn('model-switch: the official auto-review package carries a host patch marker; the review rides the own gate while autoReviewOwnGate stays on')
   }
-  const ownGateActive = (): boolean => purgeInstalled && ownGateEngaged()
+  // FROZEN: the own gate is disabled; the purge-patch switch now controls the official gate directly.
+  const ownGateActive = (): boolean => false
   /**
    * Read a session's stored permission knob state from the presets service.
    * The purge patch hijacks `current()` but leaves `permissionState()` intact.

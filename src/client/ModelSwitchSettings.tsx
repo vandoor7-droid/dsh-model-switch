@@ -29,7 +29,7 @@ export interface ModelSwitchSettingsFace {
   /** Persist the read-only skip switch and its allowlist as one atomic write. */
   saveReviewAllowlist: (value: { enabled: boolean; tools: readonly string[] }) => Promise<void>
   /** Persist the purge-takeover switch (the own review gate). */
-  saveReviewOwnGate: (ownGate: boolean) => Promise<void>
+  callPurgePatch: (enable: boolean) => Promise<{ ok: boolean; message: string }>
   /** The Host's live tool catalog; absent on a Host without the `tools` RPC endpoint. */
   scanTools?: () => Promise<{ rows: readonly ToolCatalogRow[]; status?: ReviewStatusView }>
   /** Replace or remove (undefined) one provider's saved capability group. */
@@ -445,7 +445,8 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
   const allowlistTools = allowlistView?.tools ?? DEFAULT_READ_ONLY_TOOLS
   const allowlistEnabled = allowlistView?.enabled === true
   /** The own-gate switch value: default on; only meaningful on a purge-patched host. */
-  const ownGateSettingOn = switchSettings.value === undefined ? true : switchSettings.value.autoReviewOwnGate !== false
+  // The switch shows the live gate state: ON when the official review is enabled (not neutered).
+  const ownGateSettingOn = reviewStatus === undefined ? true : reviewStatus.officialGateNeutered !== true
   const allowlistWritable = switchSettings.status === 'ready' && switchSettings.writable
   const persistAllowlist = (next: { enabled: boolean; tools: readonly string[] }): void => {
     if (busy !== undefined || !allowlistWritable) return
@@ -850,7 +851,7 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
         </>}
         {catalogState === 'failed' ? <p className={cx(css.hint, css.message)}>{props.t('reviewAllowlistScanFailed')}</p> : null}
       </RouteCard>
-      <RouteCard title={props.t('reviewOwnGate')} summary={reviewStatus === undefined ? props.t('reviewOwnGateUnknown') : reviewStatus.purgeInstalled === true ? props.t('reviewOwnGatePatched').replace('{neutered}', reviewStatus.officialGateNeutered === undefined ? props.t('reviewOwnGateUnknown') : reviewStatus.officialGateNeutered ? props.t('reviewOwnGateNeuteredYes') : props.t('reviewOwnGateNeuteredNo')) : props.t('reviewOwnGateUnavailable')} hint={props.t('reviewOwnGateHelp')} icon="autoReview" open={open === 'ownGate'} onToggle={() => { toggle('ownGate') }} trailing={<InstantSwitch checked={ownGateSettingOn} disabled={busy !== undefined || !allowlistWritable || reviewStatus?.purgeInstalled !== true} label={props.t('reviewOwnGate')} onChange={next => { void run('allowlist', () => props.saveReviewOwnGate(next)) }} />}>
+      <RouteCard title={props.t('reviewOwnGate')} summary={reviewStatus === undefined ? props.t('reviewOwnGateUnknown') : reviewStatus.purgeInstalled === true ? props.t('reviewOwnGatePatched').replace('{neutered}', reviewStatus.officialGateNeutered === undefined ? props.t('reviewOwnGateUnknown') : reviewStatus.officialGateNeutered ? props.t('reviewOwnGateNeuteredYes') : props.t('reviewOwnGateNeuteredNo')) : props.t('reviewOwnGateUnavailable')} hint={props.t('reviewOwnGateHelp')} icon="autoReview" open={open === 'ownGate'} onToggle={() => { toggle('ownGate') }} trailing={<InstantSwitch checked={ownGateSettingOn} disabled={busy !== undefined || !allowlistWritable || reviewStatus?.purgeInstalled !== true} label={props.t('reviewOwnGate')} onChange={next => { void run('allowlist', () => props.callPurgePatch(next).then(() => undefined)) }} />}>
         <p className={css.hint}>{props.t('reviewOwnGatePatched').replace('{neutered}', reviewStatus === undefined ? props.t('reviewOwnGateUnknown') : reviewStatus.officialGateNeutered === undefined ? props.t('reviewOwnGateUnknown') : reviewStatus.officialGateNeutered ? props.t('reviewOwnGateNeuteredYes') : props.t('reviewOwnGateNeuteredNo'))}</p>
       </RouteCard>
     </section>

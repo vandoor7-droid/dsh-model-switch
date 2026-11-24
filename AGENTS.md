@@ -20,6 +20,11 @@ This repository inherits `../AGENTS.md`; read it before changing this checkout.
 - 参考检出放在 git-ignored 的 `reference/` 目录或 `D:\tmp\` 下（C 盘不产生临时文件），不进入本仓库、不参与构建；DSH Core 与任何官方 tag/检出一律只读，修改只发生在本插件仓库。
 - 拉取或检索失败时按全局搜索回退规则处理（原生 `web_search` ↔ `web_search_pro`）；仍不可用时直接核对已安装的官方包实现（node_modules 或运行时安装目录）。
 
+## 发版前 lab 验证（2026-11-24 用户要求固化）
+
+- **每次发新版本前必须通过无头浏览器 lab 测试**：boot lab host（同版本 DSH）→ 打开设置页 → 截图确认 UI 渲染 → RPC 确认状态字段。全部通过后才推标签发版。
+- 跳过 lab 验证直接发版属流程违规；npm 发版后补验不算完成。
+
 ## Lab 验证：全程虚拟请求/虚拟答复，零真实额度（2026-10-28 用户要求固化）
 
 - 任何 lab / 运行时验证（能力路由、automode 分类器、记忆蒸馏、计划卡、兼容性检查）**只允许**打本地虚拟端点：`tools/route-probe.mjs`（OpenAI 兼容、记录 `model`/`stream`、返回固定回复）或等价假端点。禁止把 lab profile 的任何 provider 指向真实 API（apigoto / deepseek 官方账号 / 其他真实供应商）。
