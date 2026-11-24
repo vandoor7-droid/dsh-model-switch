@@ -315,6 +315,12 @@
   color: var(--dsw-alias-label-primary);
 }
 
+.seatOptions {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--dsw-alias-border-l2);
+}
+
 .cell {
   box-sizing: border-box;
   display: flex;

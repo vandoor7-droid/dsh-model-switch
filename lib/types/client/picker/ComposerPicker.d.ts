@@ -5,6 +5,7 @@ import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller/typ
 import type { PickerKey } from './locales.ts';
 import type { PickerDirectoryView } from './PickerDirectory.ts';
 import type { PickerInteractionOperations } from './popup-dismissal.ts';
+import { type SeatOptionsRender } from './seat-options.ts';
 import { type RuntimeProviderLock } from '../runtime-lock.ts';
 export type { PickerDirectoryFace, PickerDirectoryOperations, PickerDirectorySnapshot, PickerDirectoryView } from './PickerDirectory.ts';
 interface ComposerPickerBaseProps {
@@ -18,6 +19,8 @@ interface ComposerPickerBaseProps {
     embedded?: boolean;
     tone?: 'capsule';
     resolveInteractionOperations?: () => PickerInteractionOperations | undefined;
+    /** Official seat-options child-slot share; renders contributed root-menu rows (agent teamwork et al.). */
+    renderOptions?: SeatOptionsRender | undefined;
     /** Resolve a provider key to its ProviderDirectory role; absent means DSH-owned LLM (whale). */
     roleOf?: (providerKey: string) => string | undefined;
 }
@@ -42,4 +45,4 @@ export interface ModelPaneHeaderProps {
     onQueryChange: (query: string) => void;
 }
 export declare function ModelPaneHeader({ title, backLabel, searchLabel, closeSearchLabel, searchable, searching, query, onBack, onStartSearch, onCloseSearch, onQueryChange, }: ModelPaneHeaderProps): import("react").JSX.Element;
-export declare function ComposerPicker({ locked, providerLock, agentLocked, available, directory, t, draft, onDraftChange, embedded, tone, resolveInteractionOperations, roleOf, }: ComposerPickerProps): import("react").JSX.Element | null;
+export declare function ComposerPicker({ locked, providerLock, agentLocked, available, directory, t, draft, onDraftChange, embedded, tone, resolveInteractionOperations, renderOptions, roleOf, }: ComposerPickerProps): import("react").JSX.Element | null;

@@ -1,3 +1,13 @@
+## v0.4.81
+
+修复：接管 composer 模型座位后，「启用智能体团队协作」开关（及一切挂载在官方 `conversation.input.model.options` 子插槽上的选项行）从根页消失。
+
+- **根因**：`installComposerPicker()` 以 priority -10 抢注 `conversation.input.model` 座位后，ComposerPicker 的根页不渲染官方 `conversation.input.model.options` 子插槽；`dsh-client-ui-agent-team` 的 TeamModeToggle 唯一挂载点正是该插槽，因此自座位接管起该开关在所有部署上永不显示。
+- **修复**：座位注册声明官方 options 子插槽（与官方 ui-model-selection 注册同形）；`ModelSeat` 把运行时下发的 child-slot render share 结构化转发给 ComposerPicker；新增 `src/client/picker/seat-options.ts` 组装官方 owner 契约（locked/dismiss/reportFailure），根页在 Model/Effort/Context/Fast/Thinking 行之后渲染贡献行；`renderSlot` 缺失（旧 DSH 无该插槽）时跳过渲染，零破坏。
+- **实现面**：`renderOptions` 为可选 prop（exactOptionalPropertyTypes 下显式 undefined）；children 声明以运行时对象展开（pinned devDependency 的类型先于该 key，类型层豁免，运行时声明有效）。
+- **验收（lab 无头浏览器，虚拟端点零真实额度）**：接管态根页从「模型 gpt-6.1-sol / 推理等级 Default」变为「模型 / 推理等级 / 启用智能体团队协作 ⓘ」；开关点击后 aria-checked false → true（800ms 内稳定），状态跨宿主重启持久；`pnpm run check` 全绿（tsc + tsdown + 740 测试含新增 seat-options 3 项 + pack 闸门）。
+- **零触碰**：directory/select 流程、plan 审查卡、provider lock、antigravity、家族分组逻辑不变。
+
 ## v0.4.80
 
 回退版：内容与 0.4.72 完全一致。

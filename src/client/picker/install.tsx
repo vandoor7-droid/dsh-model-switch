@@ -9,6 +9,7 @@ import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SeatOptionsRender } from './seat-options.ts'
 import { useEffect, useSyncExternalStore } from 'react'
 import { PROVIDERS_CONFIG_ID } from '../../client-contract.ts'
 import { selectPlanReview, type PlanCommitOutcome } from '../../picker/plan-review.ts'
@@ -166,6 +167,7 @@ function ModelSeat(
       available={props.available}
       directory={pickerDirectoryViewOrdered(directory, props, order, props.catalogRoutes?.() ?? {})}
       t={props.t}
+      renderOptions={(props as { renderSlot?: SeatOptionsRender }).renderSlot}
       {...props.resolveInteractionOperations === undefined
         ? {}
         : { resolveInteractionOperations: props.resolveInteractionOperations }}
@@ -286,6 +288,12 @@ export function installComposerPicker(ctx: ClientContext): void {
       name: 'conversation.input.model',
       locale: NS,
       priority: MODEL_PRIORITY,
+      // Declare the official options child so the slot runtime authorizes this
+      // entry to render the rows the official seat contributed under it
+      // (agent-team switch et al.). Spread as an opaque object: the pinned
+      // devDependency's types predate the key, while every DSH release this
+      // plugin supports at runtime accepts the declaration.
+      ...({ children: { 'conversation.input.model.options': { kind: 'list', scope: 'session' } } } as object),
       inject: directoryFace,
     }, ModelSeatEntry))
 
