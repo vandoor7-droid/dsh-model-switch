@@ -1,0 +1,26 @@
+name: Fix dist-tag to 0.4.72
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  fix-dist-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Confirm the OIDC grant for trusted publishing
+        run: |
+          status=$(curl -s -o /tmp/oidc.json -w "%{http_code}" -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org")
+          if [ "$status" != "200" ]; then echo "::error::OIDC token request failed with HTTP $status"; exit 1; fi
+          node -e 'const j = require("/tmp/oidc.json"); if (typeof j.value !== "string" || j.value.split(".").length !== 3) { console.error("unexpected OIDC payload"); process.exit(1) } console.log(`OIDC token issued for npm:registry.npmjs.org (${j.value.length} chars)`)'
+      - name: Set dist-tag latest to 0.4.72
+        run: npm dist-tag set dsh-model-switch@0.4.72 latest
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
