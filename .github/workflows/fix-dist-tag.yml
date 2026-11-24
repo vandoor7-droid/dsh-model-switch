@@ -15,6 +15,7 @@ jobs:
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
+          cache: ''
       - name: Confirm the OIDC grant for trusted publishing
         run: |
           status=$(curl -s -o /tmp/oidc.json -w "%{http_code}" -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org")
