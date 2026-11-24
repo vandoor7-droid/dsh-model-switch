@@ -43,7 +43,7 @@ export interface ModelSwitchSettingsFace {
 }
 
 export type ModelSwitchSettingsProps = PropsRuntime<'settings.section'> & InjectFace<ModelSwitchSettingsFace>
-type RouteId = 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction' | 'sessionTitle' | 'memory' | 'vision' | 'providerGroups' | 'allowlist'
+type RouteId = 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction' | 'sessionTitle' | 'memory' | 'vision' | 'providerGroups' | 'allowlist' | 'ownGate'
 type RouteIconKind = RouteId
 
 function cx(...values: Array<string | undefined | false>): string { return values.filter(Boolean).join(' ') }
@@ -826,25 +826,6 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
         </div>
         {message?.route === 'allowlist' ? <p className={cx(css.hint, css.message)}>{message.text}</p> : null}
         {reviewStatus === undefined || reviewStatus.skippedReadOnly === 0 ? null : <p className={css.hint}>{props.t('reviewAllowlistSkipped').replace('{count}', String(reviewStatus.skippedReadOnly))}</p>}
-        <div className={css.rowCard}>
-          <div className={css.rowCopy}>
-            <span className={css.rowTitle}>{props.t('reviewOwnGate')}</span>
-            <p className={css.hint}>{props.t('reviewOwnGateHelp')}</p>
-            <p className={css.hint}>{reviewStatus === undefined
-              ? props.t('reviewOwnGateUnknown')
-              : reviewStatus.purgeInstalled === true
-                ? props.t('reviewOwnGatePatched').replace('{neutered}', reviewStatus.officialGateNeutered === undefined
-                  ? props.t('reviewOwnGateUnknown')
-                  : reviewStatus.officialGateNeutered ? props.t('reviewOwnGateNeuteredYes') : props.t('reviewOwnGateNeuteredNo'))
-                : props.t('reviewOwnGateUnavailable')}</p>
-          </div>
-          <InstantSwitch
-            checked={ownGateSettingOn}
-            disabled={busy !== undefined || !allowlistWritable || reviewStatus?.purgeInstalled !== true}
-            label={props.t('reviewOwnGate')}
-            onChange={next => { void run('allowlist', () => props.saveReviewOwnGate(next)) }}
-          />
-        </div>
         {reviewStatus?.automode === undefined ? null : <p className={css.hint}>{props.t('reviewAutomodeLinked')
           .replace('{route}', reviewStatus.automode.route ?? (reviewStatus.automode.routeSkipped === 'user-set' ? props.t('reviewAutomodeRouteOwn') : props.t('reviewAutomodeRouteUnset')))
           .replace('{added}', String(reviewStatus.automode.added))
@@ -868,6 +849,9 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
           </ul>
         </>}
         {catalogState === 'failed' ? <p className={cx(css.hint, css.message)}>{props.t('reviewAllowlistScanFailed')}</p> : null}
+      </RouteCard>
+      <RouteCard title={props.t('reviewOwnGate')} summary={reviewStatus === undefined ? props.t('reviewOwnGateUnknown') : reviewStatus.purgeInstalled === true ? props.t('reviewOwnGatePatched').replace('{neutered}', reviewStatus.officialGateNeutered === undefined ? props.t('reviewOwnGateUnknown') : reviewStatus.officialGateNeutered ? props.t('reviewOwnGateNeuteredYes') : props.t('reviewOwnGateNeuteredNo')) : props.t('reviewOwnGateUnavailable')} hint={props.t('reviewOwnGateHelp')} icon="autoReview" open={open === 'ownGate'} onToggle={() => { toggle('ownGate') }} trailing={<InstantSwitch checked={ownGateSettingOn} disabled={busy !== undefined || !allowlistWritable || reviewStatus?.purgeInstalled !== true} label={props.t('reviewOwnGate')} onChange={next => { void run('allowlist', () => props.saveReviewOwnGate(next)) }} />}>
+        <p className={css.hint}>{props.t('reviewOwnGatePatched').replace('{neutered}', reviewStatus === undefined ? props.t('reviewOwnGateUnknown') : reviewStatus.officialGateNeutered === undefined ? props.t('reviewOwnGateUnknown') : reviewStatus.officialGateNeutered ? props.t('reviewOwnGateNeuteredYes') : props.t('reviewOwnGateNeuteredNo'))}</p>
       </RouteCard>
     </section>
 
