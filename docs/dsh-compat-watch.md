@@ -22,6 +22,65 @@ request while it still sat on `next`. It followed the same evidence bar as a
 `latest` move (contract diff + real-host lab run + rc.2 regression), so the line
 is listed as verified even though `latest` still points at `0.2.1-rc.2`.
 
+## 2026-11-24 watch — no `latest` movement; pending prime-memory 0.26.73 adapter diff completed (static, clean)
+
+npm (official registry, `--registry=https://registry.npmjs.org`; the first pass ran
+against the npmmirror default by accident and was re-verified — results identical):
+dsh `latest`/`next`/`alpha` unchanged (`0.2.2-rc.5` / `0.2.2-rc.5` / `0.2.3-alpha.2`),
+dsh-vision-router unchanged at `3.4.0`, dsh-prime-memory `latest` `0.26.73` (no move
+past the 2026-11-23 observation). No trigger fired for the dsh line, so the rc.5
+verification stands and the replaced rows (auto-review / compaction / session-title)
+are unchanged on the mounted line.
+
+### prime-memory 0.26.63 → 0.26.73 adapter-surface diff (the pending item)
+
+Tarball diff (`D:\tmp\compat-watch-20261124`): 33 changed + 15 added files, 0 removed.
+
+| file | verdict |
+|---|---|
+| `cordis.patch.yml` | byte-identical (`dsh-memory` row and config shape intact) |
+| `package.json` | `engines.dsh` unchanged (`>=0.1.0-rc.2 <0.3.0-0`), `dsh` field identical, all dep groups identical |
+| `dsh.plugin.json` | version + a pt locale description only (engines/components unchanged) |
+| `dist/settings.js` | byte-identical — the settings-get/settings-set RPC registrations, `projectDistillChain` and `effectiveCfg` carry over unchanged |
+| `dist/config.js` | one additive schema line (`graphWarmupDelayMs`); the `distill*` key set is intact (no removed/renamed literals) |
+| `dist/stats.js` + new `dist/trusted-hosts.js` | the 0.26.73 Ingress fence — see below |
+| `dist/client.js` (+427 KB), `dist/contract.d.ts`, `drsc-inproc.js`, `l1/search/graph-store.js` | upstream internals only: recall cache (0.26.64), DRSC `empty` state (0.26.70), i18n dictionary pipeline (0.26.68/71/72) — none on our seam |
+
+The fence (0.26.73 headline): the plugin's own `POST /dsh-memory/rpc/<method>` prefix
+route now wraps every request in `requestFenceAllows` — ① `hostFenceAllows` (loopback ∪
+`--trusted-host` whitelist ∪ bind address), ② `sec-fetch-site` ≠ `cross-site`, ③ no
+`Origin` header → allow, present → must equal the listener authority. This plugin's
+adapter POSTs `http://127.0.0.1:<port>/dsh-memory/rpc/settings-set` with only a
+`content-type` header (loopback Host, no `Origin`, no `sec-fetch-site`), so it passes
+all three branches by construction; the same request shape already passed 0.26.66's
+older loopback-only fence on the desktop plane. No adapter change needed.
+
+Verdict: seam unchanged → docs-only (this entry + `compat-watch-state.json`), no
+plugin change, no tag. `memory.pendingVerification` now records the completed static
+diff; the 7-step lab adoption matrix for 0.26.73 stays outstanding, desktop still on
+0.26.66.
+
+### auto-review gate check (0.4.73 fork)
+
+Two traps cleared:
+
+- The standalone package's `latest` dist-tag is **stale at `0.1.6-alpha.1`** (the
+  2026-09-15 first release) — the package publishes dsh-lockstep versions
+  (`0.2.2-rc.5` 2026-11-18, `0.2.3-alpha.2` 2026-11-22) without moving `latest`.
+  Watch its `next`/`alpha` tags and version list, never `latest`.
+- Drift check: npm `@deepseek-ai/dsh-experimental-auto-review@0.2.2-rc.5`
+  `lib/index.js` (sha1 `94c68694…`) is **byte-identical** to the host bundle's
+  pre-purge `.bak`, so the fork's calibration source is unchanged and the ported
+  pipeline (snapshot assembly, REVIEW_POLICY, decision protocol) tracks rc.5 exactly.
+
+Early signal, `0.2.3-alpha.2` vs rc.5: exactly two lines — a new
+`import { Context } from "@deepseek-ai/cordis"` and `ctx.root.fiber.state` →
+`ctx[Context.root].fiber.state` inside the teardown choreography. That line belongs to
+the registration/teardown the official row keeps (not the forked pipeline —
+`src/auto-review-gate.ts` has zero `ctx.root`/`fiber.state` references), so no gate
+sync is needed even when the 0.2.3 line reaches `latest`, unless more changes ride
+along.
+
 ## 2026-11-23 watch — `latest` moved to `0.2.2-rc.5`, no code change
 
 `latest` moved `0.2.2-rc.1` → `0.2.2-rc.5` (npm `time.modified` 2026-11-22). The line was

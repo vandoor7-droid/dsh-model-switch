@@ -1,7 +1,7 @@
 {
   "$schema-note": "Baseline for the scheduled compatibility watch (see docs/dsh-compat-watch.md). `latest` is the npm dist-tag an ordinary install gets.",
   "schema": "dsh-model-switch/compat-watch-state/v1",
-  "checkedAt": "2026-11-23T12:26:14Z",
+  "checkedAt": "2026-11-24T01:15:18Z",
   "dsh": {
     "distTagWatched": "latest",
     "latest": "0.2.2-rc.5",
@@ -44,7 +44,8 @@
     "observedDshTags": {
       "note": "all dsh-* tags sit at 0.26.41 as of 2026-11-17 (dsh-0.2.1-rc.5 included); no dsh-0.2.2-* tags"
     },
-    "pendingVerification": "0.26.73 (npm observed 2026-11-23) not adapter-diffed yet; desktop plane runs 0.26.66 with plugin 0.4.72 on dsh 0.2.2-rc.5 — distill LLM calls still fire on the configured group route (memory.log 2026-11-23, runtime evidence; the aborted calls there are provider-side, not routing failures)",
+    "staticDiffAt": "2026-11-24",
+    "pendingVerification": "0.26.73 adapter-surface diff completed 2026-11-24 (static, clean): cordis.patch.yml identical; package.json engines ('>=0.1.0-rc.2 <0.3.0-0')/dsh field/deps identical; dsh.plugin.json version+pt-locale only; dist/settings.js (settings-get/settings-set RPC registration, projectDistillChain, effectiveCfg) byte-identical; dist/config.js additive-only (graphWarmupDelayMs schema line), distill* key set intact; 0.26.73 adds a request fence on /dsh-memory/rpc/* (stats.js + new trusted-hosts.js) — the adapter POST (loopback Host, no Origin, no sec-fetch-site) passes all three fence branches by construction. Remaining: 7-step lab adoption run for 0.26.73. Desktop plane runs 0.26.66 with plugin 0.4.72 on dsh 0.2.2-rc.5 — distill LLM calls still fire on the configured group route (memory.log 2026-11-23, runtime evidence; the aborted calls there are provider-side, not routing failures)",
     "verifiedAt": "2026-11-18",
     "verifiedPlane": "rc.2 lab (virtual) + desktop (user-attested 2026-11-09); previous lab matrix stands for 0.26.24 on DSH 0.2.1-rc.5 with plugin 0.4.60",
     "verifiedRuns": [
@@ -59,6 +60,7 @@
     "distTagWatched": "latest",
     "note": "src/auto-review-gate.ts forks this package's review pipeline (0.2.2-rc.5 calibration); diff its tools/pre-execute listener + snapshot assembly per line",
     "forkedIn": "0.4.73",
-    "checkedAt": "2026-11-23"
+    "checkedAt": "2026-11-24",
+    "checkedNote": "npm @deepseek-ai/dsh-experimental-auto-review@0.2.2-rc.5 lib/index.js (sha1 94c68694…) == host bundled pre-purge .bak byte-identical — calibration source unchanged, no drift; 0.2.3-alpha.2 signal = teardown choreography cordis root-symbol alignment only (ctx.root -> ctx[Context.root]), outside the forked pipeline. NOTE: this package's latest dist-tag is stale at 0.1.6-alpha.1 (2026-09-15 first release) — it publishes dsh-lockstep versions without moving latest; watch next/alpha tags and the versions list, never latest"
   }
 }
