@@ -4,7 +4,7 @@
 
 在 DeepSeek Harness 中为当前会话、Subagent、Web Search、图像生成、Plan 执行、自动会话命名、记忆蒸馏与识图（dsh-vision-router）配置明确路由。Model Switch 只使用 DSH 公开服务和 Provider 自有 Adapter；不修改 DSH Core，也不管理 Provider 登录凭证。
 
-<p align="center"><img src="docs/screenshots/plan-review.png" alt="带执行模型选择与目标设置的 Plan Review 卡" width="360"></p>
+<p align="center"><img src="docs/screenshots/plan-review.png" alt="带执行模型选择与目标设置的 Plan Review 卡" width="380"></p>
 
 自 0.4.84 起，模型席位交回官方 ModelSelect：输入框旁的模型菜单由官方渲染（官方选项行、智能体团队开关确定性可见），本插件对菜单零接管。Composer Picker 仅存在于 Plan Review 卡内（执行模型选择），键盘焦点行为作用于卡内 Picker。
 

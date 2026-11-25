@@ -4,7 +4,7 @@ English | [中文](README.md)
 
 Choose one explicit route for the active session, Subagents, Web Search, image generation, Plan execution, automatic session naming, memory distillation, and vision (dsh-vision-router) in DeepSeek Harness. Model Switch uses public DSH services and provider-owned adapters; it does not patch DSH Core or manage provider credentials.
 
-<p align="center"><img src="docs/screenshots/plan-review.png" alt="Plan Review card with the execution model picker and goal actions" width="360"></p>
+<p align="center"><img src="docs/screenshots/plan-review.png" alt="Plan Review card with the execution model picker and goal actions" width="380"></p>
 
 Since 0.4.84 the composer model seat is back with the official ModelSelect: the chat-input model menu is rendered by DSH itself (official option rows and the agent-team toggle stay deterministically visible); this plugin takes no part of it. The Composer Picker lives only inside the Plan Review card (execution model choice), and its keyboard-focus behavior applies there.
 
