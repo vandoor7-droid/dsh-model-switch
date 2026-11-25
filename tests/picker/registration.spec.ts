@@ -312,3 +312,110 @@ describe('composer picker seat ownership', () => {
     expect(source).not.toContain('remote.goals')
   })
 })
+
+describe('seat declaration conflict fallback (0.4.82)', () => {
+  function conflictBench(declarerWins: 'official' | 'model-switch') {
+    const entries: Array<{ spec: Record<string, unknown>, component: unknown }> = []
+    const registerCalls: Array<Record<string, unknown>> = []
+    const directory = {
+      store: { subscribe: vi.fn(() => () => undefined), getSnapshot: vi.fn(() => ({ current: null })) },
+      load: vi.fn(async () => undefined),
+      select: vi.fn(async () => ({ ok: true })),
+    }
+    const providerForm = { getSnapshot: () => ({ status: 'ready', value: { order: [] } }), subscribe: () => () => undefined }
+    const raw: Record<string, unknown> = {
+      providerDirectory: { roleOf: () => 'llm', nativeBindings: () => [], catalogRoutes: () => ({}), subscribe: () => () => undefined },
+      locale: { register: vi.fn(() => () => undefined) },
+      slots: {
+        inject: (_name: string, register: () => unknown) => register(),
+        register: (spec: Record<string, unknown>, component: unknown) => {
+          registerCalls.push(spec)
+          // The official model-selection entry declares the options child first;
+          // the model-switch seat registration with children then hits the
+          // exclusive-claim conflict and must fall back to the plain takeover.
+          if (declarerWins === 'official' && spec.children !== undefined) {
+            throw new Error('slot "conversation.input.model.options" is already declared (by an entry in "conversation.input.model" (WC))')
+          }
+          entries.push({ spec, component })
+          return () => undefined
+        },
+        entries: vi.fn(() => []),
+      },
+      uiConversation: { views: { register: vi.fn(() => vi.fn()) }, events: { register: vi.fn(() => vi.fn()) } },
+      modelDirectories: { directoryFor: vi.fn(() => directory) },
+      sessions: { subagentAddress: vi.fn(() => undefined) },
+      configForms: { get: () => providerForm },
+      effect: (register: () => unknown) => register(),
+      get: vi.fn(() => undefined),
+    }
+    const ctx: Record<string, unknown> = {
+      ...raw,
+      inject: (services: string[], register: (scope: unknown) => unknown) => {
+        if (services.includes('providerDirectory')) {
+          return register({ ...ctx, get: (name: string) => name === 'providerDirectory' ? raw.providerDirectory : undefined })
+        }
+        return register(ctx)
+      },
+    }
+    installComposerPicker(ctx as never)
+    return { entries, registerCalls }
+  }
+
+  it('falls back to the plain seat takeover when the official entry already owns the options child', () => {
+    const { entries, registerCalls } = conflictBench('official')
+    // The seat registration was attempted with children, then retried without.
+    const seatAttempts = registerCalls.filter(spec => spec.name === 'conversation.input.model')
+    expect(seatAttempts).toHaveLength(2)
+    expect(seatAttempts[0].children).toBeDefined()
+    expect(seatAttempts[1].children).toBeUndefined()
+    // Both critical entries are finally registered: the seat and the review card.
+    const seat = entries.find(({ spec }) => spec.name === 'conversation.input.model')
+    const card = entries.find(({ spec }) => spec.name === 'conversation.composer')
+    expect(seat).toBeDefined()
+    expect(card).toBeDefined()
+  })
+
+  it('keeps the children declaration when this seat registers first', () => {
+    const { entries, registerCalls } = conflictBench('model-switch')
+    const seatAttempts = registerCalls.filter(spec => spec.name === 'conversation.input.model')
+    expect(seatAttempts).toHaveLength(1)
+    expect(seatAttempts[0].children).toBeDefined()
+    const card = entries.find(({ spec }) => spec.name === 'conversation.composer')
+    expect(card).toBeDefined()
+  })
+
+  it('rethrows unrelated registration errors', () => {
+    const entries: Array<{ spec: Record<string, unknown>, component: unknown }> = []
+    const directory = { store: { subscribe: vi.fn(() => () => undefined), getSnapshot: vi.fn(() => ({ current: null })) }, load: vi.fn(async () => undefined), select: vi.fn(async () => ({ ok: true })) }
+    const providerForm = { getSnapshot: () => ({ status: 'ready', value: { order: [] } }), subscribe: () => () => undefined }
+    const raw: Record<string, unknown> = {
+      providerDirectory: { roleOf: () => 'llm', nativeBindings: () => [], catalogRoutes: () => ({}), subscribe: () => () => undefined },
+      locale: { register: vi.fn(() => () => undefined) },
+      slots: {
+        inject: (_name: string, register: () => unknown) => register(),
+        register: (spec: Record<string, unknown>, component: unknown) => {
+          if (spec.children !== undefined) throw new Error('slot factory "conversation.input.model" already has a definition')
+          entries.push({ spec, component })
+          return () => undefined
+        },
+        entries: vi.fn(() => []),
+      },
+      uiConversation: { views: { register: vi.fn(() => vi.fn()) }, events: { register: vi.fn(() => vi.fn()) } },
+      modelDirectories: { directoryFor: vi.fn(() => directory) },
+      sessions: { subagentAddress: vi.fn(() => undefined) },
+      configForms: { get: () => providerForm },
+      effect: (register: () => unknown) => register(),
+      get: vi.fn(() => undefined),
+    }
+    const ctx: Record<string, unknown> = {
+      ...raw,
+      inject: (services: string[], register: (scope: unknown) => unknown) => {
+        if (services.includes('providerDirectory')) {
+          return register({ ...ctx, get: (name: string) => name === 'providerDirectory' ? raw.providerDirectory : undefined })
+        }
+        return register(ctx)
+      },
+    }
+    expect(() => installComposerPicker(ctx as never)).toThrow('already has a definition')
+  })
+})

@@ -284,22 +284,11 @@ export function installComposerPicker(ctx: ClientContext): void {
       }
     }
 
-    scope.slots.inject('conversation.input.model', () => scope.slots.register({
-      name: 'conversation.input.model',
-      locale: NS,
-      priority: MODEL_PRIORITY,
-      // Declare the official options child so the slot runtime authorizes this
-      // (drift patrolled by scripts/watch-model-seat.mjs: new official child keys
-      // or owner fields must be added here and in ComposerPicker; see the
-      // compat-watch doc's Model-seat section).
-      // entry to render the rows the official seat contributed under it
-      // (agent-team switch et al.). Spread as an opaque object: the pinned
-      // devDependency's types predate the key, while every DSH release this
-      // plugin supports at runtime accepts the declaration.
-      ...({ children: { 'conversation.input.model.options': { kind: 'list', scope: 'session' } } } as object),
-      inject: directoryFace,
-    }, ModelSeatEntry))
-
+    // The plan-review card registers first and independently of the seat: the
+    // seat factory below can hit the official declaration race (see the
+    // conflict fallback), and a failure there must never take this card down
+    // with it (0.4.81 lost both when the official entry declared the options
+    // child first and the thrown registration aborted the shared scope).
     scope.slots.inject('conversation.composer', () => scope.slots.register({
       name: 'conversation.composer',
       locale: NS,
@@ -307,5 +296,35 @@ export function installComposerPicker(ctx: ClientContext): void {
       select: (owner: ComposerChainProps) => selectPlanReview(owner),
       inject: directoryFace,
     }, PlanReviewCard))
+
+    scope.slots.inject('conversation.input.model', () => {
+      // Taking over the model seat wants to forward the official options rows
+      // (agent-team switch et al.), which the slots runtime authorizes only
+      // through an entry's children declaration. Declaring is claiming and the
+      // claim is exclusive: whichever of this seat and the official
+      // model-selection entry registers first owns the child, and the other
+      // side's registration then throws "already declared". When that happens
+      // the registration degrades to the plain takeover (0.4.80 shape) instead
+      // of failing: the seat and the review card both keep working, and only
+      // the options forwarding (toggle visibility) is best-effort.
+      const childrenDeclaration = { children: { 'conversation.input.model.options': { kind: 'list', scope: 'session' } } } as object
+      try {
+        return scope.slots.register({
+          name: 'conversation.input.model',
+          locale: NS,
+          priority: MODEL_PRIORITY,
+          ...childrenDeclaration,
+          inject: directoryFace,
+        }, ModelSeatEntry)
+      } catch (error) {
+        if (!/already declared/.test(String(error))) throw error
+        return scope.slots.register({
+          name: 'conversation.input.model',
+          locale: NS,
+          priority: MODEL_PRIORITY,
+          inject: directoryFace,
+        }, ModelSeatEntry)
+      }
+    })
   })
 }

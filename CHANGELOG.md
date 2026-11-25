@@ -1,3 +1,11 @@
+## v0.4.82
+
+修复：0.4.81 起退出计划模式的审核卡退化为官方两按钮卡（批准/继续计划），且模型菜单随安装顺序随机回退官方——children 声明的排他所有权竞态。
+
+- **根因**：0.4.81 给 `conversation.input.model` 座位注册新增的 children 声明（`conversation.input.model.options`）撞上官方 model-selection 的同一声明。官方 slots 运行时对 child 声明实行排他所有权（`Declaring is claiming`）：先注册者拥有，后声明者注册时直接抛 `already declared`。官方组合与插件组合的注册顺序不稳定：官方先到时 model-switch 的座位工厂抛错，同一回调内的 composer 注册（PlanReviewCard）被连坐跳过——菜单与审核卡双双退化为官方形态（真机实测）；本插件先到时官方反被炸，菜单与卡侥幸全好（lab 复现时恰好如此，0.4.81 验收因此通过）。
+- **修复**：① `conversation.composer`（审核卡）注册提前并独立成段，不再依赖座位工厂的成败；② 座位工厂内 children 声明改为冲突降级——命中 `already declared` 时退回 0.4.80 形态的无声明注册（座位永远注册成功），仅在声明被官方持有时放弃 options 行转发（团队开关可见性退化为先到先得）；③ 无关错误照常上抛。
+- **已知限制**：接管座位时官方 options 行（团队开关）的转发依赖声明所有权——本插件先注册时可见、官方先注册时不可见。稳定转发需要上游提供非排他声明或 renderSlot 授权转移的公共接缝（已记录于 `docs/dsh-compat-watch.md`，待上游提案）。
+- **回归测试**：`tests/picker/registration.spec.ts` 新增冲突降级三例：官方先声明→降级注册（座位+卡双存活）、本插件先声明→保留声明、无关错误→照常上抛。
 ## v0.4.81
 
 修复：接管 composer 模型座位后，「启用智能体团队协作」开关（及一切挂载在官方 `conversation.input.model.options` 子插槽上的选项行）从根页消失。

@@ -355,6 +355,32 @@ Baseline 2026-11-24 (dsh 0.2.2-rc.5): official children
 `[label, options]` — **IN SYNC**, self-test 6/6 green.
 
 
+
+### Declaration-ownership race (0.4.82 lesson, 2026-11-25)
+
+0.4.81 taught the cost of the children declaration the hard way: the slots
+runtime treats a child declaration as an exclusive claim ("Declaring is
+claiming"), and the official model-selection entry registers its own claim
+on `conversation.input.model.options`. Whichever side registers second gets
+an `already declared` throw out of `slots.register`. On real deployments the
+official composition usually won that race first: our seat factory threw,
+and the shared inject callback then never ran the composer registration —
+the plan-review card AND the model menu both degraded to the official UI.
+The 0.4.82 fix registers the composer card first and independently, and the
+seat factory falls back to the plain (children-free) takeover on the
+conflict, so both entries survive in either race order.
+
+Upstream seams this plugin still needs (recorded for a future proposal):
+
+- a non-exclusive way for a takeover seat to render rows contributed under
+  the displaced entry's child declaration (today the options rows are only
+  visible when this plugin wins the declaration race — best effort, not
+  deterministic);
+- or a transferable render authorization for child slots whose owning entry
+  lost the seat election.
+
+Until one lands, treat the agent-team toggle's visibility under takeover as
+timing-dependent and keep the fallback covered by the registration specs.
 
 ## Procedure when `latest` moves (do all of it)
 
