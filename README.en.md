@@ -4,24 +4,23 @@ English | [中文](README.md)
 
 Choose one explicit route for the active session, Subagents, Web Search, image generation, Plan execution, automatic session naming, memory distillation, and vision (dsh-vision-router) in DeepSeek Harness. Model Switch uses public DSH services and provider-owned adapters; it does not patch DSH Core or manage provider credentials.
 
-<p align="center"><img src="docs/screenshots/composer-picker.png" alt="Composer Picker with Model and Reasoning effort controls" width="304"></p>
+<p align="center"><img src="docs/screenshots/plan-review.png" alt="Plan Review card with the execution model picker and goal actions" width="360"></p>
 
-The picker retains keyboard focus when changing panes or closing search, without overriding search autofocus. Escape from the summary closes the picker and returns focus to its trigger.
+Since 0.4.84 the composer model seat is back with the official ModelSelect: the chat-input model menu is rendered by DSH itself (official option rows and the agent-team toggle stay deterministically visible); this plugin takes no part of it. The Composer Picker lives only inside the Plan Review card (execution model choice), and its keyboard-focus behavior applies there.
 
 ## Routes
 
 | Route | Behavior |
 | --- | --- |
-| Session model | The active conversation's provider/model/effort, changed by the Composer Picker or Plan Review only. The deployment default (new sessions) is DSH's own; the picker never writes it. |
+| Session model | The active conversation's provider/model/effort, changed by the official ModelSelect menu or the Plan Review card's execution picker. The deployment default (new sessions) is DSH's own; this plugin never writes it. |
 | Subagent | When a spawn names no provider, model, or effort: the delegating session's derived route — its provider group's subagent pair, else the fixed card's pair; with neither, official inherit (parent live request, then creation snapshot). A spawn that names a route is never overridden; workflow overrides remain authoritative. |
-| Composer Picker | Changes only the active session and submits the exact catalog model id. |
-| Plan Review | Chooses the execution model before the Plan approval response is sent. |
+| Plan Review | The card's Composer Picker commits the execution model before answering the pending plan review; the card also offers set-as-goal, reject, and discuss. |
 | Web Search | Keeps official `web_search`; after deployment opt-in, routes through the selected, dynamically declared provider search adapter. |
 | Image generation | Provides one stable `generate_image` tool routed through a selected Codex or Grok adapter. |
 
 Invalid, unavailable, or unsupported routes fail explicitly. Model Switch never silently falls back to another provider or model. Composer icons identify the execution runtime: DSH-owned LLM routes use the theme-adaptive DSH whale; providers declaring the Agent role use their own mark. Sidebar quota icons remain provider-specific.
 
-Idle blank sessions may pick an External Agent. Submission, pending-first-turn, and running state reserve the selected execution runtime even before a token or native binding exists: native Antigravity keeps its model/effort choices; DSH keeps LLM-provider choices but disables Agent providers. After the first accepted user message, Composer and Plan Review keep Agent-role rows visible but disabled unless the session is already native-bound. After the active session successfully opens a native Antigravity session, the pickers read its plugin-owned binding and disable other providers while keeping available Antigravity model and effort controls. The DSH global picker lock remains authoritative. Binding reads refresh on mount, input-phase, request-activity or catalog changes, and before selection; failed reads show a localized alert and preserve a known native lock. These reads do not start the native runtime or gate conversation history. Antigravity owns the separate execution-time guard; Model Switch does not create custom Core history events.
+External Agent behavior applies to the Composer Picker inside the Plan Review card: idle blank sessions may pick an External Agent; submission, pending-first-turn, and running state reserve the selected runtime from the request onward. Native Antigravity keeps its model/effort choices; DSH keeps LLM-provider choices but disables Agent providers. After the first user message the in-card picker still shows Agent rows disabled unless the session has bound a native runtime. The DSH global lock still takes precedence. Agent rows in the chat-input menu are the official ModelSelect's own concern.
 
 The existing 3082 lab replay probe is `node scripts/check-lab-runtime-lock.mjs [native|runtime-absent|plugin-absent]`. It checks the dedicated QA conversation under the already-established condition; it does not disable plugins, select a model, or send a turn. `node scripts/check-lab-native-execution.mjs` verifies the saved guard rejection, restored native continuation, DeepSeek-parent/Antigravity-child completion, and restoration of temporary subagent preferences through public history streams.
 
@@ -43,7 +42,7 @@ Every row save is one atomic, revision-fenced mutation through the official Conf
 
 ## How custom models appear in the Picker
 
-Model Switch does not turn an arbitrary string in its own settings into a model. A provider plugin must publish the model to the official DSH model catalog first:
+The picker means the execution-model Composer Picker inside the Plan Review card (since 0.4.84 the plugin no longer takes over the chat-input model menu). Model Switch does not turn an arbitrary string in its own settings into a model. A provider plugin must publish the model to the official DSH model catalog first:
 
 ```text
 Provider configuration
@@ -194,7 +193,7 @@ After opting in, configure the requested search provider/model in Model Switch S
 
 Release-aligned search regression: `DSH_RELEASE_ANCHOR=/path/to/official/install/package.json pnpm exec vitest run --config tests/vitest.release.config.ts`. See [search audit and acceptance](docs/search-provider-audit.md) for exact baselines, dependencies and live status.
 
-If `dsh-composer-picker` is installed, remove it from the profile before enabling Model Switch. Model Switch already owns the Composer Picker and Plan Review seat; two owners produce duplicate or competing UI.
+If `dsh-composer-picker` is installed, remove it from the profile first (legacy seat-takeover package overlapping the pre-0.4.84 menu takeover). Model Switch now owns the Plan Review card seat; having both installed produces duplicate UI.
 
 Production profiles must use a released registry version or GitHub tag rather than workspace-local dependencies. Restart the selected DSH profile after installation or route changes. **Restart once after installing, updating, enabling or disabling this plugin**: it owns Host rows and takes the official Auto-review row over at runtime (`permissionPresets.registerAuto` is a single registration slot); when a hot enable skips the restart, the official row may still be serving, so the takeover only shields the reviewer path — tools keep running, that call's review is skipped with one log line — and the seam converges on the next start.
 

@@ -4,24 +4,23 @@
 
 在 DeepSeek Harness 中为当前会话、Subagent、Web Search、图像生成、Plan 执行、自动会话命名、记忆蒸馏与识图（dsh-vision-router）配置明确路由。Model Switch 只使用 DSH 公开服务和 Provider 自有 Adapter；不修改 DSH Core，也不管理 Provider 登录凭证。
 
-<p align="center"><img src="docs/screenshots/composer-picker.png" alt="包含模型与推理等级的 Composer Picker" width="304"></p>
+<p align="center"><img src="docs/screenshots/plan-review.png" alt="带执行模型选择与目标设置的 Plan Review 卡" width="360"></p>
 
-Picker 在切换页面或关闭搜索时保留键盘焦点，不覆盖搜索框的自动聚焦。从摘要页按 Escape 会关闭 Picker，并将焦点还给触发按钮。
+自 0.4.84 起，模型席位交回官方 ModelSelect：输入框旁的模型菜单由官方渲染（官方选项行、智能体团队开关确定性可见），本插件对菜单零接管。Composer Picker 仅存在于 Plan Review 卡内（执行模型选择），键盘焦点行为作用于卡内 Picker。
 
 ## 路由
 
 | 路由 | 行为 |
 | --- | --- |
-| 会话模型 | 当前对话的 provider/model/effort，只由 Composer Picker 或 Plan Review 修改。部署默认模型（新建会话）归 DSH 自己管理；选择器从不写它。 |
+| 会话模型 | 当前对话的 provider/model/effort，由官方 ModelSelect 菜单或 Plan Review 卡的执行模型修改。部署默认模型（新建会话）归 DSH 自己管理；插件从不写它。 |
 | Subagent | 子代理 spawn 未指定 provider/model/effort 时：使用委派会话自身推导出的路由——其供应商组的子代理对，其次是固定卡片的对；两者都没有则为官方继承（先父请求实时路由，再创建时快照）。显式指定路由的 spawn 永远不会被覆盖；Workflow 显式覆盖始终优先。 |
-| Composer Picker | 只修改当前会话，并提交 catalog 中的原始 model id。 |
-| Plan Review | 在发送 Plan 审核确认前，先提交执行模型。 |
+| Plan Review | 卡内 Composer Picker 在发送 Plan 审核确认前，先提交执行模型；卡另提供设置为目标、拒绝与去聊天里说。 |
 | Web Search | 保留官方 `web_search`；部署显式启用后，通过 Provider 动态声明的独立搜索适配器路由。 |
 | 图像生成 | 提供一个稳定的 `generate_image` 工具，通过选定的 Codex 或 Grok Adapter 路由。 |
 
 无效、不可用或不受支持的路由会明确失败。Model Switch 不会静默换到另一个 provider 或模型。
 
-空闲的空白会话可以选择 External Agent。提交中、等待首个 turn 以及运行期间，从请求开始就锁定所选执行运行时，不等待首 token 或原生绑定：Antigravity 保留其模型和 effort 选择；DSH 保留 LLM provider 选择，但禁用 Agent provider。会话一旦有过用户消息，Composer 和 Plan Review 仍显示 Agent 角色行但将其禁用，除非该会话已经绑定原生运行时。当前会话成功打开 Antigravity 原生会话后，Picker 会在该会话内禁用其他 provider，同时保留 Antigravity 模型与 effort 控件。DSH 全局 Picker 锁仍拥有最高优先级。
+External Agent 行为适用于 Plan Review 卡内的 Composer Picker：空闲的空白会话可以选择 External Agent；提交中、等待首个 turn 以及运行期间，从请求开始就锁定所选执行运行时。Antigravity 保留其模型和 effort 选择；DSH 保留 LLM provider 选择，但禁用 Agent provider。会话一旦有过用户消息，卡内 Picker 仍显示 Agent 角色行但将其禁用，除非该会话已经绑定原生运行时。DSH 全局锁仍拥有最高优先级。输入框旁官方菜单的 Agent 行为由官方 ModelSelect 自行管理。
 
 ## 配置 Subagent 与能力路由
 
@@ -41,7 +40,7 @@ Picker 在切换页面或关闭搜索时保留键盘焦点，不覆盖搜索框�
 
 ## 自定义模型如何出现在 Picker
 
-Model Switch 不会把自身设置中任意填写的字符串变成模型。Provider 插件必须先把模型发布到 DSH 官方 Model Catalog：
+Picker 指 Plan Review 卡内的执行模型 Composer Picker（0.4.84 起插件不再接管输入框旁的模型菜单）。Model Switch 不会把自身设置中任意填写的字符串变成模型。Provider 插件必须先把模型发布到 DSH 官方 Model Catalog：
 
 ```text
 Provider 配置
@@ -192,7 +191,7 @@ DeepSeek 薄适配器调用官方公开 `DeepSeekSearchProvider`，复用用户�
 
 本轮分支、测试命令及 3082 live 证据见 [搜索接入审计](docs/search-provider-audit.md)。经授权复用生产 DeepSeek 凭据后，Flash/Pro 的 3082 真实搜索均通过，三家均已有成功证据。Picker 测试夹具及审查发现的元数据恢复问题已修正，保留 v0.4.6 兼容性后全量 172 个测试通过。生产推广仍须先在 lab 安装验收同一组不可变发布产物。
 
-如果 profile 已安装 `dsh-composer-picker`，请先移除它。Model Switch 已经拥有 Composer Picker 和 Plan Review 席位；同时安装会产生重复或竞争 UI。
+如果 profile 已安装 `dsh-composer-picker`，请先移除它（旧席位接管包，与 0.4.84 前的 Model Switch 菜单接管功能重叠）。Model Switch 现拥有 Plan Review 卡席位；同时安装会产生重复 UI。
 
 生产 profile 必须使用已发布的注册表版本或 GitHub tag，不能使用工作区本地依赖。安装或修改路由后重启对应的 DSH profile。**安装、更新、启用或禁用本插件后都要重启一次**：它持有 Host 侧的行，并在运行时接管官方的自动审查行（`permissionPresets.registerAuto` 只有一个注册位）；不重启直接热启用时，官方行可能仍在服务，接管只能先把审查路径屏蔽掉——工具照常运行、本次审查跳过并留一条日志——重启后才会真正收敛。
 
