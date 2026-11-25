@@ -103,6 +103,37 @@ distillation hits all confirmed.
 dsh-prime-memory: `latest` unchanged at 0.26.37 (no new version, no `dsh-0.2.2-*` tags,
 engines range unchanged). automode: `latest` 0.18.0, still frozen.
 
+## dsh-prime-memory 0.27.8 check (2026-11-25)
+
+`latest` jumped 0.26.63 → **0.27.8** (a minor-line jump; the dsh-* dist-tags all moved to
+0.27.8 as well) and the desktop plane had already installed 0.27.8 alongside plugin
+0.4.84 on the 0.2.2-rc.5 runtime. dsh itself moved `latest` to `0.2.2-rc.5` (the line
+0.4.66 already declares) with `alpha` at 0.2.3-alpha.2 — early signal only, no action.
+Vision plugins: `dsh-media-lens` npm 0.3.5 = desktop 0.3.5 and `dsh-vision-router` npm
+3.4.0 = desktop 3.4.0 — both unchanged, nothing to check.
+
+Adapter-surface diff (0.26.63 → 0.27.8 tarballs): `cordis.patch.yml` unchanged (the
+`dsh-memory` row shape is intact); `dist/pipeline/runner.js` unchanged — `effectiveCfg`
+and the static-pin precedence our `clearStaticPin` relies on carry over byte-identical;
+`projectDistillChain` is byte-identical with the same `distill*` key set; the
+settings-get/settings-set RPC registrations live in the same file set with the same
+counts (one extra settings-set *call site* in client.js — the new bootMode toggle, a
+different field on the same endpoint we never touch); `dsh.plugin.json` differs only in
+version; `package.json` adds the `locale/` export and directory (additive). The type
+contract is purely additive: a `bootMode: 'on' | 'off' | 'last'` startup latch, DRSC
+health-state names, and schema-version fields — none on our seam. The 36 changed + 15
+added files are graph/store/locale work.
+
+Lab evidence (virtual, zero quota; `D:/dsh-artifacts/rc2-diff`, CLI `0.2.2-rc.5`, host
+3084, probe 4719, plugin 0.4.84 build, `dsh-prime-memory@0.27.8`): every check green —
+`include:dsh-memory` active with no incompatible/did-not-activate and no memory errors
+in the host log; the adapter push landed (`installed:true`, route `apigoto/deepseek-flash`,
+replays 0); `/dsh-memory/rpc/settings-get` read the configured pair back; the memory
+log's distillation-route line matched; a replayed `subagent` tool call put the child on
+`mimo-v2.6-pro` (delegation routing intact); per-turn titles and the no-restart hot
+switch stayed green. The model-seat slot-protocol watch self-test passed before the run.
+No code change needed; docs-only per the release policy, pushed to main without a tag.
+
 ## dsh-prime-memory 0.26.61 check (2026-11-17)
 
 `latest` jumped 0.26.37 → **0.26.61** (24 releases; the dsh-* dist-tags now all sit at

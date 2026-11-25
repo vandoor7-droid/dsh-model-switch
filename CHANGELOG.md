@@ -1,3 +1,6 @@
+## Unreleased（仅文档，不发版）
+
+- **兼容巡检（2026-11-25，仅文档）**：`dsh-prime-memory` 从 **0.26.63 前进到 0.27.8**（minor 线跳版，dsh-* dist-tags 全部刷到 0.27.8），`engines.dsh` 范围不变，覆盖本插件声明的全部线；桌面已实际运行 0.27.8 + 本插件 0.4.84（DSH `0.2.2-rc.5`）。适配面 diff（0.26.63 → 0.27.8 tarball）：`cordis.patch.yml`（`dsh-memory` 行结构）与 `dist/pipeline/runner.js`（`effectiveCfg` 静态 pin 优先级语义）**逐字节不变**；`projectDistillChain` 相同、`distill*` 键集无差异；settings-get/set RPC 注册面保持（client.js 新增的 1 处 settings-set 调用是 `bootMode` 挡位开关——同端点不同字段，与 distillChain 写入通道无冲突）；类型契约纯 additive（`bootMode` 三态、DRSC 健康态、schema 版本字段，均不在本插件读写面）。**运行时验证（virtual / 零真实额度）**：DSH `0.2.2-rc.5` lab（`D:/dsh-artifacts/rc2-diff`，3084/4719，本插件 0.4.84 构建 + `dsh-prime-memory@0.27.8`）双轮全绿——`include:dsh-memory` active、无 incompatible/did-not-activate、host 日志无 memory 错误；适配器 push 落地（`installed:true, route apigoto/deepseek-flash, replays 0`）；settings-get 读回一致；memory.log 蒸馏路由行匹配；`subagent` 回放子请求命中配置的分组固定对（委派路由完好）；标题每轮路由 + 免重启热切换照常；模型座位插槽协议自检（`watch-model-seat.mjs --self-test`）通过。视觉插件两包无更新（`dsh-media-lens` 0.3.5、`dsh-vision-router` 3.4.0 均与桌面一致）。**无需任何代码变更，按纯文档处理：仅推送 main，不打标签、不发 npm**（DSH `latest` 已转正为 `0.2.2-rc.5`（0.4.66 已声明），`alpha` 0.2.3-alpha.2 仅早期信号；automode 0.18.0 冻结中）。注：本文件中部另有 0.4.5x 时代遗留的 `## Unreleased` 章节（历史记录，未清理）。
 ## v0.4.84
 
 移除模型席位接管：对话输入框的模型菜单恒为官方 ModelSelect（智能体团队开关确定性可见），计划审核卡保持插件完整形态。
