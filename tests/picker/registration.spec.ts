@@ -55,7 +55,7 @@ function bench(strictOptionalLookup = false) {
     uiConversation: { views: { register: vi.fn(() => vi.fn()) }, events: { register: vi.fn(() => vi.fn()) } },
     modelDirectories: { directoryFor: vi.fn(() => directory) },
     sessions: { subagentAddress: vi.fn(() => undefined) },
-    configForms: { get: (ns: string) => ns === 'model-switch' ? { getSnapshot: () => ({ status: 'ready', value: { seatTakeover: true } }), subscribe: () => () => undefined, writable: true } : providerForm },
+    configForms: { get: () => providerForm },
     effect: (register: () => unknown) => register(),
     get: vi.fn(() => undefined),
   }
@@ -90,7 +90,7 @@ describe('composer picker seat ownership', () => {
       ? { rpc: { call: async () => ({ ok: true, value: { provider: null } }) } }
       : name === 'providerDirectory' ? { reader: () => ({}), roleOf: (key: string) => key === 'antigravity' ? 'agent' : 'llm' } : undefined
     directory.store.getSnapshot.mockReturnValue({ current: { provider: current, model: 'first' } })
-    const model = entries.find(({ spec }) => spec.name === 'conversation.input.model')!
+    const model = entries.find(({ spec }) => spec.name === 'conversation.composer')!
     const face = (model.spec.inject as (id: string) => SelectFace)('session-1')
     const choice = { provider: target, model: 'second' }
     await expect(face.select(choice)).resolves.toEqual(COMMITTED)
@@ -112,7 +112,7 @@ describe('composer picker seat ownership', () => {
       ? { rpc: { call: async () => ({ ok: true, value: { provider: null } }) } }
       : undefined
     directory.store.getSnapshot.mockReturnValue({ current: { provider: 'deepseek', model: 'deep-chat' } })
-    const model = entries.find(({ spec }) => spec.name === 'conversation.input.model')!
+    const model = entries.find(({ spec }) => spec.name === 'conversation.composer')!
     const face = (model.spec.inject as (id: string) => SelectFace)('session-1')
     await expect(face.select({ provider: 'codex', model: 'gpt-switched' })).resolves.toEqual(COMMITTED)
     expect(directory.select).toHaveBeenCalledWith({ provider: 'codex', model: 'gpt-switched' })
@@ -125,7 +125,7 @@ describe('composer picker seat ownership', () => {
       call: async (_channel: string, method: string) => method === 'plugin-rpc/antigravity'
         ? { ok: true, value: { provider: null } } : { ok: false },
     } } : undefined
-    const model = entries.find(({ spec }) => spec.name === 'conversation.input.model')!
+    const model = entries.find(({ spec }) => spec.name === 'conversation.composer')!
     const face = (model.spec.inject as (id: string) => SelectFace)('s')
     await expect(face.select({ provider: 'codex', model: 'm' })).resolves.toEqual(REFUSED)
     expect(directory.select).not.toHaveBeenCalled()
@@ -134,7 +134,7 @@ describe('composer picker seat ownership', () => {
   it('treats an older ProviderDirectory without nativeBindings as unbound', async () => {
     const { entries, raw } = bench()
     delete (raw.providerDirectory as { nativeBindings?: unknown }).nativeBindings
-    const model = entries.find(({ spec }) => spec.name === 'conversation.input.model')!
+    const model = entries.find(({ spec }) => spec.name === 'conversation.composer')!
     const face = (model.spec.inject as (id: string) => {
       providerLockStore: { refresh(): Promise<{ provider: string | null; failed: boolean }> }
     })('s')
@@ -167,7 +167,7 @@ describe('composer picker seat ownership', () => {
   it('uses the official model-seat service gate and an unambiguous winning priority', () => {
     const { entries, injections } = bench()
     expect(injections).toContainEqual(['slots', 'modelDirectories', 'configForms'])
-    expect(entries.find(({ spec }) => spec.name === 'conversation.input.model')?.spec.priority).toBe(-10)
+    expect(entries.find(({ spec }) => spec.name === 'conversation.composer')?.spec.priority).toBe(-5)
   })
 
   /**
@@ -206,7 +206,7 @@ describe('composer picker seat ownership', () => {
       uiConversation: { views: { register: vi.fn(() => vi.fn()) }, events: { register: vi.fn(() => vi.fn()) } },
       modelDirectories: { directoryFor: vi.fn(() => directory) },
       sessions: { subagentAddress: vi.fn(() => undefined) },
-      configForms: { get: (ns: string) => ns === 'model-switch' ? { getSnapshot: () => ({ status: 'ready', value: { seatTakeover: true } }), subscribe: () => () => undefined, writable: true } : providerForm },
+      configForms: { get: () => providerForm },
       // Install-time effects may hand back a teardown; collect it so the bench can run the dispose path.
       effect: (register: () => unknown) => {
         const dispose = register()
@@ -217,7 +217,7 @@ describe('composer picker seat ownership', () => {
       inject: (services: string[], register: (scope: unknown) => unknown) => services.includes('providerDirectory') ? undefined : register(ctx),
     }
     installComposerPicker(ctx as never)
-    const model = entries.find(({ spec }) => spec.name === 'conversation.input.model')
+    const model = entries.find(({ spec }) => spec.name === 'conversation.composer')
     const face = (model?.spec.inject as (sessionId: string) => SelectFace)('session-1')
     /** The official projection landing a model selection from any surface. */
     const project = (next: { provider: string, model: string }): void => {
@@ -285,7 +285,7 @@ describe('composer picker seat ownership', () => {
 
   it('uses non-strict lookup for the optional interaction service', () => {
     const { entries, directInteractionReads } = bench(true)
-    const model = entries.find(({ spec }) => spec.name === 'conversation.input.model')
+    const model = entries.find(({ spec }) => spec.name === 'conversation.composer')
     const face = (model?.spec.inject as (sessionId: string) => { resolveInteractionOperations(): unknown })('session-1')
     expect(() => face.resolveInteractionOperations()).not.toThrow()
     expect(face.resolveInteractionOperations()).toBeUndefined()
@@ -313,156 +313,4 @@ describe('composer picker seat ownership', () => {
   })
 })
 
-describe('seat declaration conflict fallback (0.4.82)', () => {
-  function conflictBench(declarerWins: 'official' | 'model-switch') {
-    const entries: Array<{ spec: Record<string, unknown>, component: unknown }> = []
-    const registerCalls: Array<Record<string, unknown>> = []
-    const directory = {
-      store: { subscribe: vi.fn(() => () => undefined), getSnapshot: vi.fn(() => ({ current: null })) },
-      load: vi.fn(async () => undefined),
-      select: vi.fn(async () => ({ ok: true })),
-    }
-    const providerForm = { getSnapshot: () => ({ status: 'ready', value: { order: [] } }), subscribe: () => () => undefined }
-    const raw: Record<string, unknown> = {
-      providerDirectory: { roleOf: () => 'llm', nativeBindings: () => [], catalogRoutes: () => ({}), subscribe: () => () => undefined },
-      locale: { register: vi.fn(() => () => undefined) },
-      slots: {
-        inject: (_name: string, register: () => unknown) => register(),
-        register: (spec: Record<string, unknown>, component: unknown) => {
-          registerCalls.push(spec)
-          // The official model-selection entry declares the options child first;
-          // the model-switch seat registration with children then hits the
-          // exclusive-claim conflict and must fall back to the plain takeover.
-          if (declarerWins === 'official' && spec.children !== undefined) {
-            throw new Error('slot "conversation.input.model.options" is already declared (by an entry in "conversation.input.model" (WC))')
-          }
-          entries.push({ spec, component })
-          return () => undefined
-        },
-        entries: vi.fn(() => []),
-      },
-      uiConversation: { views: { register: vi.fn(() => vi.fn()) }, events: { register: vi.fn(() => vi.fn()) } },
-      modelDirectories: { directoryFor: vi.fn(() => directory) },
-      sessions: { subagentAddress: vi.fn(() => undefined) },
-      configForms: { get: (ns: string) => ns === 'model-switch' ? { getSnapshot: () => ({ status: 'ready', value: { seatTakeover: true } }), subscribe: () => () => undefined, writable: true } : providerForm },
-      effect: (register: () => unknown) => register(),
-      get: vi.fn(() => undefined),
-    }
-    const ctx: Record<string, unknown> = {
-      ...raw,
-      inject: (services: string[], register: (scope: unknown) => unknown) => {
-        if (services.includes('providerDirectory')) {
-          return register({ ...ctx, get: (name: string) => name === 'providerDirectory' ? raw.providerDirectory : undefined })
-        }
-        return register(ctx)
-      },
-    }
-    installComposerPicker(ctx as never)
-    return { entries, registerCalls }
-  }
 
-  it('falls back to the plain seat takeover when the official entry already owns the options child', () => {
-    const { entries, registerCalls } = conflictBench('official')
-    // The seat registration was attempted with children, then retried without.
-    const seatAttempts = registerCalls.filter(spec => spec.name === 'conversation.input.model')
-    expect(seatAttempts).toHaveLength(2)
-    expect(seatAttempts[0].children).toBeDefined()
-    expect(seatAttempts[1].children).toBeUndefined()
-    // Both critical entries are finally registered: the seat and the review card.
-    const seat = entries.find(({ spec }) => spec.name === 'conversation.input.model')
-    const card = entries.find(({ spec }) => spec.name === 'conversation.composer')
-    expect(seat).toBeDefined()
-    expect(card).toBeDefined()
-  })
-
-  it('keeps the children declaration when this seat registers first', () => {
-    const { entries, registerCalls } = conflictBench('model-switch')
-    const seatAttempts = registerCalls.filter(spec => spec.name === 'conversation.input.model')
-    expect(seatAttempts).toHaveLength(1)
-    expect(seatAttempts[0].children).toBeDefined()
-    const card = entries.find(({ spec }) => spec.name === 'conversation.composer')
-    expect(card).toBeDefined()
-  })
-
-  it('rethrows unrelated registration errors', () => {
-    const entries: Array<{ spec: Record<string, unknown>, component: unknown }> = []
-    const directory = { store: { subscribe: vi.fn(() => () => undefined), getSnapshot: vi.fn(() => ({ current: null })) }, load: vi.fn(async () => undefined), select: vi.fn(async () => ({ ok: true })) }
-    const providerForm = { getSnapshot: () => ({ status: 'ready', value: { order: [] } }), subscribe: () => () => undefined }
-    const raw: Record<string, unknown> = {
-      providerDirectory: { roleOf: () => 'llm', nativeBindings: () => [], catalogRoutes: () => ({}), subscribe: () => () => undefined },
-      locale: { register: vi.fn(() => () => undefined) },
-      slots: {
-        inject: (_name: string, register: () => unknown) => register(),
-        register: (spec: Record<string, unknown>, component: unknown) => {
-          if (spec.children !== undefined) throw new Error('slot factory "conversation.input.model" already has a definition')
-          entries.push({ spec, component })
-          return () => undefined
-        },
-        entries: vi.fn(() => []),
-      },
-      uiConversation: { views: { register: vi.fn(() => vi.fn()) }, events: { register: vi.fn(() => vi.fn()) } },
-      modelDirectories: { directoryFor: vi.fn(() => directory) },
-      sessions: { subagentAddress: vi.fn(() => undefined) },
-      configForms: { get: (ns: string) => ns === 'model-switch' ? { getSnapshot: () => ({ status: 'ready', value: { seatTakeover: true } }), subscribe: () => () => undefined, writable: true } : providerForm },
-      effect: (register: () => unknown) => register(),
-      get: vi.fn(() => undefined),
-    }
-    const ctx: Record<string, unknown> = {
-      ...raw,
-      inject: (services: string[], register: (scope: unknown) => unknown) => {
-        if (services.includes('providerDirectory')) {
-          return register({ ...ctx, get: (name: string) => name === 'providerDirectory' ? raw.providerDirectory : undefined })
-        }
-        return register(ctx)
-      },
-    }
-    expect(() => installComposerPicker(ctx as never)).toThrow('already has a definition')
-  })
-})
-
-describe('seat takeover gating (0.4.83)', () => {
-  function gateBench(seatTakeover: boolean) {
-    const entries: Array<{ spec: Record<string, unknown>, component: unknown }> = []
-    const directory = { store: { subscribe: vi.fn(() => () => undefined), getSnapshot: vi.fn(() => ({ current: null })) }, load: vi.fn(async () => undefined), select: vi.fn(async () => ({ ok: true })) }
-    const providerForm = { getSnapshot: () => ({ status: 'ready', value: { order: [] } }), subscribe: () => () => undefined }
-    const switchForm = { getSnapshot: () => ({ status: 'ready', value: seatTakeover ? { seatTakeover: true } : {} }), subscribe: () => () => undefined, writable: true }
-    const raw: Record<string, unknown> = {
-      providerDirectory: { roleOf: () => 'llm', nativeBindings: () => [], catalogRoutes: () => ({}), subscribe: () => () => undefined },
-      locale: { register: vi.fn(() => () => undefined) },
-      slots: {
-        inject: (_name: string, register: () => unknown) => register(),
-        register: (spec: Record<string, unknown>, component: unknown) => { entries.push({ spec, component }); return () => undefined },
-        entries: vi.fn(() => []),
-      },
-      uiConversation: { views: { register: vi.fn(() => vi.fn()) }, events: { register: vi.fn(() => vi.fn()) } },
-      modelDirectories: { directoryFor: vi.fn(() => directory) },
-      sessions: { subagentAddress: vi.fn(() => undefined) },
-      configForms: { get: (ns: string) => ns === 'model-switch' ? switchForm : providerForm },
-      effect: (register: () => unknown) => register(),
-      get: vi.fn(() => undefined),
-    }
-    const ctx: Record<string, unknown> = {
-      ...raw,
-      inject: (services: string[], register: (scope: unknown) => unknown) => {
-        if (services.includes('providerDirectory')) {
-          return register({ ...ctx, get: (name: string) => name === 'providerDirectory' ? raw.providerDirectory : undefined })
-        }
-        return register(ctx)
-      },
-    }
-    installComposerPicker(ctx as never)
-    return { entries }
-  }
-
-  it('leaves the seat to the official ModelSelect when the gate is off (default)', () => {
-    const { entries } = gateBench(false)
-    expect(entries.find(({ spec }) => spec.name === 'conversation.input.model')).toBeUndefined()
-    expect(entries.find(({ spec }) => spec.name === 'conversation.composer')).toBeDefined()
-  })
-
-  it('registers the takeover seat when the gate is on', () => {
-    const { entries } = gateBench(true)
-    expect(entries.find(({ spec }) => spec.name === 'conversation.input.model')).toBeDefined()
-    expect(entries.find(({ spec }) => spec.name === 'conversation.composer')).toBeDefined()
-  })
-})

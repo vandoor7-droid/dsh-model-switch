@@ -26,8 +26,6 @@ export interface ModelSwitchSettingsFace {
   saveCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction' | 'title' | 'memory' | 'vision', ops: readonly ConfigViewOp<CapabilityRouteView>[]) => Promise<void>
   /** The memory row save; its ops carry the reasoning-effort field alongside the pair. */
   saveMemory: (ops: readonly ConfigViewOp<MemoryRouteView>[]) => Promise<void>
-  /** Persist the model-seat takeover switch; host reload required to apply. */
-  saveSeatTakeover: (enabled: boolean) => Promise<void>
   /** Persist the read-only skip switch and its allowlist as one atomic write. */
   saveReviewAllowlist: (value: { enabled: boolean; tools: readonly string[] }) => Promise<void>
   /** The Host's live tool catalog; absent on a Host without the `tools` RPC endpoint. */
@@ -43,7 +41,7 @@ export interface ModelSwitchSettingsFace {
 }
 
 export type ModelSwitchSettingsProps = PropsRuntime<'settings.section'> & InjectFace<ModelSwitchSettingsFace>
-type RouteId = 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction' | 'sessionTitle' | 'memory' | 'vision' | 'providerGroups' | 'allowlist' | 'seatTakeover'
+type RouteId = 'subagent' | 'search' | 'image' | 'autoReview' | 'compaction' | 'sessionTitle' | 'memory' | 'vision' | 'providerGroups' | 'allowlist'
 type RouteIconKind = RouteId
 
 function cx(...values: Array<string | undefined | false>): string { return values.filter(Boolean).join(' ') }
@@ -739,15 +737,7 @@ export function ModelSwitchSettings(props: ModelSwitchSettingsProps): ReactNode 
           {' '}<button type="button" className={cx(css.button, css.secondaryButton)} onClick={reloadCatalog}>{props.t('catalogRetry')}</button>
         </p>}
 
-    <section className={css.group}><h2 className={css.groupLabel}>{props.t('seatTakeoverGroup')}</h2>
-      <div className={cx(css.field, css.fieldFull)}><span className={css.fieldLabel}>{props.t('seatTakeover')}</span>
-        <InstantSwitch checked={switchSettings.value?.seatTakeover === true} disabled={busy !== undefined || switchSettings.status !== 'ready' || !switchSettings.writable} label={props.t('seatTakeover')} onChange={next => {
-          void run('seatTakeover', () => props.saveSeatTakeover(next)).then(accepted => { if (!accepted) setMessage({ route: 'seatTakeover', text: props.t('saveRefused') }) })
-        }} />
-      </div>
-      <p className={css.hint}>{props.t('seatTakeoverHint')}</p>
-    </section>
-    <section className={css.group}><h2 className={css.groupLabel}>{props.t('conversationRoutes')}</h2>
+        <section className={css.group}><h2 className={css.groupLabel}>{props.t('conversationRoutes')}</h2>
       {props.capabilities.centralSubagentRouting.available ? <RouteCard title={props.t('subagent')} summary={subagentSummary} hint={props.t('subagentHelp')} note={groupNote(props.t, groupPins.subagent)} icon="subagent" open={open === 'subagent' && subagentOn} onToggle={() => { if (subagentOn) toggle('subagent') }} expandable={subagentOn} trailing={subagentDraft === undefined ? undefined : <InstantSwitch checked={subagentOn} disabled={subagentSwitchDisabled} label={props.t('subagent')} onChange={persistSubagentEnabled} />}>
         {subagentDraft === undefined ? <p className={css.hint}>{props.t('loading')}</p> : <><div className={css.formGrid}>
           <Field label={props.t('provider')} value={subagentDraft.provider ?? ''} disabled={busy !== undefined || !subagent.writable} choices={subagentChoices.providers} onChange={provider => { const first = groups.find(group => group.id === provider)?.models[0]; setSubagentDraft({ mode: 'fixed', ...selectRouteModel(groups, provider, first?.id ?? subagentDraft.model ?? '') }) }} /><Field label={props.t('model')} value={subagentCatalogModel?.model.id ?? subagentDraft.model ?? ''} disabled={busy !== undefined || !subagent.writable} choices={subagentChoices.models} onChange={model => { setSubagentDraft({ mode: 'fixed', ...selectRouteModel(groups, subagentDraft.provider ?? '', model) }) }} /><Field label={props.t('effort')} value={subagentDraft.reasoningEffort || subagentCatalogModel?.effort || ''} disabled={busy !== undefined || !subagent.writable} choices={subagentEfforts} onChange={effort => { const matched = subagentCatalogModel; setSubagentDraft({ ...subagentDraft, ...(matched?.model.id === undefined ? {} : { model: matched.model.id }), reasoningEffort: effort }) }} />

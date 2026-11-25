@@ -8,24 +8,17 @@ import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { ComposerChainProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
-import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SeatOptionsRender } from './seat-options.ts'
-import { useEffect, useSyncExternalStore } from 'react'
-import { MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, type ModelSwitchSettingsView } from '../../client-contract.ts'
+import { PROVIDERS_CONFIG_ID } from '../../client-contract.ts'
 import { selectPlanReview, type PlanCommitOutcome } from '../../picker/plan-review.ts'
 import type { CancelTurn } from '../../picker/discuss-plan.ts'
 import type { GoalRemote } from '../../picker/plan-goal.ts'
-import { ComposerPicker } from './ComposerPicker.tsx'
 import { createPlanPreviewBinding, type PlanPreviewBinding } from './plan-preview.ts'
 import type { ProviderOrderSettings } from 'dsh-llm-providers-ui/order'
-import { pickerDirectoryViewOrdered, type PickerDirectoryFace } from './PickerDirectory.ts'
+import type { PickerDirectoryFace } from './PickerDirectory.ts'
 import type { PickerInteractionOperations } from './popup-dismissal.ts'
-import { PlanReviewCard, ProviderLockHint } from './PlanReviewCard.tsx'
-import { PickerSeatBoundary } from './PickerSeatBoundary.tsx'
+import { PlanReviewCard } from './PlanReviewCard.tsx'
 import {
-  agentProviderLocked,
   createProviderLockStore,
-  effectiveProviderLock,
   fetchSessionBinding,
   isProviderAllowed,
   type ProviderLockState,
@@ -42,7 +35,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 const NS = 'composer-picker'
-const MODEL_PRIORITY = -10
 const PLAN_REVIEW_PRIORITY = -5
 
 function interactionOperationsFrom(ctx: ClientContext): PickerInteractionOperations | undefined {
@@ -143,45 +135,6 @@ function readSessionState(sessions: unknown, sessionId: unknown): { blank?: bool
     // Public Session snapshot threw; fail closed so Agent conversion cannot proceed.
     return { blank: false, active: true }
   }
-}
-
-function ModelSeat(
-  props: PropsRuntime<'conversation.input.model'> & PropsLocale<'composer-picker'> & InjectFace<DirectoryFace>,
-) {
-  const directory = props.useDirectory(snapshot => snapshot)
-  const order = props.useProviderOrder(value => value)
-  const lock = useSyncExternalStore(props.providerLockStore.subscribe, props.providerLockStore.getSnapshot)
-  const phase = props.useInput(input => input.phase)
-  const blank = props.useSession(session => session.blank)
-  const active = props.useSession(session => session.running || session.awaitingFirstTurn) || phase === 'submitting'
-  useEffect(() => { props.refreshProviderLock() }, [props.refreshProviderLock, phase, active, directory, order])
-  const providerLock = effectiveProviderLock(lock, directory.current?.provider, active, isAgentRole(props.roleOf?.(directory.current?.provider ?? '')))
-  return (
-    <>
-    {lock.failed && <ProviderLockHint t={props.t} />}
-    <ComposerPicker
-      locked={props.locked || (lock.failed && directory.current === null)}
-      providerLock={providerLock}
-      agentLocked={agentProviderLocked(blank, providerLock, active)}
-      {...(props.roleOf === undefined ? {} : { roleOf: props.roleOf })}
-      available={props.available}
-      directory={pickerDirectoryViewOrdered(directory, props, order, props.catalogRoutes?.() ?? {})}
-      t={props.t}
-      renderOptions={(props as { renderSlot?: SeatOptionsRender }).renderSlot}
-      {...props.resolveInteractionOperations === undefined
-        ? {}
-        : { resolveInteractionOperations: props.resolveInteractionOperations }}
-    />
-    </>
-  )
-}
-
-function ModelSeatEntry(props: Parameters<typeof ModelSeat>[0]) {
-  return (
-    <PickerSeatBoundary errorLabel={message => props.t('error.picker', { message })}>
-      <ModelSeat {...props} />
-    </PickerSeatBoundary>
-  )
 }
 
 /** Register composer model picker and Plan Review execution picker. */
@@ -296,42 +249,5 @@ export function installComposerPicker(ctx: ClientContext): void {
       select: (owner: ComposerChainProps) => selectPlanReview(owner),
       inject: directoryFace,
     }, PlanReviewCard))
-
-    // The seat takeover is configuration-gated (model-switch.seatTakeover,
-    // default false): the official ModelSelect renders the menu by default,
-    // which keeps the official options rows (agent-team switch) visible. The
-    // plan-review card below registers unconditionally and is unaffected.
-    const settings = scope.configForms.get<ModelSwitchSettingsView>(MODEL_SWITCH_CONFIG_ID).getSnapshot().value
-    if (settings?.seatTakeover === true) {
-    scope.slots.inject('conversation.input.model', () => {
-      // Taking over the model seat wants to forward the official options rows
-      // (agent-team switch et al.), which the slots runtime authorizes only
-      // through an entry's children declaration. Declaring is claiming and the
-      // claim is exclusive: whichever of this seat and the official
-      // model-selection entry registers first owns the child, and the other
-      // side's registration then throws "already declared". When that happens
-      // the registration degrades to the plain takeover (0.4.80 shape) instead
-      // of failing: the seat and the review card both keep working, and only
-      // the options forwarding (toggle visibility) is best-effort.
-      const childrenDeclaration = { children: { 'conversation.input.model.options': { kind: 'list', scope: 'session' } } } as object
-      try {
-        return scope.slots.register({
-          name: 'conversation.input.model',
-          locale: NS,
-          priority: MODEL_PRIORITY,
-          ...childrenDeclaration,
-          inject: directoryFace,
-        }, ModelSeatEntry)
-      } catch (error) {
-        if (!/already declared/.test(String(error))) throw error
-        return scope.slots.register({
-          name: 'conversation.input.model',
-          locale: NS,
-          priority: MODEL_PRIORITY,
-          inject: directoryFace,
-        }, ModelSeatEntry)
-      }
-    })
-    }
   })
 }

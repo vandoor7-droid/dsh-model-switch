@@ -3,10 +3,6 @@ export declare const zh: {
     readonly title: "模型切换";
     readonly subtitle: "为子代理与能力路由设置固定模型；当前会话模型用输入框旁的选择器直接切换。";
     readonly conversationRoutes: "对话路由";
-    readonly seatTakeoverGroup: "输入框模型菜单";
-    readonly seatTakeover: "接管模型菜单";
-    readonly seatTakeoverHint: "默认关闭：使用官方模型菜单，官方选项行（含智能体团队开关）完整显示。开启后由本插件渲染菜单（团队开关可能不可见）。改动需重载宿主生效。";
-    readonly saveRefused: "设置写入被拒绝，未生效。";
     readonly capabilityRoutes: "能力路由";
     readonly settingsSynced: "设置已同步";
     readonly remoteSettingsUnavailable: "官方 DSH 在非本机浏览器禁用配置读取与写入；请在 Host 的 127.0.0.1 页面打开设置。";

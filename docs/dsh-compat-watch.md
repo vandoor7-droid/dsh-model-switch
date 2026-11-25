@@ -379,11 +379,12 @@ Upstream seams this plugin still needs (recorded for a future proposal):
 - or a transferable render authorization for child slots whose owning entry
   lost the seat election.
 
-0.4.83 gates the whole seat takeover behind `model-switch.seatTakeover`
-(default false): the official ModelSelect renders the menu with its own
-options rows, so the agent-team toggle is deterministically visible without
-winning any race. The takeover seat (and its best-effort forwarding) only
-registers when the setting is on; toggling it requires a Host reload.
+0.4.84 removed the model-seat takeover entirely (user decision): the official
+ModelSelect renders the conversation model menu — the agent-team toggle is
+deterministically visible — while the plan-review card and all host-side
+routing stay with this plugin. The 0.4.83 `seatTakeover` setting is
+withdrawn; the seat-related patrol scenarios in this section are retired with
+it. The composer-card registration remains the plugin's only slots.inject.
 
 Until one lands, treat the agent-team toggle's visibility under takeover as
 timing-dependent and keep the fallback covered by the registration specs.
