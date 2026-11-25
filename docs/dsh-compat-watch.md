@@ -379,6 +379,12 @@ Upstream seams this plugin still needs (recorded for a future proposal):
 - or a transferable render authorization for child slots whose owning entry
   lost the seat election.
 
+0.4.83 gates the whole seat takeover behind `model-switch.seatTakeover`
+(default false): the official ModelSelect renders the menu with its own
+options rows, so the agent-team toggle is deterministically visible without
+winning any race. The takeover seat (and its best-effort forwarding) only
+registers when the setting is on; toggling it requires a Host reload.
+
 Until one lands, treat the agent-team toggle's visibility under takeover as
 timing-dependent and keep the fallback covered by the registration specs.
 

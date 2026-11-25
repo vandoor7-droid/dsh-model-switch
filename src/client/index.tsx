@@ -70,6 +70,10 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section', id: 'model-switch', order: 9, label: () => t('nav'), locale: localeNamespace,
     inject: (): ModelSwitchSettingsFace => ({ t, hooks: { subagentSettings: subagent, searchSettings: search, imageSettings: image, autoReviewSettings: autoReview, compactionSettings: compaction, titleSettings: sessionTitle, memorySettings: memory, visionSettings: vision, switchSettings: owned }, capabilities: RUNTIME_CAPABILITIES, saveSubagent: ops => subagent.mutate(ops), saveCapability: (route, ops) => { const scope = route === 'search' ? search : route === 'image' ? image : route === 'compaction' ? compaction : route === 'title' ? sessionTitle : route === 'memory' ? memory : route === 'vision' ? vision : autoReview; return scope.mutate(ops) }, saveMemory: ops => memory.mutate(ops),
+      saveSeatTakeover: async (enabled: boolean) => {
+        const accepted = await owned.mutate([{ op: 'set', path: ['seatTakeover'], value: enabled }])
+        if (!accepted) throw new Error('settings-rejected')
+      },
       saveReviewAllowlist: async ({ enabled, tools }: { enabled: boolean; tools: readonly string[] }) => {
         // One atomic write: the switch and the list are one setting unit, so a
         // refused write can never leave "enabled" pointing at a stale list.

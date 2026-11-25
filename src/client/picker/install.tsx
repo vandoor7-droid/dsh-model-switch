@@ -11,7 +11,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-model-selection/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SeatOptionsRender } from './seat-options.ts'
 import { useEffect, useSyncExternalStore } from 'react'
-import { PROVIDERS_CONFIG_ID } from '../../client-contract.ts'
+import { MODEL_SWITCH_CONFIG_ID, PROVIDERS_CONFIG_ID, type ModelSwitchSettingsView } from '../../client-contract.ts'
 import { selectPlanReview, type PlanCommitOutcome } from '../../picker/plan-review.ts'
 import type { CancelTurn } from '../../picker/discuss-plan.ts'
 import type { GoalRemote } from '../../picker/plan-goal.ts'
@@ -297,6 +297,12 @@ export function installComposerPicker(ctx: ClientContext): void {
       inject: directoryFace,
     }, PlanReviewCard))
 
+    // The seat takeover is configuration-gated (model-switch.seatTakeover,
+    // default false): the official ModelSelect renders the menu by default,
+    // which keeps the official options rows (agent-team switch) visible. The
+    // plan-review card below registers unconditionally and is unaffected.
+    const settings = scope.configForms.get<ModelSwitchSettingsView>(MODEL_SWITCH_CONFIG_ID).getSnapshot().value
+    if (settings?.seatTakeover === true) {
     scope.slots.inject('conversation.input.model', () => {
       // Taking over the model seat wants to forward the official options rows
       // (agent-team switch et al.), which the slots runtime authorizes only
@@ -326,5 +332,6 @@ export function installComposerPicker(ctx: ClientContext): void {
         }, ModelSeatEntry)
       }
     })
+    }
   })
 }

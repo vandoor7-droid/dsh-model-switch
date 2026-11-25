@@ -4,6 +4,15 @@ import { type ProviderGroupEntry, type ProviderGroups } from './provider-group.j
 export type SubagentMode = 'follow-main' | 'fixed';
 /** Resolved live values consumed by Model Switch. */
 export interface ModelSwitchSettings {
+    /**
+     * Take over the composer model seat (the ms ComposerPicker menu). False (the
+     * default) leaves the official ModelSelect rendering the menu — which keeps
+     * the official `conversation.input.model.options` rows (agent-team switch)
+     * visible; true registers the takeover seat (official options rows then
+     * render only when this plugin wins the declaration race). Host reload
+     * required after a change: slot registrations are not hot-swappable.
+     */
+    seatTakeover?: boolean;
     subagentMode: SubagentMode;
     subagentProvider?: string;
     subagentModel?: string;

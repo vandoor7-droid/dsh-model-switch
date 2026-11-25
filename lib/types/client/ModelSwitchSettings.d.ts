@@ -30,6 +30,8 @@ export interface ModelSwitchSettingsFace {
     saveCapability: (route: 'search' | 'image' | 'autoReview' | 'compaction' | 'title' | 'memory' | 'vision', ops: readonly ConfigViewOp<CapabilityRouteView>[]) => Promise<void>;
     /** The memory row save; its ops carry the reasoning-effort field alongside the pair. */
     saveMemory: (ops: readonly ConfigViewOp<MemoryRouteView>[]) => Promise<void>;
+    /** Persist the model-seat takeover switch; host reload required to apply. */
+    saveSeatTakeover: (enabled: boolean) => Promise<void>;
     /** Persist the read-only skip switch and its allowlist as one atomic write. */
     saveReviewAllowlist: (value: {
         enabled: boolean;

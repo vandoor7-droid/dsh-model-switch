@@ -5,6 +5,8 @@ export const MODEL_SWITCH_CONFIG_ID = 'model-switch'
 export const PROVIDERS_CONFIG_ID = 'llm-providers-ui'
 
 export interface ModelSwitchSettingsView {
+  /** Take over the composer model seat; false (default) = official ModelSelect menu. */
+  seatTakeover?: boolean
   subagentMode: 'follow-main' | 'fixed'
   subagentProvider?: string; subagentModel?: string; subagentReasoningEffort?: string
   searchProvider?: string; searchModel?: string
