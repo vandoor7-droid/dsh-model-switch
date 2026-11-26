@@ -103,6 +103,37 @@ distillation hits all confirmed.
 dsh-prime-memory: `latest` unchanged at 0.26.37 (no new version, no `dsh-0.2.2-*` tags,
 engines range unchanged). automode: `latest` 0.18.0, still frozen.
 
+## dsh-prime-memory 0.29.0 / 0.29.1 check (2026-11-26)
+
+`latest` moved 0.27.8 → **0.29.1** (the 0.28.x line never hit `latest`; `rc` sits at
+0.28.1-rc.5). The desktop plane had installed **0.29.0**, so that exact build was the
+lab target with 0.29.1 covered by static diff. dsh itself is unchanged (`latest` still
+0.2.2-rc.5, declared since 0.4.66; `alpha` 0.2.3-alpha.2 is early signal only). Vision
+plugins unchanged (dsh-media-lens 0.3.5, dsh-vision-router 3.4.0, both matching the
+desktop). automode 0.18.0, still frozen.
+
+Adapter-surface diff (0.27.8 → 0.29.0 → 0.29.1): `cordis.patch.yml` and
+`dist/pipeline/runner.js` (the `effectiveCfg` static-pin precedence) are byte-identical
+across all three; `projectDistillChain` identical with the same `distill*` key set; the
+declaration faces (`dsh.plugin.json` engines/components, `package.json` dsh-field and
+pluginDependencies) are identical; the settings-get/settings-set RPC registrations keep
+their counts — the two new references are prime-memory's own capture/distill master
+toggle (`{ capture: v, distill: v }` on settings-set, a different field on the same
+endpoint) and a code comment. 0.29.0 adds a `store/boot-mode` module; 0.29.1 changes
+only star-ask UI copy and a bundled g6 path. None of it touches this plugin's four
+read/write seams.
+
+Lab evidence (virtual, zero quota; `D:/dsh-artifacts/rc2-diff`, CLI `0.2.2-rc.5`, host
+3084, probe 4719, plugin 0.4.84 build, `dsh-prime-memory@0.29.0` — the desktop build):
+every check green — `include:dsh-memory` active, no incompatible/did-not-activate, no
+memory errors in the host log; the adapter push landed (`installed:true`, route
+`apigoto/deepseek-flash`, replays 0); settings-get read the configured pair back; the
+memory log's distillation-route line matched; a replayed `subagent` tool call put the
+child on `mimo-v2.6-pro` (delegation routing intact); per-turn titles and the
+no-restart hot switch stayed green; the model-seat slot-protocol self-test passed
+before the run. No code change needed; docs-only per the release policy, pushed to
+main without a tag.
+
 ## dsh-prime-memory 0.27.8 check (2026-11-25)
 
 `latest` jumped 0.26.63 → **0.27.8** (a minor-line jump; the dsh-* dist-tags all moved to
