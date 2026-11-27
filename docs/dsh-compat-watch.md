@@ -103,6 +103,31 @@ distillation hits all confirmed.
 dsh-prime-memory: `latest` unchanged at 0.26.37 (no new version, no `dsh-0.2.2-*` tags,
 engines range unchanged). automode: `latest` 0.18.0, still frozen.
 
+## dsh-prime-memory 0.29.4 check (2026-11-27)
+
+`latest` moved 0.29.1 → **0.29.4** with the desktop plane already on it. dsh unchanged
+(`latest` 0.2.2-rc.5, declared since 0.4.66; `alpha` 0.2.3-alpha.2 early signal only).
+The adapted vision plugin `dsh-vision-router` is unchanged (npm 3.4.0 = desktop 3.4.0).
+`dsh-media-lens` moved 0.3.5 → 0.3.9 (desktop too) but is not an adapted surface: its
+only contact with this plugin is the tool-allowlist source annotation, and the
+`media_read_*` tool names are unchanged — no impact, no check needed.
+
+Adapter-surface diff (0.29.1 → 0.29.4: 11 files + README screenshot swaps; cross-checked
+0.29.0 → 0.29.4): `cordis.patch.yml`, `dist/pipeline/runner.js` (effectiveCfg static-pin
+precedence), `dist/settings.js` (projectDistillChain), and `dist/index.js` are all
+byte-identical; the declaration faces match; the settings-get/set RPC reference counts
+are identical; the `dist/client.js` delta is multilingual star-ask copy only. Nothing on
+this plugin's four read/write seams.
+
+Lab evidence (virtual, zero quota; `D:/dsh-artifacts/rc2-diff`, CLI `0.2.2-rc.5`, host
+3084, probe 4719, plugin 0.4.84 build, `dsh-prime-memory@0.29.4`): every check green —
+`include:dsh-memory` active, no incompatible/did-not-activate, no memory errors; the
+adapter push landed (`installed:true`, route `apigoto/deepseek-flash`, replays 0);
+settings-get read the pair back; the memory-log distillation-route line matched; a
+replayed `subagent` tool call put the child on `mimo-v2.6-pro`; per-turn titles and the
+no-restart hot switch stayed green; the model-seat slot-protocol self-test passed. No
+code change; docs-only, pushed to main without a tag.
+
 ## dsh-prime-memory 0.29.0 / 0.29.1 check (2026-11-26)
 
 `latest` moved 0.27.8 → **0.29.1** (the 0.28.x line never hit `latest`; `rc` sits at
