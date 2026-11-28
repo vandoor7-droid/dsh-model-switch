@@ -1,7 +1,7 @@
 {
   "$schema-note": "Baseline for the scheduled compatibility watch (see docs/dsh-compat-watch.md). `latest` is the npm dist-tag an ordinary install gets.",
   "schema": "dsh-model-switch/compat-watch-state/v1",
-  "checkedAt": "2026-11-27T00:52:13.001Z",
+  "checkedAt": "2026-11-28T05:42:25.925Z",
   "dsh": {
     "distTagWatched": "latest",
     "latest": "0.2.2-rc.5",
@@ -34,21 +34,21 @@
   "memory": {
     "package": "dsh-prime-memory",
     "distTagWatched": "latest",
-    "latestVerified": "0.29.4",
+    "latestVerified": "0.29.5",
     "verifiedWith": {
       "dsh": "0.2.2-rc.5",
       "dshTag": "latest (engines range >=0.1.0-rc.2 <0.3.0-0)"
     },
     "adapter": "src/prime-memory-compat.ts (0.4.57: scoped inject of modelSwitch + webServer, read-back verified push, live-rejected fallback)",
-    "observedLatest": "0.29.4",
+    "observedLatest": "0.29.5",
     "observedDshTags": {
-      "note": "all dsh-* tags at 0.29.4 as of 2026-11-27; rc tag at 0.28.1-rc.5; engines.dsh unchanged"
+      "note": "all dsh-* tags at 0.29.5 as of 2026-11-28; rc tag at 0.28.1-rc.5; engines.dsh unchanged"
     },
-    "pendingVerification": "none for 0.29.4 with plugin 0.4.84 (rc.5 lab, 2026-11-27); desktop plane runs 0.29.4 + 0.4.84 on rc.5",
-    "verifiedAt": "2026-11-27",
+    "pendingVerification": "none for 0.29.5 with plugin 0.4.84 (rc.5 lab, 2026-11-28); desktop plane runs 0.29.5 + 0.4.84 on rc.5",
+    "verifiedAt": "2026-11-28",
     "verifiedPlane": "rc.2 lab (virtual) + desktop (user-attested 2026-11-09); previous lab matrix stands for 0.26.24 on DSH 0.2.1-rc.5 with plugin 0.4.60",
     "verifiedRuns": [
-      "rc.5 lab 2026-11-27 (3084/4719, plugin 0.4.84, prime-memory 0.29.4): adapter push landed (installed:true, route apigoto/deepseek-flash)",
+      "rc.5 lab 2026-11-28 (3084/4719, plugin 0.4.84, prime-memory 0.29.5): adapter push landed (installed:true, route apigoto/deepseek-flash)",
       "/dsh-memory/rpc/settings-get read the configured pair back",
       "memory.log distillation-route line matched apigoto/deepseek-flash",
       "include:dsh-memory active; no incompatible-with-dsh / did-not-activate; delegation routing hit the configured pair"
@@ -57,15 +57,10 @@
   "visionRouter": {
     "package": "dsh-vision-router",
     "distTagWatched": "latest",
-    "latest": "3.4.0",
-    "adapter": "src/vision-router-compat.ts (ConfigEditor.edit on the vision-router row; managed head, compare-before-write)",
-    "seams": [
-      "row id vision-router / name dsh-vision-router, config.providers[{provider,model,fallbacks}] declared in its Config schema",
-      "twin route naming: ${provider}-vision (index.js makeTwinAdapter) — the group-merge suffix rule depends on it",
-      "MAX_RUNTIME_PROVIDER_ROWS=32, MAX_RUNTIME_MODEL_ID_CHARS=512 mirrored in src/vision-router-route.ts"
-    ],
-    "lastVerifiedWith": "pending first lab run (0.4.69)",
-    "checkedAt": "2026-11-23"
+    "observedLatest": "3.5.0",
+    "latestVerified": "3.4.0 (desktop baseline; adapter's live desktop status itself remains an unverified item)",
+    "staticAudit3_5_0": "2026-11-28: all five adapter seams unchanged (row id/name, providers schema shape, mirrored caps 32/512, export surface, support-window range covering rc.5) — updating carries no adapter risk",
+    "dshMediaLens": "uninstalled from desktop 2026-11-28; not an adapted surface"
   },
   "modelSeat": {
     "script": "scripts/watch-model-seat.mjs",

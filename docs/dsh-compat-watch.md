@@ -103,6 +103,34 @@ distillation hits all confirmed.
 dsh-prime-memory: `latest` unchanged at 0.26.37 (no new version, no `dsh-0.2.2-*` tags,
 engines range unchanged). automode: `latest` 0.18.0, still frozen.
 
+## dsh-prime-memory 0.29.5 + dsh-vision-router 3.5.0 check (2026-11-28)
+
+`latest` moved 0.29.4 → **0.29.5** with the desktop already on it. dsh and automode
+unchanged. `dsh-vision-router` published **3.5.0** (the desktop still runs 3.4.0, the
+verified baseline); `dsh-media-lens` was uninstalled from the desktop (not an adapted
+surface — no impact).
+
+prime-memory 0.29.4 → 0.29.5 (7 files): `cordis.patch.yml`, `dist/pipeline/runner.js`,
+and `dist/settings.js` are byte-identical; the `dist/index.js` delta is a fileLogger
+effect cleanup (beforeExit listener leak fix, issue #51 — host lifecycle layer); the
+declaration faces match and the RPC reference counts are identical. Lab evidence
+(virtual, zero quota; `D:/dsh-artifacts/rc2-diff`, CLI `0.2.2-rc.5`, host 3084, probe
+4719, plugin 0.4.84 build, `dsh-prime-memory@0.29.5`): every check green — rows active,
+adapter push landed (`apigoto/deepseek-flash`), settings-get read back, the
+distillation-route line matched, delegation routing hit the configured pair, per-turn
+titles and the hot switch stayed green, model-seat self-test passed. No code change;
+docs-only, pushed to main without a tag.
+
+dsh-vision-router 3.4.0 → 3.5.0 (static audit — the desktop has not installed 3.5.0):
+all five adapter seams unchanged — patch row id/name (`vision-router` /
+`dsh-vision-router`), the `providers` Config schema shape (`{provider, model,
+fallbacks[]}`), the mirrored runtime caps (32 rows / 512 id chars), the exported
+name/inject surface, and the dsh support-window range (`>=0.2.1-rc.5 <0.3.0-0`,
+covering rc.5; exactVerified gained 0.2.2-rc.4). The 46+37 file delta is the plugin's
+own OCR/native-runtime/doctor work. Updating to 3.5.0 carries no adapter risk; the
+adapter's live status on the desktop (3.4.0) remains a separately known unverified
+item (the lab profile does not mount vision-router).
+
 ## dsh-prime-memory 0.29.4 check (2026-11-27)
 
 `latest` moved 0.29.1 → **0.29.4** with the desktop plane already on it. dsh unchanged
