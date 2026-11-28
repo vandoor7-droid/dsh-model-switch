@@ -131,6 +131,42 @@ own OCR/native-runtime/doctor work. Updating to 3.5.0 carries no adapter risk; t
 adapter's live status on the desktop (3.4.0) remains a separately known unverified
 item (the lab profile does not mount vision-router).
 
+## Subagent vision-mode inheritance and the master-switch observation (2026-11-28)
+
+A desktop-side investigation closed today, recorded because it walks the same
+twin/delegation surfaces this watch tracks. dsh-vision-router 3.4.0 inherits a
+subagent's session vision mode at the `agent/created` boundary
+(`session-vision-delegation-boundary.js` -> `materializeDelegatedSessionVisionPolicy`):
+the parent's enabled bit is copied once into the child (source `delegation`;
+later parent changes do not retroact), and `resolveSessionVisionPolicy` keeps
+the `vision_*` tools mounted even for NATIVE multimodal seats ("Keep Vision
+Router tools available"), so a delegated child always carried the vision tool
+surface.
+
+Observed symptom: a multimodal child still called the vision plugin's tools
+instead of reading images natively with `read_image`. Attribution: behavioral
+guiding, not capability — the tool surface plus the `vision_bootstrap` /
+`vision_describe` description wording steers the model, and the child's images
+are never rewritten (a TEXT_ONLY rewrite was the other candidate and is
+excluded). The 0.4.69 twin-group merge is unrelated: it only normalizes group
+keys (a session on the `${provider}-vision` twin reads the base provider's
+group, which is the declared design) and never touches the delegation, the
+tool surface, or any group field value.
+
+Live verification (2026-11-28, desktop, one read-only probe, user-authorized):
+with the subagent model's vision master switch off, a fresh child spawned
+unnamed (default group pin) reported zero `vision_*` tools on its tool surface,
+then read `docs/screenshots/settings-subagent.png` (png 797x802) with
+`read_image` in a single call and described its UI details first-hand — the
+NATIVE seat saw the untouched image; call sequence `run_code` -> `read_image`,
+no retry, no file writes. Resolution: the master switch stays off; the native
+`read_image` path covers multimodal children. Known trade-offs, by design:
+newly assembled sessions (all children included) lose the whole `vision_*`
+family including the toolbox members (`vision_ocr`, `vision_present`,
+`vision_pixel_diff`, `vision_html_screenshot`); existing sessions keep their
+startup tool snapshot; the native image path is unaffected. The
+`tool-allowlist` soft-guiding annotation was evaluated and declined —
+docs-only, no code change.
 ## dsh-prime-memory 0.29.4 check (2026-11-27)
 
 `latest` moved 0.29.1 → **0.29.4** with the desktop plane already on it. dsh unchanged
